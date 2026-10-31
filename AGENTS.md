@@ -4,12 +4,14 @@ keek lets a coding agent have its change verified by a fresh Verifier on a sandb
 
 ## Reference
 
-- `GLOSSARY.md`: the only names for domain concepts, in code, tickets and copy. Reach for it before naming anything.
+- `docs/GLOSSARY.md`: the only names for domain concepts, in code, tickets and copy. Reach for it before naming anything.
 - `docs/design.md`: session, sandbox, tools, recording, Evidence.
 - `docs/viewer.md`: Agents Workspace, Session Footer, Help Request, Takeover.
-- `DESIGN.md` and `design/comps/`: any surface a person sees. `PRODUCT.md` holds the voice for copy.
+- `docs/DESIGN.md` and `design/comps/`: any surface a person sees. `docs/PRODUCT.md` holds the voice for copy.
 - `docs/adr/`: before changing behaviour a decision records. A change that contradicts an ADR updates that ADR in the same pull request.
 - `docs/facts.md`: what was checked about Cua Driver and Hyprland, with versions.
+
+Skills and tools that default to a root `GLOSSARY.md`, `DESIGN.md` or `PRODUCT.md` use these `docs/` paths.
 
 ## Delivering a ticket
 

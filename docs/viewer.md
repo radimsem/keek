@@ -1,6 +1,6 @@
 # keek viewer design
 
-How the developer watches Agent Sessions and takes them over on their Omarchy desktop. Terms are in [`GLOSSARY.md`](../GLOSSARY.md); the session, recording and Evidence design is in [`design.md`](design.md).
+How the developer watches Agent Sessions and takes them over on their Omarchy desktop. Terms are in [`GLOSSARY.md`](GLOSSARY.md); the session, recording and Evidence design is in [`design.md`](design.md).
 
 ## Intent
 
@@ -109,5 +109,5 @@ When the session closes (normally or as an Incomplete Session), the sandbox stop
 
 - Matching a nested window to its session. Candidates are the client's pid and the first window that maps on the connection keek created.
 - Slot geometry and gaps, and what happens on a monitor too narrow for two slots.
-- The Session Footer's layout, styling and copy follow [`DESIGN.md`](../DESIGN.md).
+- The Session Footer's layout, styling and copy follow [`DESIGN.md`](DESIGN.md).
 - Whether the keek daemon draws the Session Footers in its own process or a child per slot.

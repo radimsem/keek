@@ -39,7 +39,7 @@ keek is an Omarchy layer on Cua Driver. Cua Driver performs and records Actions;
 - A fresh Verifier subagent does each verification. After Needs fixes the coding agent may retry, up to three sessions per change.
 - A session ends after 5 minutes without a tool call, as an Incomplete Session with no Verdict.
 - `close_session` refuses while any Check is unmarked; keek derives the Verdict from the checklist.
-- Verdicts are Pass, Needs fixes and Partly verified. Terms are defined in `GLOSSARY.md`; decisions in `docs/adr/`.
+- Verdicts are Pass, Needs fixes and Partly verified. Terms are defined in `docs/GLOSSARY.md`; decisions in `docs/adr/`.
 - Long-running host code reacts to Hyprland events instead of polling, and costs no noticeable CPU while nobody looks at it.
 - keek's surfaces take their colours from the active Omarchy theme. The reference comps use the Cumulus theme.
 

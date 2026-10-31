@@ -1,6 +1,6 @@
 # keek design
 
-keek lets a coding agent have its change verified by a fresh Verifier that uses the App Under Test like a person would, on a sandboxed nested Hyprland desktop inside the developer's own Omarchy session, and leaves Evidence a reviewer can attach to a pull request. Terms are defined in [`GLOSSARY.md`](../GLOSSARY.md); decisions that are hard to reverse are in [`docs/adr/`](adr/).
+keek lets a coding agent have its change verified by a fresh Verifier that uses the App Under Test like a person would, on a sandboxed nested Hyprland desktop inside the developer's own Omarchy session, and leaves Evidence a reviewer can attach to a pull request. Terms are defined in [`GLOSSARY.md`](GLOSSARY.md); decisions that are hard to reverse are in [`docs/adr/`](adr/).
 
 The model is Warp's factories pipeline: the agent's verification is recorded, and the stretches where it is only reasoning are squeezed out of what the reviewer watches.
 
