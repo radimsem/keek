@@ -27,9 +27,9 @@ keek is an Omarchy layer on Cua Driver. Cua Driver performs and records Actions;
 ## Operating Context
 
 - Sessions show on a dedicated `keek` workspace, the Agents Workspace, with at most two Session Cards side by side (configurable). Each Session Card is the nested Hyprland window with its Session Footer joined beneath it.
-- The coding agent drives keek only through its MCP server: `open_session`, `add_check`, `mark_check`, `close_session` and Cua Driver's forwarded tools.
+- The Verifier drives keek only through its MCP server: `open_session`, `add_check`, `mark_check`, `request_help`, `close_session` and Cua Driver's forwarded tools.
 - A Help Request turns that session's card orange and sends one desktop notification through `omarchy-notification-send`. The developer takes control, does the step, and hands control back with Done or Super+Esc.
-- After a session ends, its card keeps the last frame, dimmed, with one Verdict panel over it until a new session needs the slot.
+- After a session ends, its card keeps the last frame, dimmed, with one Verdict panel over it until the developer dismisses it or a new session needs the slot.
 - Evidence stays local under `~/Videos/keek`; the developer attaches it to the PR by hand.
 
 ## Capabilities and Constraints

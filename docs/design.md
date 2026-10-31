@@ -33,7 +33,7 @@ keek runs stock Cua Driver 0.38.0 and doesn't wait for upstream changes ([ADR 00
 | --- | --- | --- | --- |
 | Hyprland video aligned with the Action Log | Turn times read about 1.45 s behind the video. | [#6210](https://github.com/trycua/cua/issues/6210), [PR #6239](https://github.com/trycua/cua/pull/6239) | The Session Timeline times Actions itself. This stays after the fix. |
 | Idle Fast-forward in `cua-driver recording render` | `render` zooms around each Action; it has no Fast-forward. | [#6211](https://github.com/trycua/cua/issues/6211) | Its own ffmpeg editor (`stopgap`), removed once a release carries #6211 and the #6239 fix. |
-| Masking typed secrets in `action.json` | Typed text is stored in plain text. | Issue to file | Scrubs Test Credentials when filing Evidence (`stopgap`), removed once a release carries masking. |
+| Masking typed secrets in `action.json` | Typed text is stored in plain text. | [#6250](https://github.com/trycua/cua/issues/6250) | Scrubs Test Credentials when filing Evidence (`stopgap`), removed once a release carries masking. |
 
 Issue and pull request text is approved by the developer before it is posted.
 
@@ -47,6 +47,7 @@ An Agent Session is a nested Hyprland in a bubblewrap sandbox under the develope
 | Host compositor | One connection, passed in as `WAYLAND_SOCKET` and created through a `wp_security_context_v1` socket, so it can't use screencopy or virtual input against the host. |
 | Desktop services | Its own D-Bus session bus and accessibility bus, and its own Omarchy shell, notifications and clipboard inside the nested desktop. No host `DISPLAY`. |
 | Home and config | A throwaway HOME. The developer's Hyprland and Omarchy config are mounted read-only, with keek's overrides on top: scale 1, the Cua plugin, no idle lock. |
+| Session folder | `~/.cache/keek/sessions/<session>/`, bind-mounted writable, so Cua Driver records where the host can render and file. |
 | Worktree | Tracked and untracked files, behind a throwaway write layer over the Project Layer. Git-ignored files (`.env*`, local builds, `node_modules`) are hidden. |
 | Network | A private network namespace through pasta: outbound internet and its own localhost. Host services are reachable only through ports the Project forwards. |
 | Shared with the host | Kernel, uid, installed packages and toolchains, GPU. |
@@ -60,8 +61,9 @@ keek is one Rust binary ([ADR 0014](adr/0014-keek-is-one-rust-binary.md)).
 - **Setup Script**: committed to the repository as `.keek/setup.sh`, one per repository. keek runs it inside the sandbox with `KEEK_PROJECT` set to the Project name, in two phases: `install` (cached as the Project Layer) and `start` (starts the App Under Test). A single-app repository ignores `KEEK_PROJECT`. *(my call: the two phases)*
 - **Project Layer**: the `install` phase's writes, cached under `~/.cache/keek/projects/<project>/` and keyed by a hash of the Setup Script and the repository's lockfiles. Rebuilt when the key changes. Every session's write layer sits on top of it.
 - **Per-Project settings**: `~/.config/keek/projects/<project>.toml`, set up by hand on each machine: the Session Window size and the host ports to forward into the sandbox.
-- **Test Credentials**: `~/.config/keek/projects/<project>.env`, injected into the sandbox as environment variables. keek scrubs every credential value from the Action Log's text files when it files Evidence, and removes the session's cache folder once filed. Screenshots can't be scrubbed, which is why Test Credentials are test-only.
-- **Host MCP server**: the only thing keek ships to the coding agent (`claude mcp add keek -- keek mcp`, or the equivalent in another harness; [ADR 0011](adr/0011-mcp-server-only.md)). It owns the session lifecycle, starts the sandbox, forwards Cua Driver's tools to the Cua Driver inside it, and its instructions describe the Verifier protocol.
+- **Test Credentials**: `~/.config/keek/projects/<project>.env`, injected into the sandbox as environment variables for the App Under Test. The Verifier gets only their names from `open_session`. It types `${KEEK_TEST_PASSWORD}`, and keek substitutes the value before forwarding the call and masks it in what comes back. Cua Driver still records the value, so keek scrubs every credential value from the Action Log's text files when it files Evidence, and removes the session's cache folder once filed. Screenshots can't be scrubbed, which is why Test Credentials are test-only.
+- **Host MCP server**: the only thing keek ships to the coding agent (`claude mcp add keek -- keek mcp`, or the equivalent in another harness; [ADR 0011](adr/0011-mcp-server-only.md)). Its instructions describe the Verifier protocol. It is a thin client of the keek daemon and starts one if none is running.
+- **keek daemon**: one per user ([ADR 0015](adr/0015-one-per-user-daemon-owns-sessions.md)). It owns every open Agent Session, the session cap, the slots, the Session Footers and the connection to each Cua Driver, and it keeps the Session Timeline. It exits once no client, session or Session Card remains.
 - **Cua Driver** (inside the sandbox): performs Actions through the plugin's input seat and records the session ([ADR 0003](adr/0003-cua-driver-owns-input-and-recording.md)). It runs inside so that it sees the sandbox's accessibility bus and nested display. Its config lives in the sandbox's throwaway HOME, so keek's cursor settings never touch the developer's own. keek mounts the pinned binary from an explicit path, because `~/.local/bin` sits under the HOME the sandbox replaces, and turns the driver's telemetry off.
 - **Renderer** (on the host): keek's ffmpeg editor, cutting from the Session Timeline, plus keek's Takeover title cards. Cua Driver's `recording render` replaces the editor once a release carries Fast-forward.
 
@@ -82,20 +84,23 @@ keek can't tell which agent calls its tools, so these steps hold by instruction 
 
 ## Agent interface
 
-The host MCP server exposes these to the Verifier:
+The host MCP server exposes these to the Verifier. MCP calls carry no caller identity and one coding agent can run two Verifiers, so every tool but `open_session` takes the session's name as a required `session` argument:
 
-- `open_session(project, goal, checks)`: refuses if this worktree already has an open Agent Session or the cap is reached. Any Project name is accepted, and one repository can hold several Projects ([ADR 0008](adr/0008-agent-names-the-project.md)). It records the worktree's branch, commit and whether it has uncommitted changes. It then:
+- `open_session(project, worktree, goal, checks)`: refuses if this worktree already has an open Agent Session or the cap is reached. Any Project name is accepted, and one repository can hold several Projects ([ADR 0008](adr/0008-agent-names-the-project.md)). It records the worktree's branch, commit and whether it has uncommitted changes. It then:
   1. builds or reuses the Project Layer
   2. starts the sandbox and nested Hyprland in a free slot
   3. injects Test Credentials and starts the App Under Test
   4. starts recording and the Session Timeline
 
-  It returns once the desktop is ready, with the session's name (`myapp_14-03-22`). It warns when the Project has no Test Credentials or settings, which is how a misspelled name shows up.
-- Cua Driver's tools, forwarded unchanged (`get_window_state`, `click`, `type_text` and the rest). Recording tools are not forwarded: recording is always on.
-- `request_help(reason)`: raises a Help Request and blocks until the developer finishes a Takeover; see [`viewer.md`](viewer.md#takeover). While it waits it sends progress notifications, because Claude Code aborts a local MCP call after 30 minutes with no response or progress.
-- `add_check(text)`: adds a Check the Verifier found worth checking while testing. It is marked as added in the Verdict Report and on the card.
-- `mark_check(check, outcome, comment)`: marks a Check passed, failed or skipped; failed and skipped need a one-line comment. A Check can be marked again until the session closes. keek pushes each mark to the Session Footer and logs it in the Session Timeline with its time.
-- `close_session(summary)`: refuses while a Check is unmarked and names the unmarked ones. keek derives the Verdict from the Checks ([ADR 0012](adr/0012-verdict-follows-from-the-checklist.md)), stops recording, stops the sandbox, renders, files the Evidence and returns the Verdict, every Check with its outcome and comment, and the Evidence paths.
+  It returns once the desktop is ready, with the session's name (`myapp_14-03-22`) and the names of its Test Credentials. It warns when the Project has no Test Credentials or settings, which is how a misspelled name shows up.
+- Cua Driver's tools (`get_window_state`, `click`, `type_text` and the rest), forwarded with `session` added to their schema and stripped before the call. These are not forwarded, because each would undo something keek owns:
+  - Recording is always on: `start_recording`, `stop_recording`, `get_recording_state`, `replay_trajectory`.
+  - keek owns the driver session, whose end stops the recording: `start_session`, `end_session`, `escalate_session`.
+  - keek owns the driver's setup: `set_config`, `check_for_update`, `install_extension`, `install_ffmpeg`, `set_agent_cursor_enabled`, `set_agent_cursor_motion`, `set_agent_cursor_theme`.
+- `request_help(session, reason)`: raises a Help Request and blocks until the developer finishes a Takeover; see [`viewer.md`](viewer.md#takeover). While it waits it sends progress notifications, because Claude Code aborts a local MCP call after 30 minutes with no response or progress.
+- `add_check(session, text)`: adds a Check the Verifier found worth checking while testing. It is marked as added in the Verdict Report and on the card.
+- `mark_check(session, check, outcome, comment)`: marks a Check passed, failed or skipped; failed and skipped need a one-line comment. A Check can be marked again until the session closes. keek pushes each mark to the Session Footer and logs it in the Session Timeline with its time.
+- `close_session(session, summary)`: refuses while a Check is unmarked and names the unmarked ones. keek derives the Verdict from the Checks ([ADR 0012](adr/0012-verdict-follows-from-the-checklist.md)), stops recording, stops the sandbox, renders, files the Evidence and returns the Verdict, every Check with its outcome and comment, and the Evidence paths.
 
 ## Recording and editing
 
@@ -159,7 +164,7 @@ Every file carries the Project and time in its name, so a Verification Video dra
 
 ## Abnormal end
 
-An Agent Session can end without `close_session`: the Verifier finishes, crashes or runs out of context first, the coding agent's session exits, or the developer presses Ctrl-C. keek's MCP server belongs to the coding agent's session, so a Verifier ending ends no process keek can watch. Every Cua call passes through keek, so it ends the session after 5 minutes without a tool call, outside a Help Request or Takeover, and when its own process exits. It stops recording, stops the sandbox and renders anyway. The session is an Incomplete Session. Its files carry `incomplete` in place of a verdict, its Verdict Report says why it ended, lists the Checks marked so far and has no Verdict, and its Verification Video is labelled incomplete.
+An Agent Session can end without `close_session`: the Verifier finishes, crashes or runs out of context first, the coding agent's session exits, or the developer presses Ctrl-C. keek's MCP server belongs to the coding agent's session, so a Verifier ending ends no process keek can watch. Every Cua call passes through keek, so the daemon ends the session after 5 minutes without a tool call, outside a Help Request or Takeover, and when the `keek mcp` that opened it disconnects. It stops recording, stops the sandbox and renders anyway. If the daemon itself dies, the sandbox dies with it, and the next daemon to start finishes any session it finds unfiled the same way. The session is an Incomplete Session. Its files carry `incomplete` in place of a verdict, its Verdict Report says why it ended, lists the Checks marked so far and has no Verdict, and its Verification Video is labelled incomplete.
 
 The first spike's results and the facts this design rests on are in [`facts.md`](facts.md).
 

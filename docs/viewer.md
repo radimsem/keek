@@ -72,7 +72,7 @@ It shows that session's:
 - During a Takeover: "You are in control" and its running time, with the window border in the active colour.
 - The **Take control** button, which becomes **Done** during a Takeover.
 
-The keek host process already sees every Action pass through its MCP server, so it pushes an update to the footer per Action and per state change; nothing polls. *(my call)*
+The keek daemon already sees every Action on its way to Cua Driver, so it pushes an update to the footer per Action and per state change; nothing polls. *(my call)*
 
 ### View-only hint
 
@@ -80,7 +80,7 @@ Outside a Takeover, `no_focus` makes Hyprland skip the Session Window in pointer
 
 ### Help Request
 
-- The Verifier calls `request_help(reason)`. The call blocks until a Takeover on that session ends, sending progress notifications while it waits.
+- The Verifier calls `request_help(session, reason)`. The call blocks until a Takeover on that session ends, sending progress notifications while it waits.
 - That session's Session Card turns orange (the Omarchy needs-you colour) and its footer shows the reason. keek sends one desktop notification ("Agent needs you: 2FA code · myapp") through `omarchy-notification-send`. Activating the notification switches to the `keek` workspace. *(my call)*
 - There is no timeout while a Help Request waits for the developer. The 5-minute idle timeout (see [`design.md`](design.md#abnormal-end)) pauses during a Help Request and a Takeover.
 
@@ -89,8 +89,8 @@ Outside a Takeover, `no_focus` makes Hyprland skip the Session Window in pointer
 A Takeover starts only from the **Take control** button. Looking at, hovering over or clicking the Session Window never starts one.
 
 1. Take control: keek holds the Verifier's next tool call (any forwarded Cua tool, or the pending `request_help`). Holding comes first, so no Verifier Action can land after the developer starts.
-2. keek clears `no_focus`, focuses the Session Window and switches the host Hyprland into the `keek` submap. That submap binds only the Done combo, so every other key, host shortcuts included, goes to the nested desktop. The developer's input arrives on the nested Hyprland's own seat, not through Cua, so it never enters the Action Log.
-3. Done, from the footer button or the combo: keek resets the submap, sets `no_focus` again, returns focus to the developer's previous window and releases the held call. Instead of the call's normal result, the Verifier receives a note ("The developer controlled the session for 0:42 (reason). The screen may have changed.") and a fresh screenshot, so it re-reads the screen before acting.
+2. keek clears `no_focus`, focuses the Session Window and switches the host Hyprland into the `keek` submap. That submap binds only Super+Esc, which means Done, so every other key, host shortcuts included, goes to the nested desktop. The developer's input arrives on the nested Hyprland's own seat, not through Cua, so it never enters the Action Log.
+3. Done, from the footer button or Super+Esc: keek resets the submap, sets `no_focus` again, returns focus to the developer's previous window and releases the held call. Instead of the call's normal result, the Verifier receives a note ("The developer controlled the session for 0:42 (reason). The screen may have changed.") and a fresh screenshot, so it re-reads the screen before acting.
 
 The developer adds keek's submap snippet to their Hyprland config once. If it is missing, Take control still works, but host shortcuts stay live and the footer says so. *(my call)*
 
@@ -110,5 +110,4 @@ When the session closes (normally or as an Incomplete Session), the sandbox stop
 - Matching a nested window to its session. Candidates are the client's pid and the first window that maps on the connection keek created.
 - Slot geometry and gaps, and what happens on a monitor too narrow for two slots.
 - The Session Footer's layout, styling and copy follow [`DESIGN.md`](../DESIGN.md).
-- The Done combo in the submap snippet.
-- How keek's host process and the Session Footers talk (a local socket is enough).
+- Whether the keek daemon draws the Session Footers in its own process or a child per slot.

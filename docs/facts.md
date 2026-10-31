@@ -14,6 +14,15 @@ Run on 2026-10-29 with a nested Hyprland under the developer's own user (no sand
 
 ## Facts this design rests on
 
+Checked on 2026-10-31 in Cua Driver 0.38.0 and `trycua/cua` main `a9902d2`:
+
+- `cua-driver mcp` is a stdio MCP server that owns its runtime on Linux and shuts down on stdin EOF. Without a `session` argument, `start_recording` records every call on that connection.
+- `CUA_DRIVER_RS_TELEMETRY_ENABLED=false` turns telemetry off. It is on by default.
+- A tool's `read_only` flag is published as `annotations.readOnlyHint`. Cua records a turn for a tool that isn't read-only, except lifecycle and recording tools, `run_steps` and `run_script` (`tool.rs:2270`). Each step inside `run_steps` records its own turn.
+- `recording_args_for` (`tool.rs:6367`) redacts `clipboard_write` text and `browser_dialog` prompts, but not `type_text`, `browser_type` or `set_value`.
+- `end_session` runs the session's recording cleanup, so a Verifier calling it would end the recording.
+- bubblewrap 0.13.1 has `--overlay-src`, `--overlay` and `--tmp-overlay`.
+
 Checked on 2026-10-30:
 
 - Cua Driver is a Rust MCP server and CLI under the MIT license, latest release 0.38.0 (pre-release). Its Hyprland support is listed as experimental. Its recorder takes one monotonic anchor for the video and cursor track, but reads turn times from a clock that starts after the video backend's 1.5 s startup probe ([#6210](https://github.com/trycua/cua/issues/6210)).
