@@ -71,19 +71,16 @@ impl SessionFolder {
         &self.root
     }
 
-    /// The Raw Recording.
     #[must_use]
     pub fn recording(&self) -> PathBuf {
         self.root.join("recording.mp4")
     }
 
-    /// The Session Timeline.
     #[must_use]
     pub fn timeline(&self) -> PathBuf {
         self.root.join("timeline.json")
     }
 
-    /// One Action Log entry's folder, `turn-NNNNN`.
     #[must_use]
     pub fn turn(&self, turn: Turn) -> PathBuf {
         self.root.join(format!("turn-{:05}", turn.0))

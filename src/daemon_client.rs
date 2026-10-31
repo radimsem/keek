@@ -18,16 +18,13 @@ use crate::paths::Paths;
 
 const RETRY_INTERVAL: Duration = Duration::from_millis(25);
 
-/// Starts a daemon when none answers on the socket.
 pub trait DaemonStarter {
-    /// # Errors
-    ///
-    /// Fails when the daemon's process can't be started, or the last one failed.
+    /// Called on every retry while no daemon answers, so one start can see many calls.
     fn start(&mut self) -> io::Result<()>;
 }
 
-/// Starts `keek daemon` detached from `keek mcp`. It inherits this process's
-/// environment, which is how it gets the host's Wayland and Hyprland variables.
+/// The daemon inherits this process's environment, which is how it gets the host's
+/// Wayland and Hyprland variables.
 #[derive(Debug)]
 pub struct ProcessStarter {
     executable: PathBuf,
@@ -134,13 +131,6 @@ pub enum ConnectError {
     Request(#[from] RequestError),
 }
 
-/// Connects to the daemon on `paths`, starting or replacing it as needed, for up to
-/// `timeout`.
-///
-/// # Errors
-///
-/// Fails when an older daemon has an open Agent Session, the daemon is newer than this
-/// build, the daemon can't be started, or none answers in time.
 pub async fn connect_or_start(
     paths: &Paths,
     starter: &mut impl DaemonStarter,
@@ -274,7 +264,7 @@ where
     }
 }
 
-/// A live connection to the daemon. Dropping it tells the daemon this client left.
+/// Dropping it tells the daemon this client left.
 #[derive(Debug)]
 pub struct DaemonClient {
     state: Mutex<ClientState>,
@@ -296,11 +286,6 @@ impl DaemonClient {
         }
     }
 
-    /// Asks the daemon for its version, pid and open session count.
-    ///
-    /// # Errors
-    ///
-    /// Fails when the daemon has gone or answers with something else.
     pub async fn status(&self) -> Result<DaemonStatus, RequestError> {
         let mut state = self.state.lock().await;
         let id = RequestId(state.next_id);

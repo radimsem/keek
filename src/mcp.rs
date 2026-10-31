@@ -13,11 +13,6 @@ use crate::verifier_protocol::VERIFIER_PROTOCOL;
 
 const DAEMON_START_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Reaches the daemon, then serves MCP over stdio until the coding agent leaves.
-///
-/// # Errors
-///
-/// Fails when the daemon can't be reached, or MCP can't be served on stdio.
 pub async fn serve() -> Result<()> {
     let paths = Paths::from_env()?;
     let executable = std::env::current_exe().context("could not find the keek executable")?;

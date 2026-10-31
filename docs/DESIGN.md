@@ -125,7 +125,7 @@ The system borrows everything it can from the host. Omarchy's bar, Hyprland's bo
 
 Colour is reserved for meaning. Navy and parchment carry everything at rest. Orange appears only when the developer is needed, green, coral and yellow only for Check outcomes, and each session's cursor colour only where it ties the card to its cursor.
 
-The approved comps live in `design/comps/` and in the design canvas (https://claude.ai/artifact/LxCSK6QwgvUrNBKL8ftXzq). Values below are measured from those comps on the Cumulus theme; on any other theme the colours follow that theme (see Colors).
+The approved comps live in `design/comps/`, kept outside git on the developer's machine, and in the design canvas (https://claude.ai/artifact/LxCSK6QwgvUrNBKL8ftXzq). Values below are measured from those comps on the Cumulus theme; on any other theme the colours follow that theme (see Colors).
 
 **Key Characteristics:**
 - Native to Omarchy: host bar, borders, rounding and type, no keek chrome on the agent's desktop.
