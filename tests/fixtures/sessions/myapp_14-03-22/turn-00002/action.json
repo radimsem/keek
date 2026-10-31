@@ -1,0 +1,6 @@
+{
+  "tool": "type_text",
+  "arguments": {"text": "made-up-test-password"},
+  "result": {"content": [{"type": "text", "text": "No focused text field."}], "isError": true},
+  "t_ms_from_session_start": 1500
+}

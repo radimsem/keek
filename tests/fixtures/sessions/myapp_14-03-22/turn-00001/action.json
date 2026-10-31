@@ -1,0 +1,7 @@
+{
+  "tool": "click",
+  "arguments": {"x": 160, "y": 90},
+  "result": {"content": [{"type": "text", "text": "Clicked at (160, 90)."}], "isError": false},
+  "click_point": {"x": 160, "y": 90},
+  "t_ms_from_session_start": 300
+}
