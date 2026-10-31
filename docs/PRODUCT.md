@@ -53,7 +53,7 @@ keek is an Omarchy layer on Cua Driver. Cua Driver performs and records Actions;
 ## Evidence on Hand
 
 - Approved design canvas (private): https://claude.ai/artifact/LxCSK6QwgvUrNBKL8ftXzq
-- Rendered reference comps of that canvas in `design/comps/`.
+- Rendered reference comps of that canvas in `design/comps/`, kept outside git on the developer's machine.
 - Architecture and viewer specs in `docs/design.md` and `docs/viewer.md`.
 - No users, testimonials, benchmarks or release exist yet. Do not invent them.
 

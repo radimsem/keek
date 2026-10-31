@@ -7,7 +7,8 @@ keek lets a coding agent have its change verified by a fresh Verifier on a sandb
 - `docs/GLOSSARY.md`: the only names for domain concepts, in code, tickets and copy. Reach for it before naming anything.
 - `docs/design.md`: session, sandbox, tools, recording, Evidence.
 - `docs/viewer.md`: Agents Workspace, Session Footer, Help Request, Takeover.
-- `docs/DESIGN.md` and `design/comps/`: any surface a person sees. `docs/PRODUCT.md` holds the voice for copy.
+- `docs/DESIGN.md`: any surface a person sees. `docs/PRODUCT.md` holds the voice for copy.
+- `design/comps/` and `.impeccable/`: design files kept outside git. A worktree or fresh clone lacks them, so read them from the primary checkout, or use the design canvas linked in `docs/DESIGN.md`.
 - `docs/adr/`: before changing behaviour a decision records. A change that contradicts an ADR updates that ADR in the same pull request.
 - `docs/facts.md`: what was checked about Cua Driver and Hyprland, with versions.
 
