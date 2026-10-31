@@ -35,7 +35,7 @@ A Project's installed dependencies, built once by its Setup Script and reused ac
 _Avoid_: image, snapshot, cache
 
 **Test Credentials**:
-Smoke-test-only accounts and keys that a project grants to its Agent Sessions, kept outside the project and chosen so they are safe to appear in Evidence.
+Smoke-test-only accounts and keys that a project grants to its Agent Sessions, kept outside the project and chosen so they are safe to appear in Evidence. A Verifier refers to them by name and never sees their values.
 _Avoid_: secrets, env, .env
 
 ## Recording

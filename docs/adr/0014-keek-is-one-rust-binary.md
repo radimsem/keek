@@ -1,6 +1,6 @@
 # keek is one Rust binary
 
-keek needs an MCP server with progress notifications, gtk4-layer-shell Session Footers, Hyprland event-socket handling, sandbox process control and ffmpeg-driven editing, all in a long-running host process that costs no noticeable CPU while nobody looks at it. It is written in Rust as a single `keek` binary, with no runtime to install. Rust is also Cua Driver's language, so keek's Fast-forward editor can inform the upstream change for [#6211](https://github.com/trycua/cua/issues/6211).
+keek needs an MCP server with progress notifications, gtk4-layer-shell Session Footers, Hyprland event-socket handling, sandbox process control and ffmpeg-driven editing, all in a long-running host process that costs no noticeable CPU while nobody looks at it. It is written in Rust as a single `keek` binary, with no runtime to install, which runs as `keek mcp` and `keek daemon` ([ADR 0015](0015-one-per-user-daemon-owns-sessions.md)). Rust is also Cua Driver's language, so keek's Fast-forward editor can inform the upstream change for [#6211](https://github.com/trycua/cua/issues/6211).
 
 ## Considered Options
 
