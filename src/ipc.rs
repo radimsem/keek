@@ -63,8 +63,6 @@ pub enum IpcError {
     Json(#[from] serde_json::Error),
 }
 
-/// One end of the protocol over any byte stream, so tests can use an in-memory
-/// duplex in place of the socket.
 #[derive(Debug)]
 pub struct Connection<S> {
     stream: BufReader<S>,
@@ -80,11 +78,6 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
         }
     }
 
-    /// Writes one message and flushes it.
-    ///
-    /// # Errors
-    ///
-    /// Fails when the peer has gone or the message can't be serialized.
     pub async fn send(&mut self, message: &Message) -> Result<(), IpcError> {
         let mut bytes = serde_json::to_vec(message)?;
         bytes.push(b'\n');
@@ -93,12 +86,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
         Ok(())
     }
 
-    /// Reads the next message. `None` means the peer closed the connection.
-    /// Not cancel safe: dropping this future can lose a partly read line.
-    ///
-    /// # Errors
-    ///
-    /// Fails when the read fails or the line isn't a valid message.
+    /// `None` means the peer closed the connection. Not cancel safe: dropping this
+    /// future can lose a partly read line.
     pub async fn recv(&mut self) -> Result<Option<Message>, IpcError> {
         self.line.clear();
         if self.stream.read_line(&mut self.line).await? == 0 {

@@ -21,17 +21,10 @@ pub enum PathsError {
 }
 
 impl Paths {
-    /// Reads the folders from this process's environment.
-    ///
-    /// # Errors
-    ///
-    /// Fails when `XDG_RUNTIME_DIR` is missing, or when `HOME` is missing and
-    /// needed for a folder its XDG variable doesn't name.
     pub fn from_env() -> Result<Self, PathsError> {
         Self::from_vars(|name| std::env::var_os(name))
     }
 
-    /// Puts every folder under `root`, for tests.
     #[cfg(test)]
     pub(crate) fn under_root(root: &Path) -> Self {
         Self {

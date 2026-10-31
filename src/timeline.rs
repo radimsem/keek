@@ -44,7 +44,6 @@ pub enum TimelineEvent {
     },
 }
 
-/// The contents of a session folder's `timeline.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionTimeline {
     schema_version: u32,
@@ -61,9 +60,9 @@ pub enum TimelineError {
 }
 
 impl SessionTimeline {
-    /// Starts an empty timeline. `video_lead` is how long wf-recorder's first frame
-    /// lands after `start_recording` is forwarded. It is recorded for reference: every
-    /// stored time has already had it subtracted, so readers must not subtract it again.
+    /// `video_lead` is how long wf-recorder's first frame lands after `start_recording`
+    /// is forwarded. It is recorded for reference: every stored time has already had it
+    /// subtracted, so readers must not subtract it again.
     #[must_use]
     pub fn new(video_lead: Millis) -> Self {
         Self {
@@ -73,12 +72,6 @@ impl SessionTimeline {
         }
     }
 
-    /// Reads a `timeline.json`.
-    ///
-    /// # Errors
-    ///
-    /// Fails when the text doesn't match the schema, or names a schema version
-    /// this build can't read.
     pub fn parse(text: &str) -> Result<Self, TimelineError> {
         #[derive(Deserialize)]
         struct Version {

@@ -46,10 +46,6 @@ pub enum DaemonError {
 }
 
 /// Reads the idle limit from the value of [`IDLE_LIMIT_ENV`].
-///
-/// # Errors
-///
-/// Fails when the value isn't a whole number of milliseconds.
 pub fn idle_limit(value: Option<&str>) -> Result<Duration, DaemonError> {
     let Some(value) = value else {
         return Ok(DEFAULT_IDLE_LIMIT);
@@ -60,11 +56,6 @@ pub fn idle_limit(value: Option<&str>) -> Result<Duration, DaemonError> {
         .map_err(|_| DaemonError::InvalidIdleLimit(value.to_owned()))
 }
 
-/// Runs the daemon until it exits.
-///
-/// # Errors
-///
-/// Fails when the lock or socket can't be set up, or clients can't be accepted.
 pub async fn run(
     paths: &Paths,
     idle_limit: Duration,
@@ -145,7 +136,6 @@ async fn serve(
     }
 }
 
-/// What the daemon owns. Agent Sessions and Session Cards arrive with later tickets.
 #[derive(Debug, Default)]
 struct State {
     open_sessions: usize,
@@ -242,7 +232,6 @@ where
     }
 }
 
-/// Counts how long nothing has needed the daemon.
 #[derive(Debug)]
 struct IdleWatch<C> {
     clock: C,
@@ -267,7 +256,7 @@ impl<C: Clock> IdleWatch<C> {
         }
     }
 
-    /// How long until the idle limit passes, or `None` while the daemon is in use.
+    /// `None` while the daemon is in use.
     fn remaining(&self) -> Option<Duration> {
         let elapsed = self.clock.now().saturating_duration_since(self.idle_since?);
         Some(self.limit.saturating_sub(elapsed))
