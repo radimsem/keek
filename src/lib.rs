@@ -1,3 +1,4 @@
+pub mod ipc;
 pub mod session_folder;
 pub mod timeline;
 
