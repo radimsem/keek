@@ -10,5 +10,5 @@ Each coding agent starts its own `keek mcp`, but the session cap, the slots on t
 
 - A session ends as an Incomplete Session when the `keek mcp` that opened it disconnects, so a coding agent's exit still ends its sessions.
 - If the daemon dies, its sandboxes die with it. The next daemon finishes any session it finds unfiled as an Incomplete Session.
-- `keek mcp` and the daemon can differ in version after an update. With no session open, the old daemon exits and a new one starts. With a session open, `keek mcp` refuses and names both versions.
+- `keek mcp` and the daemon can differ in version after an update. With no session open, the old daemon exits and a new one starts. With a session open, `keek mcp` refuses and names both versions. An older `keek mcp` also refuses a newer daemon and names both versions, so two installed builds can't keep evicting each other's daemon.
 - The daemon needs the host's Wayland and Hyprland environment, and takes it from the `keek mcp` that starts it.
