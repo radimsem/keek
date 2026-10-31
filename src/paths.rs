@@ -31,6 +31,16 @@ impl Paths {
         Self::from_vars(|name| std::env::var_os(name))
     }
 
+    /// Puts every folder under `root`, for tests.
+    #[cfg(test)]
+    pub(crate) fn under_root(root: &Path) -> Self {
+        Self {
+            runtime_dir: root.join("run/keek"),
+            state_dir: root.join("state/keek"),
+            sessions_dir: root.join("cache/keek/sessions"),
+        }
+    }
+
     fn from_vars(var: impl Fn(&str) -> Option<OsString>) -> Result<Self, PathsError> {
         // The XDG spec says to ignore a variable that isn't an absolute path.
         let absolute = |name: &str| {

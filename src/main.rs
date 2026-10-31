@@ -18,13 +18,22 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Run the per-user daemon.
+    /// Serve MCP over stdio for one coding agent.
+    Mcp,
+    /// Run the per-user daemon that `keek mcp` starts.
     Daemon,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     match Cli::parse().command {
+        Command::Mcp => {
+            // Stdout carries MCP, so logs go to stderr.
+            tracing_subscriber::fmt()
+                .with_writer(std::io::stderr)
+                .init();
+            keek::mcp::serve().await
+        }
         Command::Daemon => run_daemon().await,
     }
 }
