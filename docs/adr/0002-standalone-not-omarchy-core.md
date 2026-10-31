@@ -1,0 +1,3 @@
+# keek is a standalone tool, not part of Omarchy core
+
+keek runs on Omarchy and could have shipped as `omarchy-agent-*` commands, as `omarchy-windows-vm` ships a KVM VM. It is a standalone tool instead because its main use is testing the developer's own apps rather than Omarchy, and it depends on Cua Driver releases that are still marked pre-release and on a Cua Hyprland plugin built for exact Hyprland versions. Tying those to Omarchy's review and release cycle would slow both. Once keek is stable, a thin Omarchy integration (an install entry, and a Setup Script that loads an Omarchy worktree into the Agent Session for testing Omarchy itself) can be proposed upstream.

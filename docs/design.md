@@ -1,0 +1,184 @@
+# keek design
+
+keek lets a coding agent have its change verified by a fresh Verifier that uses the App Under Test like a person would, on a sandboxed nested Hyprland desktop inside the developer's own Omarchy session, and leaves Evidence a reviewer can attach to a pull request. Terms are defined in [`GLOSSARY.md`](../GLOSSARY.md); decisions that are hard to reverse are in [`docs/adr/`](adr/).
+
+The model is Warp's factories pipeline: the agent's verification is recorded, and the stretches where it is only reasoning are squeezed out of what the reviewer watches.
+
+## Scope
+
+v1:
+
+- Your own projects (web apps in a browser, native GUI apps), run on the developer's own machine.
+- Omarchy is the only supported and tested host. An Agent Session runs the host's own Hyprland, apps and Omarchy config, nested inside the developer's session.
+- One Agent Session per git worktree, at most two open at once (configurable). Each open session takes a slot on the Agents Workspace.
+- Evidence stays local, under `~/Videos/keek`. The agent prints its paths; the developer attaches the Verification Video to the PR by hand.
+
+Later:
+
+- Testing Omarchy itself: a Setup Script that mounts an Omarchy worktree's `bin/`, `config/` and `shell/` into the Agent Session in place of the developer's own. The design keeps this seam open and does nothing else for it in v1.
+- Upload delivery (storage you configure, linked from the PR body).
+
+Out of scope:
+
+- Omarchy core integration until keek is stable ([ADR 0002](adr/0002-standalone-not-omarchy-core.md)).
+- CI runners. keek verifies on the developer's machine, where the live view and Takeover matter; Cua's `e2e-test-agent` covers CI.
+
+## Built on Cua
+
+keek is an Omarchy layer on Cua Driver ([ADR 0009](adr/0009-shared-pieces-go-to-cua-driver.md)). Cua Driver performs Actions and records them. keek adds the sandboxed nested session on the developer's own Omarchy, the viewer and Takeover, its MCP tools and Evidence filed by Project.
+
+keek runs stock Cua Driver 0.38.0 and doesn't wait for upstream changes ([ADR 0013](adr/0013-keek-times-the-session-on-stock-cua-driver.md)). Three pieces still belong in Cua Driver. Until a Cua release carries them:
+
+| Piece | Today in Cua Driver 0.38.0 | Upstream | keek meanwhile |
+| --- | --- | --- | --- |
+| Hyprland video aligned with the Action Log | Turn times read about 1.45 s behind the video. | [#6210](https://github.com/trycua/cua/issues/6210), [PR #6239](https://github.com/trycua/cua/pull/6239) | The Session Timeline times Actions itself. This stays after the fix. |
+| Idle Fast-forward in `cua-driver recording render` | `render` zooms around each Action; it has no Fast-forward. | [#6211](https://github.com/trycua/cua/issues/6211) | Its own ffmpeg editor (`stopgap`), removed once a release carries #6211 and the #6239 fix. |
+| Masking typed secrets in `action.json` | Typed text is stored in plain text. | Issue to file | Scrubs Test Credentials when filing Evidence (`stopgap`), removed once a release carries masking. |
+
+Issue and pull request text is approved by the developer before it is posted.
+
+## Isolation
+
+An Agent Session is a nested Hyprland in a bubblewrap sandbox under the developer's uid ([ADR 0006](adr/0006-nested-hyprland-in-a-sandbox-under-your-uid.md)). The coding agent already runs as the developer with a shell, so the sandbox keeps the agent's desktop from disturbing the developer's. It is not a wall against a hostile agent.
+
+| Resource | In an Agent Session |
+| --- | --- |
+| Screen, input, focus | Its own nested Hyprland. The agent's input arrives on the Cua plugin's seat. The host shows the session as a Session Window that ignores the developer until Take control. |
+| Host compositor | One connection, passed in as `WAYLAND_SOCKET` and created through a `wp_security_context_v1` socket, so it can't use screencopy or virtual input against the host. |
+| Desktop services | Its own D-Bus session bus and accessibility bus, and its own Omarchy shell, notifications and clipboard inside the nested desktop. No host `DISPLAY`. |
+| Home and config | A throwaway HOME. The developer's Hyprland and Omarchy config are mounted read-only, with keek's overrides on top: scale 1, the Cua plugin, no idle lock. |
+| Worktree | Tracked and untracked files, behind a throwaway write layer over the Project Layer. Git-ignored files (`.env*`, local builds, `node_modules`) are hidden. |
+| Network | A private network namespace through pasta: outbound internet and its own localhost. Host services are reachable only through ports the Project forwards. |
+| Shared with the host | Kernel, uid, installed packages and toolchains, GPU. |
+
+## Components
+
+keek is one Rust binary ([ADR 0014](adr/0014-keek-is-one-rust-binary.md)).
+
+- **Nested Hyprland**: the host's installed Hyprland, started inside the sandbox. Its output always takes the size of its window on the host, so keek floats that window at a fixed size ([ADR 0007](adr/0007-nested-window-is-the-session-window.md)).
+- **cua-hyprland-plugin**: from Omarchy's package repository, which builds it against exact Hyprland and aquamarine versions. `open_session` checks that the plugin loaded into the nested Hyprland and refuses otherwise, naming both versions.
+- **Setup Script**: committed to the repository as `.keek/setup.sh`, one per repository. keek runs it inside the sandbox with `KEEK_PROJECT` set to the Project name, in two phases: `install` (cached as the Project Layer) and `start` (starts the App Under Test). A single-app repository ignores `KEEK_PROJECT`. *(my call: the two phases)*
+- **Project Layer**: the `install` phase's writes, cached under `~/.cache/keek/projects/<project>/` and keyed by a hash of the Setup Script and the repository's lockfiles. Rebuilt when the key changes. Every session's write layer sits on top of it.
+- **Per-Project settings**: `~/.config/keek/projects/<project>.toml`, set up by hand on each machine: the Session Window size and the host ports to forward into the sandbox.
+- **Test Credentials**: `~/.config/keek/projects/<project>.env`, injected into the sandbox as environment variables. keek scrubs every credential value from the Action Log's text files when it files Evidence, and removes the session's cache folder once filed. Screenshots can't be scrubbed, which is why Test Credentials are test-only.
+- **Host MCP server**: the only thing keek ships to the coding agent (`claude mcp add keek -- keek mcp`, or the equivalent in another harness; [ADR 0011](adr/0011-mcp-server-only.md)). It owns the session lifecycle, starts the sandbox, forwards Cua Driver's tools to the Cua Driver inside it, and its instructions describe the Verifier protocol.
+- **Cua Driver** (inside the sandbox): performs Actions through the plugin's input seat and records the session ([ADR 0003](adr/0003-cua-driver-owns-input-and-recording.md)). It runs inside so that it sees the sandbox's accessibility bus and nested display. Its config lives in the sandbox's throwaway HOME, so keek's cursor settings never touch the developer's own. keek mounts the pinned binary from an explicit path, because `~/.local/bin` sits under the HOME the sandbox replaces, and turns the driver's telemetry off.
+- **Renderer** (on the host): keek's ffmpeg editor, cutting from the Session Timeline, plus keek's Takeover title cards. Cua Driver's `recording render` replaces the editor once a release carries Fast-forward.
+
+## Viewer
+
+The developer watches Agent Sessions and takes them over on the Agents Workspace, where each Session Window is the nested Hyprland's own window and its Session Footer is joined beneath it; see [`viewer.md`](viewer.md).
+
+## Verifier protocol
+
+The coding agent never drives an Agent Session itself ([ADR 0010](adr/0010-a-fresh-verifier-checks-each-change.md)). keek's server instructions tell it to:
+
+1. Write the goal as a short list of acceptance checks a person could verify on screen ("Signing in with the test account lands on the dashboard"). They become the Verification Checklist.
+2. Start a fresh subagent, the Verifier, with only the goal and its checks, the Project name and the worktree. No diff and no notes on what changed.
+3. Read the Verifier's Verdict and Evidence paths. A Verdict is final.
+4. After Needs fixes, read the failed Checks and their comments, fix the change and start a new Verifier, up to 3 Agent Sessions per change. Then stop and report to the developer with every session's Evidence. After Partly verified, tell the developer which Checks were skipped and why.
+
+keek can't tell which agent calls its tools, so these steps hold by instruction only.
+
+## Agent interface
+
+The host MCP server exposes these to the Verifier:
+
+- `open_session(project, goal, checks)`: refuses if this worktree already has an open Agent Session or the cap is reached. Any Project name is accepted, and one repository can hold several Projects ([ADR 0008](adr/0008-agent-names-the-project.md)). It records the worktree's branch, commit and whether it has uncommitted changes. It then:
+  1. builds or reuses the Project Layer
+  2. starts the sandbox and nested Hyprland in a free slot
+  3. injects Test Credentials and starts the App Under Test
+  4. starts recording and the Session Timeline
+
+  It returns once the desktop is ready, with the session's name (`myapp_14-03-22`). It warns when the Project has no Test Credentials or settings, which is how a misspelled name shows up.
+- Cua Driver's tools, forwarded unchanged (`get_window_state`, `click`, `type_text` and the rest). Recording tools are not forwarded: recording is always on.
+- `request_help(reason)`: raises a Help Request and blocks until the developer finishes a Takeover; see [`viewer.md`](viewer.md#takeover). While it waits it sends progress notifications, because Claude Code aborts a local MCP call after 30 minutes with no response or progress.
+- `add_check(text)`: adds a Check the Verifier found worth checking while testing. It is marked as added in the Verdict Report and on the card.
+- `mark_check(check, outcome, comment)`: marks a Check passed, failed or skipped; failed and skipped need a one-line comment. A Check can be marked again until the session closes. keek pushes each mark to the Session Footer and logs it in the Session Timeline with its time.
+- `close_session(summary)`: refuses while a Check is unmarked and names the unmarked ones. keek derives the Verdict from the Checks ([ADR 0012](adr/0012-verdict-follows-from-the-checklist.md)), stops recording, stops the sandbox, renders, files the Evidence and returns the Verdict, every Check with its outcome and comment, and the Evidence paths.
+
+## Recording and editing
+
+Recording starts in `open_session` and stops in `close_session`; the Verifier has no recording tool. Cua Driver's `start_recording` with `record_video:true` writes, per session:
+
+- `recording.mp4`: the Raw Recording (wf-recorder on the nested output, CPU encoded).
+- `turn-NNNNN/action.json` per Action: tool, arguments, result, click point, and `t_ms_from_session_start`.
+
+Read-only calls (snapshots, accessibility trees) are not Actions and leave no turn, so the gaps between turns are where the Verifier was reasoning.
+
+keek sets Cua's cursor for every session: action marks on (clicking, typing, scrolling), a ripple on each click, and the resting float off. Cua's default cursor floats while it rests, which would keep an idle screen from ever being still. keek draws no overlay of its own.
+
+### Session Timeline
+
+The first spike found the video running a steady 1.45 s behind Cua's turn times. keek doesn't use those times for anything on the video. It keeps its own Session Timeline at the MCP proxy ([ADR 0013](adr/0013-keek-times-the-session-on-stock-cua-driver.md)):
+
+- keek reads a monotonic clock just before it forwards `start_recording`, and counts every later time from there, less a small constant for wf-recorder's first frame (about 50 ms by the first spike, measured properly in the next one).
+- Each forwarded call gets its start and end. A call is an Action when its tool isn't marked `readOnlyHint`, the same rule Cua uses for turns. One `run_steps` call is one active span, even though Cua logs a turn per step.
+- Check marks and Takeovers go on the same timeline.
+
+It is data only in v1: the editor and the Verdict Report read it, and nothing draws it. Cua's `t_ms_from_session_start` stays in the Action Log as recorded, so on 0.38.0 it reads about 1.45 s behind the video.
+
+### Verification Video
+
+The Verification Video ([ADR 0004](adr/0004-fast-forward-idle-instead-of-cutting.md)) comes from keek's ffmpeg editor until Cua Driver's `recording render` has the same edit:
+
+1. Keep a window from 0.3 s before each Action's start to 1.5 s after its end.
+2. Extend a window while the screen keeps changing (frame difference or ffmpeg `freezedetect`), so animations, loads and late toasts stay at real speed.
+3. Merge overlapping windows. Everything left is an Idle Stretch.
+4. Show each Idle Stretch as a Fast-forward of about 0.6 s, labelled with the real time it took (`+18 s`).
+
+keek splits the session at each Takeover, edits each part, and joins the parts with a title card in place of each Takeover ("You were in control · 0:42 · 2FA code"). The same split stays when Cua's render replaces the editor, because that render knows nothing of Takeovers. The Raw Recording keeps the footage.
+
+The margins are starting values to tune against real sessions. The spike's five Actions took 20.3 s raw and 8.9 s edited.
+
+## Evidence
+
+While a session is open, Cua writes into `~/.cache/keek/sessions/<session>/`. `close_session` files the Evidence by Project and date in the developer's videos folder (`xdg-user-dir VIDEOS`, normally `~/Videos`):
+
+```
+~/Videos/keek/
+└── myapp/
+    ├── index.md
+    └── 2026-10-30/
+        ├── myapp_14-03-22_needs-fixes_actions/
+        ├── myapp_14-03-22_needs-fixes_raw.mp4
+        ├── myapp_14-03-22_needs-fixes_report.md
+        ├── myapp_14-03-22_needs-fixes_timeline.json
+        ├── myapp_14-03-22_needs-fixes_verification.mp4
+        ├── myapp_16-41-07_pass_actions/
+        └── …
+```
+
+- Names are `<project>_<HH-MM-SS>_<verdict>_<type>.<ext>`. The date folder and time use the local date and time the session started. The verdict is `pass`, `needs-fixes`, `partly-verified` or `incomplete`. A second session of the same Project starting in the same second gets `-2` after the time.
+- `verification.mp4` is the Verification Video, `raw.mp4` the Raw Recording, `timeline.json` the Session Timeline, and `actions/` the Action Log with Test Credentials scrubbed.
+- `report.md` is the Verdict Report. Its header names the goal and the revision ("Verified fix/17-parser-bom at a1b2c3d + uncommitted changes"). It lists the Verification Checklist, each Check with its outcome, comment and timestamp in the Verification Video, then the Verdict. It states that its times come from the Session Timeline, not from `actions/`. It is ready to paste into a PR body after review.
+- `index.md` gets one line per session, appended at close: date, time, branch, commit, Verdict, goal, and links to the files.
+- keek never deletes Evidence.
+
+Every file carries the Project and time in its name, so a Verification Video dragged into a PR still says where it came from.
+
+## Abnormal end
+
+An Agent Session can end without `close_session`: the Verifier finishes, crashes or runs out of context first, the coding agent's session exits, or the developer presses Ctrl-C. keek's MCP server belongs to the coding agent's session, so a Verifier ending ends no process keek can watch. Every Cua call passes through keek, so it ends the session after 5 minutes without a tool call, outside a Help Request or Takeover, and when its own process exits. It stops recording, stops the sandbox and renders anyway. The session is an Incomplete Session. Its files carry `incomplete` in place of a verdict, its Verdict Report says why it ended, lists the Checks marked so far and has no Verdict, and its Verification Video is labelled incomplete.
+
+The first spike's results and the facts this design rests on are in [`facts.md`](facts.md).
+
+## Risks
+
+- Cua's Hyprland support is experimental, and with no accessibility tree in Chromium the agent clicks by pixel. Scale 1 in the nested desktop keeps coordinates right (Cua issues #4944, #3061).
+- The agent runs on the developer's live packages, so a host update changes its environment. A Hyprland update without a matching plugin build stops `pacman -Syu` with a dependency error until Omarchy ships one.
+- The sandbox's host connection (security-context socket passed as `WAYLAND_SOCKET`) is read from source, not yet run.
+- CPU encoding of the recording competes with the developer's own work on the same machine.
+- Two fixed slots assume a wide monitor. On a 1920-pixel display each Session Window is under 960 pixels wide.
+- The Session Timeline's alignment with the video is reasoned from Cua's source, not yet measured. A Takeover cut that lands late would leave Takeover footage in the Verification Video.
+- keek carries an ffmpeg editor and a credential scrub until Cua releases their replacements, and a piece Cua declines stays keek's to carry.
+- The Verifier split and the retry cap hold by instruction only. A coding agent that ignores them can verify its own change.
+
+## Next spike
+
+Prove the sandbox end to end before building anything else:
+
+1. Start a nested Hyprland in bubblewrap with a throwaway HOME, the developer's config read-only plus overrides, its own buses, pasta networking and the host connection through a security-context socket passed as `WAYLAND_SOCKET`.
+2. Run stock Cua Driver 0.38.0 inside, drive the same Chromium sign-in from a Verifier subagent, and record it. Measure how far each Action's proxy time sits from its click mark in the video, which sets the Session Timeline's constant.
+3. Check the leaks are closed: no `DISPLAY`, separate buses, and no screencopy or virtual input against the host.
+4. Float the window at a fixed size with `no_focus`, then do a Takeover through the `keek` submap.

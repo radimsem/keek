@@ -1,0 +1,114 @@
+# keek viewer design
+
+How the developer watches Agent Sessions and takes them over on their Omarchy desktop. Terms are in [`GLOSSARY.md`](../GLOSSARY.md); the session, recording and Evidence design is in [`design.md`](design.md).
+
+## Intent
+
+The developer codes while one or two agents verify changes in the background. Every so often they glance at the agents to answer one question: is each one making progress, or stuck? When an agent hits something it cannot get past (a 2FA prompt, a captcha, an OS dialog), the developer takes over that one session briefly, then hands it back and the agent carries on.
+
+The model is the watch, take control, done pattern of Grok Bot, Manus and Anthropic's computer-use demo. Because each Agent Session is a nested Hyprland, its desktop is already a live window on the developer's screen, and keek only adds what that window lacks ([ADR 0007](adr/0007-nested-window-is-the-session-window.md)).
+
+## Goals
+
+- A glance tells the developer, per session: which Project and session it is, what it is verifying, what it did last and how long ago, and whether it needs them.
+- A session that needs the developer gets their attention even when they are not looking at the agents.
+- The developer can drive any session on demand, the agent waits meanwhile, and both sides know exactly when control changed hands.
+
+## Non-goals
+
+- Watching more than a couple of sessions at once. keek caps open sessions at two (configurable); the layout does not need to scale to a fleet.
+- An Omarchy shell plugin or bar widget. The Session Footer is keek's own layer-shell surface.
+- Remote watching from another machine or a phone.
+- Chatting with the agent beyond starting and ending a Takeover.
+
+## Anti-goals
+
+The viewer fails, even if it works, if:
+
+- It steals focus, pops over the developer's editor, or makes noise while nothing needs them.
+- Clicking or typing into a Session Window reaches the agent's desktop outside a Takeover.
+- The Verifier acts while the developer is in control.
+- A host shortcut pressed during a Takeover acts on the developer's desktop instead of the session, for example closing the Session Window.
+- An agent's desktop changes size mid-session.
+- Anything the developer types during a Takeover (a 2FA code, a real password) reaches the Action Log or the Verification Video.
+- It costs noticeable CPU while the developer is not looking at it.
+
+## Constraints
+
+- Omarchy is the only supported host. Use Omarchy's helpers where they exist (`omarchy-notification-send` for notifications).
+- Long-running host code reacts to events instead of polling, following Omarchy's rule for background work. Hyprland's event socket reports windows and workspaces.
+- Every nested Hyprland window has class `aquamarine` and title `aquamarine - WAYLAND-1`, and neither can be set. Its output takes the window's size on every resize.
+- `hyprctl setprop address:<addr> no_focus 1` makes Hyprland refuse focus to a window and skip it in pointer hit tests. Setting it does not take focus away from a window that already has it.
+
+## Decisions
+
+### Agents Workspace
+
+- keek uses one named Hyprland workspace, `keek`, for every Session Card.
+- The workspace has one slot per allowed open session: two by default, each half the monitor's width. A Session Card fills its slot; its Session Window floats in the slot above the Session Footer at a size fixed when the session opens. A Project's settings can give it a different size, such as a phone-sized window for a mobile web app.
+- A Session Window opens there silently: it never takes focus or switches the developer's workspace. It closes when its session ends.
+- keek ships no keybinding to reach the workspace. Its docs suggest one for the user's Hyprland config. *(my call)*
+
+### Session Window
+
+The nested Hyprland's own window. It shows the agent's desktop live, with Cua's agent cursor, its action marks and a ripple on each click in the picture.
+
+keek sets `no_focus` on it from the moment it maps until a Take control. The developer's clicks, scrolls and keys never reach the agent's desktop by accident, and the window can't be dragged or resized out of its slot.
+
+### Session Footer
+
+A gtk4-layer-shell surface per slot, shown only while the `keek` workspace is active. keek follows Hyprland's workspace events to show and hide it.
+
+It sits flush under its Session Window and overlaps the window's bottom border by the Hyprland rounding (8 px), so window and footer read as one Session Card. The footer draws its own side and bottom border in the window's current border colour and rounds only its bottom corners. The nested desktop is sized so the overlap hides nothing but the border. A 2 px top edge in the session's cursor colour ties the card to its Cua cursor, on screen and in the video. *(my call)*
+
+It shows that session's:
+
+- Project and branch (`myapp`, `fix/17-login-redirect`), after a small arrow in the session's cursor colour. The start time stays in the Evidence file names, not on screen.
+- Goal.
+- Last Action in plain words (`click "Sign in"`) and the time since it, counting up.
+- The Verification Checklist's progress ("Checked 2 of 4", counting marked Checks) with one tick per Check: filled green for passed, filled red for failed, an outlined yellow dash for skipped, a dim outline for not yet marked.
+- Elapsed time since the session opened, so a stuck session stands out. Once the session ends it reads "Ran" with the total.
+- Help Request state: the whole card turns orange, the window border through a window rule and the footer with it, and the footer shows the Verifier's reason.
+- During a Takeover: "You are in control" and its running time, with the window border in the active colour.
+- The **Take control** button, which becomes **Done** during a Takeover.
+
+The keek host process already sees every Action pass through its MCP server, so it pushes an update to the footer per Action and per state change; nothing polls. *(my call)*
+
+### View-only hint
+
+Outside a Takeover, `no_focus` makes Hyprland skip the Session Window in pointer hit tests, so the pointer lands on whatever is beneath it. keek puts a layer-shell surface on the bottom layer under each slot to catch that hover. While the pointer is over the window, the footer's state column reads "View only" and "Use Take control to interact.", and the Take control button lights up. A click there does the same and nothing else. The footer shows the last Action again when the pointer leaves. *(my call)*
+
+### Help Request
+
+- The Verifier calls `request_help(reason)`. The call blocks until a Takeover on that session ends, sending progress notifications while it waits.
+- That session's Session Card turns orange (the Omarchy needs-you colour) and its footer shows the reason. keek sends one desktop notification ("Agent needs you: 2FA code · myapp") through `omarchy-notification-send`. Activating the notification switches to the `keek` workspace. *(my call)*
+- There is no timeout while a Help Request waits for the developer. The 5-minute idle timeout (see [`design.md`](design.md#abnormal-end)) pauses during a Help Request and a Takeover.
+
+### Takeover
+
+A Takeover starts only from the **Take control** button. Looking at, hovering over or clicking the Session Window never starts one.
+
+1. Take control: keek holds the Verifier's next tool call (any forwarded Cua tool, or the pending `request_help`). Holding comes first, so no Verifier Action can land after the developer starts.
+2. keek clears `no_focus`, focuses the Session Window and switches the host Hyprland into the `keek` submap. That submap binds only the Done combo, so every other key, host shortcuts included, goes to the nested desktop. The developer's input arrives on the nested Hyprland's own seat, not through Cua, so it never enters the Action Log.
+3. Done, from the footer button or the combo: keek resets the submap, sets `no_focus` again, returns focus to the developer's previous window and releases the held call. Instead of the call's normal result, the Verifier receives a note ("The developer controlled the session for 0:42 (reason). The screen may have changed.") and a fresh screenshot, so it re-reads the screen before acting.
+
+The developer adds keek's submap snippet to their Hyprland config once. If it is missing, Take control still works, but host shortcuts stay live and the footer says so. *(my call)*
+
+Recording during a Takeover:
+
+- The Raw Recording keeps running and keeps the footage locally.
+- The Session Timeline gets one Takeover entry: start, end and reason. None of the developer's input is logged.
+- The Verification Video replaces the Takeover with a title card: "You were in control · 0:42 · 2FA code".
+- The Verdict Report lists each Takeover with its time and reason.
+
+### Session end
+
+When the session closes (normally or as an Incomplete Session), the sandbox stops and the Session Window closes with it. The Session Card stays at full size: keek shows the session's last frame, dimmed, in the window's place, with one panel over it: "Rendering" and its percentage above a progress bar while the Verification Video is built, then the Verdict with the Verification Checklist. Each Check shows its outcome, Checks the Verifier added are tagged, and a failed or skipped Check shows its comment beneath it. A Needs fixes card also shows the attempt ("attempt 1 of 3"), counted from the Project's `index.md` for the same branch. The footer keeps the video length and gains buttons to open the Verification Video and the Evidence folder. The card stays until the developer dismisses it, which empties the slot. A new session that needs the slot replaces the card; the Verdict stays in the Evidence folder. *(my call)*
+
+## Left to the builder
+
+- Matching a nested window to its session. Candidates are the client's pid and the first window that maps on the connection keek created.
+- Slot geometry and gaps, and what happens on a monitor too narrow for two slots.
+- The Session Footer's layout, styling and copy follow [`DESIGN.md`](../DESIGN.md).
+- The Done combo in the submap snippet.
+- How keek's host process and the Session Footers talk (a local socket is enough).
