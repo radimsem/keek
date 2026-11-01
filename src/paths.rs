@@ -6,6 +6,7 @@ pub struct Paths {
     runtime_dir: PathBuf,
     state_dir: PathBuf,
     sessions_dir: PathBuf,
+    config_file: PathBuf,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -31,6 +32,7 @@ impl Paths {
             runtime_dir: root.join("run/keek"),
             state_dir: root.join("state/keek"),
             sessions_dir: root.join("cache/keek/sessions"),
+            config_file: root.join("config/keek/config.toml"),
         }
     }
 
@@ -53,7 +55,12 @@ impl Paths {
                 .join("keek"),
             state_dir: or_under_home("XDG_STATE_HOME", ".local/state")?.join("keek"),
             sessions_dir: or_under_home("XDG_CACHE_HOME", ".cache")?.join("keek/sessions"),
+            config_file: or_under_home("XDG_CONFIG_HOME", ".config")?.join("keek/config.toml"),
         })
+    }
+
+    pub fn config_file(&self) -> &Path {
+        &self.config_file
     }
 
     #[must_use]
@@ -122,6 +129,7 @@ mod tests {
             ("XDG_RUNTIME_DIR", "/run/user/1000"),
             ("XDG_STATE_HOME", "/state"),
             ("XDG_CACHE_HOME", "/cache"),
+            ("XDG_CONFIG_HOME", "/config"),
         ])
         .unwrap();
 

@@ -5,8 +5,12 @@
 //! `Hello` and `Shutdown` must keep their shape across releases, because they are how
 //! a new `keek mcp` replaces an older daemon.
 
+use crate::session_folder::SessionName;
+use crate::timeline::Millis;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::path::PathBuf;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -27,6 +31,25 @@ pub enum Message {
 #[non_exhaustive]
 pub enum Request {
     Status,
+    ListTools,
+    OpenSession {
+        project: String,
+        worktree: PathBuf,
+        goal: String,
+        checks: Vec<String>,
+    },
+    CallTool {
+        session: SessionName,
+        tool: String,
+        arguments: Value,
+    },
+    CloseSession {
+        session: SessionName,
+        summary: String,
+    },
+    WatchSession {
+        session: SessionName,
+    },
     /// Asks the daemon to exit. It refuses while an Agent Session is open.
     Shutdown,
 }
@@ -36,6 +59,12 @@ pub enum Request {
 #[non_exhaustive]
 pub enum Response {
     Status(DaemonStatus),
+    Tools(Value),
+    Opened { session: SessionName },
+    ToolResult(Value),
+    Closed(Value),
+    Refused { message: String },
+    WatchEnded,
     ShuttingDown,
     ShutdownRefused { open_sessions: usize },
 }
@@ -46,6 +75,16 @@ pub enum Response {
 #[non_exhaustive]
 pub enum Event {
     Progress { message: String },
+    StateChanged { state: SessionState },
+    LastAction { tool: String, time_ms: Millis },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionState {
+    Opening,
+    Open,
+    Closing,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -57,25 +96,83 @@ pub struct DaemonStatus {
 
 #[derive(Debug, thiserror::Error)]
 pub enum IpcError {
-    #[error("the connection failed")]
+    #[error("the connection failed: {0}")]
     Io(#[from] std::io::Error),
-    #[error("the message is not valid")]
+    #[error("the message is not valid: {0}")]
     Json(#[from] serde_json::Error),
 }
 
 #[derive(Debug)]
 pub struct Connection<S> {
-    stream: BufReader<S>,
+    reader: ConnectionReader<tokio::io::ReadHalf<S>>,
+    writer: ConnectionWriter<tokio::io::WriteHalf<S>>,
+}
+
+#[derive(Debug)]
+pub struct ConnectionReader<R> {
+    stream: BufReader<R>,
     line: String,
+}
+
+#[derive(Debug)]
+pub struct ConnectionWriter<W> {
+    stream: W,
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
     #[must_use]
     pub fn new(stream: S) -> Self {
+        let (reader, writer) = tokio::io::split(stream);
         Self {
-            stream: BufReader::new(stream),
-            line: String::new(),
+            reader: ConnectionReader {
+                stream: BufReader::new(reader),
+                line: String::new(),
+            },
+            writer: ConnectionWriter { stream: writer },
         }
+    }
+
+    pub fn split(
+        self,
+    ) -> (
+        ConnectionReader<tokio::io::ReadHalf<S>>,
+        ConnectionWriter<tokio::io::WriteHalf<S>>,
+    ) {
+        (self.reader, self.writer)
+    }
+
+    pub async fn send(&mut self, message: &Message) -> Result<(), IpcError> {
+        self.writer.send(message).await
+    }
+
+    pub async fn recv(&mut self) -> Result<Option<Message>, IpcError> {
+        self.reader.recv().await
+    }
+}
+
+impl<R: AsyncRead + Unpin> ConnectionReader<R> {
+    // Dropping this future can lose a partly read line; keep it in a reader task.
+    pub async fn recv(&mut self) -> Result<Option<Message>, IpcError> {
+        self.line.clear();
+        if self.stream.read_line(&mut self.line).await? == 0 {
+            return Ok(None);
+        }
+        Ok(Some(serde_json::from_str(&self.line)?))
+    }
+}
+
+impl<W: AsyncWrite + Unpin> ConnectionWriter<W> {
+    pub fn boxed(self) -> ConnectionWriter<Box<dyn AsyncWrite + Unpin + Send>>
+    where
+        W: Send + 'static,
+    {
+        ConnectionWriter {
+            stream: Box::new(self.stream),
+        }
+    }
+
+    pub async fn shutdown(&mut self) -> std::io::Result<()> {
+        self.stream.shutdown().await
     }
 
     pub async fn send(&mut self, message: &Message) -> Result<(), IpcError> {
@@ -85,14 +182,24 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
         self.stream.flush().await?;
         Ok(())
     }
+}
 
-    /// `None` means the peer closed the connection. Not cancel safe: dropping this
-    /// future can lose a partly read line.
-    pub async fn recv(&mut self) -> Result<Option<Message>, IpcError> {
-        self.line.clear();
-        if self.stream.read_line(&mut self.line).await? == 0 {
-            return Ok(None);
-        }
-        Ok(Some(serde_json::from_str(&self.line)?))
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_requests_cross_as_names_and_values() {
+        let message = r#"{"type":"request","id":8,"request":{"kind":"call_tool","session":"app_12-00-00","tool":"click","arguments":{"x":10}}}"#;
+        let parsed = serde_json::from_str::<Message>(message);
+        assert!(parsed.is_ok(), "session call was refused: {parsed:?}");
+    }
+    #[test]
+    fn ipc_error_includes_its_source() {
+        let error = IpcError::Io(std::io::Error::new(
+            std::io::ErrorKind::BrokenPipe,
+            "fixture broken pipe",
+        ));
+        assert!(error.to_string().contains("fixture broken pipe"));
     }
 }
