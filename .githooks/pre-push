@@ -2,6 +2,10 @@
 # A failure here costs seconds. The same failure in CI costs a billed run.
 set -eu
 
+# git sets GIT_DIR for a hook. The tests' git commands would inherit it, and change
+# this repository's config and index instead of their temporary repositories.
+unset $(git rev-parse --local-env-vars)
+
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
