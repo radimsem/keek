@@ -1,7 +1,7 @@
 use tokio::io::duplex;
 
 use super::*;
-use crate::ipc::Event;
+use crate::ipc::{Event, LastAction, SessionSnapshot, SessionState};
 
 struct NoDaemon;
 
@@ -104,10 +104,14 @@ async fn watch_events_reach_only_the_matching_request() {
     let Some(Message::Request { id: second_id, .. }) = daemon.recv().await.unwrap() else {
         panic!("no second watch");
     };
-    let event = Event::LastAction {
-        tool: "click".to_owned(),
-        time_ms: crate::timeline::Millis(24),
-    };
+    let event = Event::Snapshot(SessionSnapshot {
+        state: SessionState::Open,
+        checks: vec![],
+        last_action: Some(LastAction {
+            tool: "click".to_owned(),
+            time_ms: crate::timeline::Millis(24),
+        }),
+    });
     daemon
         .send(&Message::Event {
             id: second_id,

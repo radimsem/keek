@@ -2,7 +2,7 @@ use crate::catalog::Catalog;
 use crate::checklist::Checklist;
 use crate::clock::Clock;
 use crate::driver::{Driver, DriverError};
-use crate::ipc::{Event, Response, SessionState};
+use crate::ipc::{CheckStatus, LastAction, Response, SessionSnapshot, SessionState};
 use crate::session_folder::{SessionFolder, SessionName};
 use crate::timeline::{CheckId, CheckOutcome};
 use crate::timeline::{Millis, SessionTimeline, TimelineEvent};
@@ -104,7 +104,7 @@ pub struct Actor {
     pub factory: Arc<dyn DriverFactory>,
     pub clock: Arc<dyn Clock + Send + Sync>,
     pub catalog: Arc<Catalog>,
-    pub events: watch::Sender<Event>,
+    pub events: watch::Sender<SessionSnapshot>,
 }
 impl ActorRequest {
     pub fn into_reply(self) -> oneshot::Sender<Response> {
@@ -148,6 +148,22 @@ fn refusal(error: impl std::fmt::Display) -> Response {
     }
 }
 impl Actor {
+    fn publish(&self, state: SessionState, last_action: &Option<LastAction>) {
+        self.events.send_replace(SessionSnapshot {
+            state,
+            checks: self
+                .checklist
+                .checks()
+                .iter()
+                .map(|c| CheckStatus {
+                    id: c.id,
+                    text: c.text.clone(),
+                    mark: c.mark.clone(),
+                })
+                .collect(),
+            last_action: last_action.clone(),
+        });
+    }
     pub async fn run(
         mut self,
         mut mailbox: mpsc::Receiver<ActorRequest>,
@@ -184,9 +200,7 @@ impl Actor {
                 };
             }
         };
-        self.events.send_replace(Event::StateChanged {
-            state: SessionState::Open,
-        });
+        self.publish(SessionState::Open, &None);
         let _ = open_reply.send(Response::Opened {
             session: self.name.clone(),
             checks: self
@@ -200,6 +214,7 @@ impl Actor {
                 .collect(),
         });
         let mut timeline = SessionTimeline::new(VIDEO_LEAD);
+        let mut last_action: Option<LastAction> = None;
         while let Some(request) = mailbox.recv().await {
             match request {
                 ActorRequest::Call {
@@ -231,10 +246,11 @@ impl Actor {
                         is_error,
                     });
                     if action {
-                        self.events.send_replace(Event::LastAction {
+                        last_action = Some(LastAction {
                             tool,
                             time_ms: start_ms,
                         });
+                        self.publish(SessionState::Open, &last_action);
                     }
                     let _ = reply.send(match result {
                         Ok(value) => Response::ToolResult(value),
@@ -242,9 +258,9 @@ impl Actor {
                     });
                 }
                 ActorRequest::AddCheck { text, reply } => {
-                    let response = match self.checklist.add(text.clone()) {
+                    let response = match self.checklist.add(text) {
                         Ok(check) => {
-                            self.events.send_replace(Event::CheckAdded { check, text });
+                            self.publish(SessionState::Open, &last_action);
                             Response::CheckAdded { check }
                         }
                         Err(e) => refusal(e),
@@ -265,11 +281,7 @@ impl Actor {
                                 outcome,
                                 at_ms: time_ms,
                             });
-                            self.events.send_replace(Event::CheckMarked {
-                                check,
-                                outcome,
-                                time_ms,
-                            });
+                            self.publish(SessionState::Open, &last_action);
                             Response::CheckMarked { check }
                         }
                         Err(e) => refusal(e),
@@ -293,9 +305,7 @@ impl Actor {
                             continue;
                         }
                     };
-                    self.events.send_replace(Event::StateChanged {
-                        state: SessionState::Closing,
-                    });
+                    self.publish(SessionState::Closing, &last_action);
                     mailbox.close();
                     while let Ok(queued) = mailbox.try_recv() {
                         let _ = queued.into_reply().send(refusal(format!(

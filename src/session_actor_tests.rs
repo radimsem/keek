@@ -89,7 +89,7 @@ struct RunningActor {
     folder: SessionFolder,
     calls: Arc<Mutex<Vec<(String, Value)>>>,
     closed: Arc<AtomicBool>,
-    events: watch::Receiver<Event>,
+    events: watch::Receiver<SessionSnapshot>,
     entered: Arc<Notify>,
     release: Arc<Notify>,
     stop_hangs: Arc<AtomicBool>,
@@ -145,8 +145,10 @@ async fn start_actor_result(
             }
         })
         .collect();
-    let (events, receiver) = watch::channel(Event::StateChanged {
+    let (events, receiver) = watch::channel(SessionSnapshot {
         state: SessionState::Opening,
+        checks: vec![],
+        last_action: None,
     });
     let render_succeeds = Arc::new(AtomicBool::new(false));
     let actor = Actor {
@@ -254,11 +256,11 @@ async fn the_timeline_records_each_call_once_and_excludes_setup() {
     call(&actor, "read").await;
     call(&actor, "run_steps").await;
     assert_eq!(
-        *actor.events.borrow(),
-        Event::LastAction {
+        actor.events.borrow().last_action,
+        Some(LastAction {
             tool: "run_steps".into(),
             time_ms: Millis(0)
-        }
+        })
     );
     let folder = actor.folder.clone();
     let calls = actor.calls.clone();

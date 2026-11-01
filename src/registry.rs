@@ -1,7 +1,7 @@
 use crate::catalog::Catalog;
 use crate::clock::Clock;
 use crate::compositor::Compositor;
-use crate::ipc::{Event, Request, Response, SessionState};
+use crate::ipc::{Event, Request, Response, SessionSnapshot, SessionState};
 use crate::process::ProcessRunner;
 use crate::session::{
     Actor, ActorRequest, DriverFactory, Finished, HostEnvironment, SessionError, choose_name,
@@ -28,7 +28,7 @@ struct Entry {
     closing: Arc<AtomicBool>,
     worktree: PathBuf,
     mailbox: mpsc::Sender<ActorRequest>,
-    events: watch::Receiver<Event>,
+    events: watch::Receiver<SessionSnapshot>,
 }
 #[derive(Clone, Copy)]
 enum Lifecycle {
@@ -185,7 +185,7 @@ impl Registry {
                     self.background.spawn(async move {
                         if let Some(events) = events {
                             loop {
-                                let event = receiver.borrow_and_update().clone();
+                                let event = Event::Snapshot(receiver.borrow_and_update().clone());
                                 if events.send(event).await.is_err() {
                                     return;
                                 }
@@ -398,8 +398,10 @@ impl Registry {
                 .map_err(|e| SessionError::Refused(e.to_string()))?;
         }
         let (sender, receiver) = mpsc::channel(32);
-        let (events, event_receiver) = watch::channel(Event::StateChanged {
+        let (events, event_receiver) = watch::channel(SessionSnapshot {
             state: SessionState::Opening,
+            checks: vec![],
+            last_action: None,
         });
         // Set when a close is queued, before the actor can report it, and cleared if the actor refuses it.
         let closing = Arc::new(AtomicBool::new(false));

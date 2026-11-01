@@ -70,18 +70,29 @@ fn every_message() -> Result<Vec<Message>> {
         },
         Message::Event {
             id,
-            event: Event::CheckAdded {
-                check: keek::timeline::CheckId(2),
-                text: "criterion".into(),
-            },
-        },
-        Message::Event {
-            id,
-            event: Event::CheckMarked {
-                check: keek::timeline::CheckId(1),
-                outcome: keek::timeline::CheckOutcome::Failed,
-                time_ms: keek::timeline::Millis(12),
-            },
+            event: Event::Snapshot(keek::ipc::SessionSnapshot {
+                state: SessionState::Open,
+                checks: vec![
+                    keek::ipc::CheckStatus {
+                        id: keek::timeline::CheckId(1),
+                        text: "criterion".into(),
+                        mark: keek::checklist::Mark::Outcome {
+                            outcome: keek::timeline::CheckOutcome::Failed,
+                            comment: "saw a crash".into(),
+                            at: keek::timeline::Millis(12),
+                        },
+                    },
+                    keek::ipc::CheckStatus {
+                        id: keek::timeline::CheckId(2),
+                        text: "another criterion".into(),
+                        mark: keek::checklist::Mark::Unmarked,
+                    },
+                ],
+                last_action: Some(keek::ipc::LastAction {
+                    tool: "click".into(),
+                    time_ms: keek::timeline::Millis(12),
+                }),
+            }),
         },
         Message::Request {
             id,
@@ -127,19 +138,6 @@ fn every_message() -> Result<Vec<Message>> {
         Message::Response {
             id,
             response: Response::WatchEnded,
-        },
-        Message::Event {
-            id,
-            event: Event::StateChanged {
-                state: SessionState::Open,
-            },
-        },
-        Message::Event {
-            id,
-            event: Event::LastAction {
-                tool: "click".into(),
-                time_ms: keek::timeline::Millis(1),
-            },
         },
         Message::Response {
             id,
