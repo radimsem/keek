@@ -23,7 +23,7 @@ pub struct Filed {
     pub report: PathBuf,
     pub raw: Option<PathBuf>,
     pub timeline: PathBuf,
-    pub actions: PathBuf,
+    pub actions: Option<PathBuf>,
     pub verification: Option<PathBuf>,
     pub index: PathBuf,
 }
@@ -119,12 +119,18 @@ fn copy_directory(source: &Path, dest: &Path) -> io::Result<()> {
     }
     Ok(())
 }
+#[derive(Clone, Copy)]
+pub enum ActionLog {
+    File,
+    Withhold,
+}
 pub fn file(
     folder: &Path,
     videos: &Path,
     project: &str,
     session: &str,
     started: DateTime<Local>,
+    action_log: ActionLog,
     input: &ReportInputs<'_>,
 ) -> Result<Filed, EvidenceError> {
     let result = (|| -> io::Result<Filed> {
@@ -157,17 +163,20 @@ pub fn file(
         let prefix = format!("{stem}_{}", input.end.filename_word());
         let path = |kind: &str| date_dir.join(format!("{prefix}_{kind}"));
         let actions = path("actions");
-        fs::create_dir(&actions)?;
-        for entry in fs::read_dir(folder)? {
-            let entry = entry?;
-            if entry.file_name().to_string_lossy().starts_with("turn-") {
-                if fs::symlink_metadata(entry.path())?.is_dir() {
-                    copy_directory(&entry.path(), &actions.join(entry.file_name()))?;
-                } else {
-                    tracing::warn!(path=?entry.path(), "skipping non-directory Action Log");
+        if matches!(action_log, ActionLog::File) {
+            fs::create_dir(&actions)?;
+            for entry in fs::read_dir(folder)? {
+                let entry = entry?;
+                if entry.file_name().to_string_lossy().starts_with("turn-") {
+                    if fs::symlink_metadata(entry.path())?.is_dir() {
+                        copy_directory(&entry.path(), &actions.join(entry.file_name()))?;
+                    } else {
+                        tracing::warn!(path=?entry.path(), "skipping non-directory Action Log");
+                    }
                 }
             }
         }
+        let actions = matches!(action_log, ActionLog::File).then_some(actions);
         let timeline = path("timeline.json");
         if !copy_file(&folder.join("timeline.json"), &timeline)? {
             return Err(io::Error::other(
@@ -201,7 +210,7 @@ pub fn file(
             ("report", Some(&filed.report)),
             ("raw", filed.raw.as_ref()),
             ("timeline", Some(&filed.timeline)),
-            ("actions", Some(&filed.actions)),
+            ("actions", filed.actions.as_ref()),
             ("verification", filed.verification.as_ref()),
         ] {
             if let Some(p) = p {
@@ -231,7 +240,9 @@ pub fn file(
         folder: folder.to_owned(),
         source,
     })?;
-    if let Err(error) = fs::remove_dir_all(folder) {
+    if matches!(action_log, ActionLog::File)
+        && let Err(error) = fs::remove_dir_all(folder)
+    {
         tracing::error!(?folder, %error, "Evidence filed but session folder could not be removed");
     }
     Ok(filed)

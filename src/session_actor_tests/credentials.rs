@@ -160,3 +160,45 @@ async fn checks_comments_and_summary_are_masked_in_snapshots_and_reports() {
     assert!(!report.contains(VALUE));
     assert!(!folder.exists());
 }
+#[tokio::test]
+async fn closing_files_an_action_log_with_values_masked_and_removes_the_cache() {
+    let root = tempfile::tempdir().unwrap();
+    let (actor, _) = start(root.path()).await;
+    let folder = actor.folder.root().to_owned();
+    let turn = folder.join("turn-00001");
+    std::fs::create_dir(&turn).unwrap();
+    std::fs::write(
+        turn.join("action.json"),
+        format!("{{\"text\":\"{VALUE}\"}}"),
+    )
+    .unwrap();
+    let Response::Closed(v) = finish(actor).await else {
+        panic!("close refused")
+    };
+    let filed = Path::new(v["evidence"]["actions"].as_str().unwrap());
+    let action = std::fs::read_to_string(filed.join("turn-00001/action.json")).unwrap();
+    assert_eq!(action, "{\"text\":\"[masked]\"}");
+    assert!(!folder.exists());
+}
+#[tokio::test]
+async fn failed_credential_removal_withholds_actions_and_retains_cache() {
+    let root = tempfile::tempdir().unwrap();
+    let (actor, _) = start(root.path()).await;
+    let folder = actor.folder.root().to_owned();
+    let turn = folder.join("turn-00001");
+    std::fs::create_dir(&turn).unwrap();
+    std::fs::File::create(turn.join("large.txt"))
+        .unwrap()
+        .set_len(64 * 1024 * 1024 + 1)
+        .unwrap();
+    let Response::Closed(v) = finish(actor).await else {
+        panic!("close refused")
+    };
+    assert!(
+        v["actions_error"]
+            .as_str()
+            .is_some_and(|s| s.contains("Action Log") && s.contains("delete"))
+    );
+    assert!(v["evidence"]["actions"].is_null());
+    assert!(folder.exists());
+}

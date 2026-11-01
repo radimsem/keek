@@ -30,5 +30,6 @@ mod session_evidence;
 
 mod session_project;
 
+pub mod credential_scrub;
 pub mod credentials;
 pub mod revision;
