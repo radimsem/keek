@@ -13,4 +13,6 @@ A nested Hyprland already shows the agent's desktop as a live window on the deve
 - A session's size is set when it opens: about half the Agents Workspace's width, or a size the Project sets. The Verification Video has that size.
 - `no_focus` also skips pointer hit tests, so the developer can't drag or resize a Session Window by accident. That keeps it paired with its Session Footer.
 - The developer adds keek's submap snippet to their Hyprland config once.
+- A nested window on a hidden workspace stops rendering unless it has a `render_unfocused` window rule. With the rule, it records at the host's `misc:render_unfocused_fps` (15 by default), which keek leaves alone.
+- The plugin requires the `us` keymap in the nested Hyprland, so a developer types `us` during a Takeover whatever their own layout is.
 - keek enforces the Takeover boundary (`no_focus` plus held agent calls), not Cua's stream. The developer's input reaches the nested desktop through its normal seat and the agent's through the plugin's seat, so nothing the developer types enters the Action Log.

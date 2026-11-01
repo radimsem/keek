@@ -12,6 +12,55 @@ Run on 2026-10-29 with a nested Hyprland under the developer's own user (no sand
 - The video ran a steady 1.45 s behind the Action Log.
 - Leaks the sandbox now closes: the nested session inherited `DISPLAY=:0` and the developer's D-Bus and accessibility buses. Cua's `action.json` keeps typed passwords in plain text, which the credential scrub handles.
 
+## Sandbox spike results
+
+Run on 2026-10-31 with Hyprland 0.56.2, aquamarine 0.15.1, `cua-hyprland-plugin` 0.33.2-3, Cua Driver 0.38.0, bubblewrap 0.13.1 and pasta 2026_10_02. The scripts and raw output are in [`spikes/sandbox/`](../spikes/sandbox/RESULTS.md).
+
+The sandbox works: a Verifier subagent signed in to a test page in Chromium, recorded, with input through the plugin's seat. Inside there is no `DISPLAY` and the buses and namespaces are separate. Through the security-context connection, the screencopy and virtual input globals are hidden. Writes to the developer's config fail, and no sandbox process survives killing its parent.
+
+Not run: `no_focus` against real clicks and keys, and a Takeover through the `keek` submap. Both need a person at the desktop, and #8 and #9 prove them. The Worktree row of the Isolation table wasn't built.
+
+Alignment, from 32 clicks across 4 sessions with the window hidden at 15 fps. A click's flip is its time in the video, and the page event is the timestamp the page reads when the click lands:
+
+| Flip in the video, minus | Min (ms) | Median (ms) | Max (ms) | Spread (ms) |
+| --- | --- | --- | --- | --- |
+| The click call's start at the proxy | 18.9 | 59.3 | 333.0 | 314.1 |
+| The click call's end at the proxy | -376.0 | -232.0 | -218.4 | 157.7 |
+| The page event | -116.1 | -94.7 | -51.1 | 64.9 |
+
+- A flip can't reach the video before the page acts, so the video's clock sits at least 116.1 ms behind the proxy's zero. keek's constant is 116 ms.
+- A click call takes about 250 to 620 ms, and its effect lands at varying points inside it. That accounts for the 314 ms spread. Every flip fell inside its call, so the editor's windows, which keep the whole call plus margins, aren't affected.
+- The 64.9 ms spread against the page event is about one frame at 15 fps, and it's what a Takeover cut has to absorb.
+
+A scripted Takeover cut, scanning for magenta frames left from 45 or 46 in each of 3 runs:
+
+| Constant (ms) | Guard (ms) | Magenta frames left |
+| --- | --- | --- |
+| 100 | 0 | 0, 1, 1 |
+| 110 | 0 | 0, 0, 0 |
+| 116 | 0 | 0, 0, 0 |
+| 116 | 150 | 0, 0, 0 |
+| 1536, the offset of Cua's turn clock | 0 | 21, 21, 21 |
+
+At 116 and 150, the first magenta frame was at least 161.9 ms inside the cut and the last at least 185.5 ms inside it. The cut removed about 3.3 s for a 3.0 s Takeover.
+
+What the sandbox needs beyond its plan:
+
+- pasta closes inherited descriptors above stderr, so the process that opens the Wayland connection runs inside pasta: `pasta -- helper connect-exec -- bwrap`.
+- pasta's defaults forward ports both ways and map the gateway to host loopback. A host listener on `127.0.0.1` was reachable from inside until `--no-map-gw -t none -u none -T none -U none`.
+- `WAYLAND_SOCKET` must be set for Hyprland alone. Set for the whole sandbox, it reaches every bus-activated service. `dbus-run-session` still holds a copy of the descriptor, so a crashed Hyprland's window stays until the session ends.
+- Bus-activated services inherit stdout, and a stray line corrupted the MCP stream, so that stream moves to private descriptors.
+- `ATSPI_DBUS_IMPLEMENTATION=dbus-daemon` is needed, because the default `dbus-broker` fails without systemd.
+- On NVIDIA, Hyprland aborts without `/dev/nvidia*` in the sandbox. `/etc` is mounted read-only, with a resolver file pasta can serve.
+- The plugin opens its input socket only with `plugin:cua:enabled` set in the config at load. It refuses typing on any keymap but `evdev/pc105/us`.
+- Hyprland's Xwayland sets its own `DISPLAY`, never the host's. keek turns it off, which is what makes `DISPLAY` absent.
+- `misc.disable_watchdog_warning` keeps Hyprland's warning out of the video.
+- A hidden nested window needs a `render_unfocused` window rule to keep rendering, and then records at the host's `misc:render_unfocused_fps` (15 by default). A visible window wasn't measured.
+- A Session Window's client pid on the host is that of the process that made the connection.
+- Every input tool in 0.38.0 takes `delivery_mode`, with `background` as its default (`click`, `double_click`, `right_click`, `type_text`, `press_key`, `hotkey`, `scroll`, `drag`, `set_value`). `foreground` was run for `click` and `type_text`, and the driver requires `get_window_state` before pixel clicks.
+- Driver variables, from `health_report` with each one removed: `CUA_DRIVER_RS_ENABLE_WAYLAND`, `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR` turn it degraded. Removing `HYPRLAND_INSTANCE_SIGNATURE` or `DBUS_SESSION_BUS_ADDRESS` still reports ok, but `health_report` doesn't test input.
+- `xdg-desktop-portal-hyprland` used 95% of a core inside one early session. It wasn't reproduced or explained.
+
 ## Facts this design rests on
 
 Checked on 2026-10-31 in Cua Driver 0.38.0 and `trycua/cua` main `a9902d2`:
