@@ -5,7 +5,7 @@ mod tests {
         checklist::{Checklist, SessionEnd, Verdict},
         evidence,
         report::{IdentityTimeMap, ReportInputs},
-        session::Revision,
+        revision::Revision,
     };
     use std::{fs, path::Path};
 

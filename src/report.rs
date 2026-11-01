@@ -1,5 +1,5 @@
 use crate::checklist::{Check, Mark, SessionEnd};
-use crate::session::Revision;
+use crate::revision::Revision;
 use crate::timeline::{CheckOutcome, Millis};
 
 pub trait VideoTimeMap {

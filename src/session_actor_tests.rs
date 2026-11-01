@@ -1,6 +1,7 @@
 use super::*;
 use crate::driver::DriverFuture;
 use rmcp::model::{Tool, ToolAnnotations};
+use std::path::Path;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::sync::Notify;

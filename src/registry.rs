@@ -3,9 +3,9 @@ use crate::clock::Clock;
 use crate::compositor::Compositor;
 use crate::ipc::{Event, Request, Response, SessionSnapshot, SessionState};
 use crate::process::ProcessRunner;
+use crate::revision::revision;
 use crate::session::{
     Actor, ActorRequest, DriverFactory, Finished, HostEnvironment, SessionError, choose_name,
-    revision,
 };
 use crate::session_folder::{SessionFolder, SessionName};
 use std::collections::HashMap;
@@ -57,7 +57,7 @@ struct Opening {
     goal: String,
     checks: Vec<String>,
     catalog: Arc<Catalog>,
-    revision: crate::session::Revision,
+    revision: crate::revision::Revision,
     settings: crate::project::Settings,
     warnings: Vec<String>,
 }
