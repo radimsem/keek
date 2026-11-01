@@ -95,17 +95,24 @@ pub async fn run(
     let home = std::env::var_os("HOME")
         .map(std::path::PathBuf::from)
         .unwrap_or_default();
+    let compositor: std::sync::Arc<dyn crate::compositor::Compositor> =
+        std::sync::Arc::new(crate::compositor::HostCompositor::new(runner.clone()));
     let dependencies = crate::registry::Dependencies {
         sessions_dir: paths.sessions_dir().to_owned(),
+        projects_config: paths.projects_config().to_owned(),
+        projects_cache: paths.projects_cache().to_owned(),
+        trees: paths.trees().to_owned(),
         cap: config.session_cap,
         host: crate::session::HostEnvironment::capture(),
         clock: std::sync::Arc::new(clock),
         runner: runner.clone(),
-        compositor: std::sync::Arc::new(crate::compositor::HostCompositor::new(runner.clone())),
+        compositor: compositor.clone(),
         factory: std::sync::Arc::new(crate::session_factory::SandboxFactory {
             driver: crate::driver::driver_path(&home),
             runner,
-            start_command: std::env::var("KEEK_TEST_START_COMMAND").ok(),
+            compositor,
+            projects_cache: paths.projects_cache().to_owned(),
+            trees: paths.trees().to_owned(),
         }),
     };
     let (catalog_sender, catalog_receiver) = tokio::sync::watch::channel(None);

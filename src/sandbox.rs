@@ -5,6 +5,9 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::process::Command;
 
+// Console scripts in a shared Project Layer need the same absolute worktree path.
+const SANDBOX_WORKTREE: &str = "/keek/worktree";
+
 #[derive(Debug, thiserror::Error)]
 pub enum SandboxError {
     #[error("Can't prepare the Agent Session: {0}. Check that its session folder is writable.")]
@@ -21,6 +24,11 @@ pub enum SandboxError {
 
 #[derive(Debug, Clone)]
 pub struct SandboxSpec {
+    pub project: String,
+    pub worktree: PathBuf,
+    pub tree: PathBuf,
+    pub layer: PathBuf,
+    pub ports: Vec<crate::project::HostPort>,
     pub home: PathBuf,
     pub runtime_dir: PathBuf,
     pub session_dir: PathBuf,
@@ -31,6 +39,16 @@ pub struct SandboxSpec {
     pub user: String,
     pub lang: String,
     pub nvidia_devices: Vec<PathBuf>,
+}
+
+#[derive(Clone, Copy)]
+enum SandboxMode<'a> {
+    Session,
+    Install {
+        upper: &'a Path,
+        work: &'a Path,
+        log: &'a Path,
+    },
 }
 
 impl SandboxSpec {
@@ -53,6 +71,11 @@ impl SandboxSpec {
         }
         nvidia_devices.sort();
         Ok(Self {
+            project: String::new(),
+            worktree: PathBuf::new(),
+            tree: PathBuf::new(),
+            layer: PathBuf::new(),
+            ports: Vec::new(),
             home,
             runtime_dir,
             session_dir: session_dir.to_owned(),
@@ -67,7 +90,7 @@ impl SandboxSpec {
         })
     }
 
-    pub fn prepare(&self, start_command: Option<&str>) -> Result<(), SandboxError> {
+    pub fn prepare(&self) -> Result<(), SandboxError> {
         let nested = self.session_dir.join("nested");
         std::fs::create_dir_all(nested.join("bin"))?;
         for (name, content) in [
@@ -84,12 +107,10 @@ impl SandboxSpec {
         ] {
             write_executable(&nested.join(name), content)?;
         }
-        if let Some(command) = start_command {
-            write_executable(
-                &nested.join("start-app.sh"),
-                &format!("#!/bin/bash\n{command}\n"),
-            )?;
-        }
+        write_executable(
+            &nested.join("start-app.sh"),
+            include_str!("../assets/nested/start-app.sh"),
+        )?;
         let path = self.home.join(".config/omarchy/shell.json");
         let mut shell: serde_json::Value = match std::fs::read(&path) {
             Ok(bytes) => serde_json::from_slice(&bytes)?,
@@ -125,6 +146,19 @@ impl SandboxSpec {
     }
 
     pub fn command(&self) -> Result<Command, SandboxError> {
+        self.command_with(SandboxMode::Session)
+    }
+
+    pub fn install_command(
+        &self,
+        upper: &Path,
+        work: &Path,
+        log: &Path,
+    ) -> Result<Command, SandboxError> {
+        self.command_with(SandboxMode::Install { upper, work, log })
+    }
+
+    fn command_with(&self, mode: SandboxMode<'_>) -> Result<Command, SandboxError> {
         let mut command = Command::new("pasta");
         command.env_clear();
         for name in ["PATH", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"] {
@@ -133,11 +167,18 @@ impl SandboxSpec {
             }
         }
         command
-            .args(self.args())
+            .args(self.args_for(mode))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(std::fs::File::create(self.session_dir.join("sandbox.err"))?)
             .kill_on_drop(true);
+        if let SandboxMode::Install { log, .. } = mode {
+            let file = std::fs::File::create(log)?;
+            command
+                .stdin(Stdio::null())
+                .stdout(file.try_clone()?)
+                .stderr(file);
+        }
         // SAFETY: prctl takes a signal number and reads no pointers.
         unsafe {
             command.pre_exec(|| {
@@ -151,6 +192,15 @@ impl SandboxSpec {
     }
 
     pub fn args(&self) -> Vec<OsString> {
+        self.args_for(SandboxMode::Session)
+    }
+
+    fn args_for(&self, mode: SandboxMode<'_>) -> Vec<OsString> {
+        let ports = crate::project::Settings {
+            ports: self.ports.clone(),
+            window: None,
+        }
+        .pasta_ports();
         let mut args: Vec<OsString> = [
             "-f",
             "-q",
@@ -163,15 +213,18 @@ impl SandboxSpec {
             "-u",
             "none",
             "-T",
-            "none",
+            &ports,
             "-U",
             "none",
             "--",
         ]
         .map(OsString::from)
         .into();
-        args.push(self.executable.as_os_str().to_owned());
-        args.extend(["connect-exec", "--", "bwrap", "--unshare-user", "--uid"].map(OsString::from));
+        if matches!(mode, SandboxMode::Session) {
+            args.push(self.executable.as_os_str().to_owned());
+            args.extend(["connect-exec", "--"].map(OsString::from));
+        }
+        args.extend(["bwrap", "--unshare-user", "--uid"].map(OsString::from));
         args.push(self.uid.to_string().into());
         args.push("--gid".into());
         args.push(self.gid.to_string().into());
@@ -204,8 +257,27 @@ impl SandboxSpec {
             ("CUA_DRIVER_RS_ENABLE_WAYLAND", "1".as_ref()),
             ("CUA_DRIVER_RS_TELEMETRY_ENABLED", "false".as_ref()),
         ] {
-            args.extend([OsString::from("--setenv"), key.into(), value.to_owned()]);
+            if matches!(mode, SandboxMode::Session)
+                || matches!(key, "HOME" | "USER" | "LANG" | "PATH")
+            {
+                let value = if matches!(mode, SandboxMode::Install { .. }) && key == "PATH" {
+                    std::ffi::OsStr::new("/usr/bin")
+                } else {
+                    value
+                };
+                args.extend([OsString::from("--setenv"), key.into(), value.to_owned()]);
+            }
         }
+        args.extend([
+            OsString::from("--setenv"),
+            "KEEK_PROJECT".into(),
+            self.project.clone().into(),
+        ]);
+        args.extend([
+            OsString::from("--setenv"),
+            "KEEK_WORKTREE".into(),
+            SANDBOX_WORKTREE.into(),
+        ]);
         args.extend(
             [
                 "--ro-bind",
@@ -233,40 +305,57 @@ impl SandboxSpec {
             .map(OsString::from),
         );
         args.push(self.session_dir.join("resolv.conf").into());
-        args.extend(
-            [
-                "/run/systemd/resolve/stub-resolv.conf",
-                "--dev",
-                "/dev",
-                "--dev-bind",
-                "/dev/dri",
-                "/dev/dri",
-            ]
-            .map(OsString::from),
-        );
-        for device in &self.nvidia_devices {
-            args.extend([
-                OsString::from("--dev-bind"),
-                device.as_os_str().to_owned(),
-                device.as_os_str().to_owned(),
-            ]);
+        args.extend(["/run/systemd/resolve/stub-resolv.conf", "--dev", "/dev"].map(OsString::from));
+        if matches!(mode, SandboxMode::Session) {
+            args.extend(["--dev-bind", "/dev/dri", "/dev/dri"].map(OsString::from));
+            for device in &self.nvidia_devices {
+                args.extend([
+                    OsString::from("--dev-bind"),
+                    device.as_os_str().to_owned(),
+                    device.as_os_str().to_owned(),
+                ]);
+            }
+        }
+        if matches!(mode, SandboxMode::Session) {
+            args.extend(["--ro-bind", "/sys", "/sys"].map(OsString::from));
         }
         args.extend(
             [
-                "--ro-bind",
-                "/sys",
-                "/sys",
-                "--proc",
-                "/proc",
-                "--tmpfs",
-                "/tmp",
-                "--tmpfs",
+                "--dir", "/keek", "--proc", "/proc", "--tmpfs", "/tmp", "--tmpfs",
             ]
             .map(OsString::from),
         );
         args.push(self.home.as_os_str().to_owned());
-        args.extend(["--perms", "0700", "--tmpfs"].map(OsString::from));
-        args.push(self.runtime_dir.as_os_str().to_owned());
+        if matches!(mode, SandboxMode::Session) {
+            args.extend(["--perms", "0700", "--tmpfs"].map(OsString::from));
+            args.push(self.runtime_dir.as_os_str().to_owned());
+        }
+        if let SandboxMode::Install { upper, work, .. } = mode {
+            args.extend([
+                OsString::from("--overlay-src"),
+                self.tree.clone().into(),
+                "--overlay".into(),
+                upper.into(),
+                work.into(),
+                SANDBOX_WORKTREE.into(),
+                "--chdir".into(),
+                SANDBOX_WORKTREE.into(),
+                "./.keek/setup.sh".into(),
+                "install".into(),
+            ]);
+            return args;
+        }
+        // The tree wins over install writes to tracked paths so the Verifier sees the agent's change.
+        args.extend([
+            OsString::from("--overlay-src"),
+            self.layer.clone().into(),
+            "--overlay-src".into(),
+            self.tree.clone().into(),
+            "--tmp-overlay".into(),
+            SANDBOX_WORKTREE.into(),
+            "--chdir".into(),
+            SANDBOX_WORKTREE.into(),
+        ]);
         for path in [".config/hypr", ".config/omarchy"] {
             let path = self.home.join(path);
             args.extend([
@@ -316,168 +405,5 @@ fn write_executable(path: &Path, content: &str) -> io::Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn spec() -> SandboxSpec {
-        SandboxSpec {
-            home: "/home/test".into(), runtime_dir: "/run/user/42".into(),
-            session_dir: "/cache/keek/sessions/demo_12-00-00".into(),
-            executable: "/usr/bin/keek".into(), driver: "/home/test/.cua-driver/packages/releases/0.38.0-x86_64-unknown-linux-gnu/cua-driver".into(),
-            uid: 42, gid: 43, user: "test".into(), lang: "C.UTF-8".into(),
-            nvidia_devices: vec!["/dev/nvidia0".into(), "/dev/nvidiactl".into()],
-        }
-    }
-
-    #[test]
-    fn preparing_a_session_writes_executable_assets_and_preserves_shell_settings() {
-        use std::os::unix::fs::PermissionsExt;
-        let directory = tempfile::tempdir().unwrap();
-        let mut sandbox = spec();
-        sandbox.home = directory.path().join("home");
-        sandbox.session_dir = directory.path().join("session");
-        std::fs::create_dir_all(sandbox.home.join(".config/omarchy")).unwrap();
-        std::fs::write(
-            sandbox.home.join(".config/omarchy/shell.json"),
-            r#"{"theme":"light","idle":{"screensaver":30,"lock":60,"other":7}}"#,
-        )
-        .unwrap();
-        sandbox
-            .prepare(Some("chromium 'data:text/html,fixture'"))
-            .unwrap();
-        for asset in [
-            "init.sh",
-            "session.sh",
-            "hyprland.lua",
-            "bin/systemd-cat",
-            "start-app.sh",
-        ] {
-            let path = sandbox.session_dir.join("nested").join(asset);
-            assert!(path.is_file(), "missing {}", path.display());
-            assert_eq!(
-                std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
-                0o755
-            );
-        }
-        let shell: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(sandbox.session_dir.join("shell.json")).unwrap())
-                .unwrap();
-        assert_eq!(
-            shell,
-            serde_json::json!({"theme":"light","idle":{"screensaver":0,"lock":0,"other":7}})
-        );
-        assert_eq!(
-            std::fs::read_to_string(sandbox.session_dir.join("resolv.conf")).unwrap(),
-            "nameserver 169.254.1.1\n"
-        );
-        let session =
-            std::fs::read_to_string(sandbox.session_dir.join("nested/session.sh")).unwrap();
-        assert!(session.contains("hyprctl plugin list -j"));
-        assert!(session.contains("hyprctl version -j"));
-        assert!(session.contains("hl.exec_cmd('/keek/nested/start-app.sh')"));
-        assert!(!session.contains("python3"));
-        assert!(!session.contains("probe.sh"));
-    }
-
-    #[test]
-    fn preparing_a_session_without_a_test_command_does_not_start_an_app() {
-        let directory = tempfile::tempdir().unwrap();
-        let mut sandbox = spec();
-        sandbox.home = directory.path().join("home");
-        sandbox.session_dir = directory.path().join("session");
-        sandbox.prepare(None).unwrap();
-        assert!(sandbox.session_dir.join("nested/session.sh").is_file());
-        assert!(!sandbox.session_dir.join("nested/start-app.sh").exists());
-    }
-
-    #[test]
-    fn the_sandbox_preserves_the_network_and_namespace_argument_order() {
-        let args = spec().args();
-        let prefix: Vec<OsString> = [
-            "-f",
-            "-q",
-            "--config-net",
-            "--dns-forward",
-            "169.254.1.1",
-            "--no-map-gw",
-            "-t",
-            "none",
-            "-u",
-            "none",
-            "-T",
-            "none",
-            "-U",
-            "none",
-            "--",
-            "/usr/bin/keek",
-            "connect-exec",
-            "--",
-            "bwrap",
-            "--unshare-user",
-            "--uid",
-            "42",
-            "--gid",
-            "43",
-            "--unshare-pid",
-            "--unshare-ipc",
-            "--unshare-uts",
-            "--die-with-parent",
-            "--new-session",
-            "--clearenv",
-        ]
-        .map(OsString::from)
-        .into();
-        assert!(args.starts_with(&prefix), "actual arguments: {args:?}");
-    }
-
-    #[test]
-    fn the_sandbox_mounts_its_assets_and_nvidia_devices_without_a_page_server() {
-        let args = spec().args();
-        let has = |words: &[&str]| {
-            args.windows(words.len()).any(|part| {
-                part.iter()
-                    .map(|word| word.to_string_lossy())
-                    .eq(words.iter().copied())
-            })
-        };
-        assert!(has(&["--dev-bind", "/dev/nvidia0", "/dev/nvidia0"]));
-        assert!(has(&["--dev-bind", "/dev/nvidiactl", "/dev/nvidiactl"]));
-        assert!(has(&["--setenv", "CUA_DRIVER_RS_ENABLE_WAYLAND", "1"]));
-        assert!(has(&[
-            "--setenv",
-            "CUA_DRIVER_RS_TELEMETRY_ENABLED",
-            "false"
-        ]));
-        assert!(has(&[
-            "--setenv",
-            "ATSPI_DBUS_IMPLEMENTATION",
-            "dbus-daemon"
-        ]));
-        assert!(has(&[
-            "--ro-bind",
-            "/cache/keek/sessions/demo_12-00-00/nested",
-            "/keek/nested"
-        ]));
-        assert_eq!(args.last(), Some(&OsString::from("/keek/nested/init.sh")));
-        assert!(!args.iter().any(|arg| arg == "KEEK_PAGE"));
-    }
-    #[test]
-    fn pasta_inherits_only_host_display_environment() {
-        let temp = tempfile::tempdir().unwrap();
-        let mut spec = spec();
-        spec.session_dir = temp.path().to_owned();
-        let command = spec.command().unwrap();
-        let command = command.as_std();
-        assert!(format!("{command:?}").contains("env -i"), "{command:?}");
-        let actual: std::collections::BTreeMap<_, _> = command
-            .get_envs()
-            .map(|(k, v)| (k.to_os_string(), v.map(std::ffi::OsStr::to_os_string)))
-            .collect();
-        let expected: std::collections::BTreeMap<_, _> =
-            ["PATH", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"]
-                .into_iter()
-                .filter_map(|k| std::env::var_os(k).map(|v| (k.into(), Some(v))))
-                .collect();
-        assert_eq!(actual, expected);
-    }
-}
+#[path = "sandbox_tests.rs"]
+mod tests;

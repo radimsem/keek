@@ -1,6 +1,6 @@
 use crate::driver::{CuaDriver, Driver, DriverError, DriverFuture};
 use crate::process::ProcessRunner;
-use crate::session::{DriverFactory, SessionError};
+use crate::session::{DriverFactory, Mounts, Opening, SessionError};
 use crate::session_folder::SessionFolder;
 use serde_json::Value;
 use std::path::PathBuf;
@@ -10,26 +10,38 @@ use std::time::Duration;
 pub struct SandboxFactory {
     pub driver: PathBuf,
     pub runner: Arc<dyn ProcessRunner>,
-    pub start_command: Option<String>,
+    pub compositor: Arc<dyn crate::compositor::Compositor>,
+    pub projects_cache: PathBuf,
+    pub trees: PathBuf,
 }
 impl DriverFactory for SandboxFactory {
+    fn prepare<'a>(
+        &'a self,
+        folder: &'a SessionFolder,
+        opening: &'a Opening,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Mounts, SessionError>> + Send + 'a>,
+    > {
+        Box::pin(crate::session_project::prepare(self, folder, opening))
+    }
     fn open<'a>(
         &'a self,
         folder: &'a SessionFolder,
+        opening: &'a Opening,
+        mounts: &'a Mounts,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<Box<dyn Driver>, SessionError>> + Send + 'a>,
     > {
         Box::pin(async move {
-            let folder_copy = folder.clone();
-            let driver = self.driver.clone();
-            let start = self.start_command.clone();
-            let mut command = tokio::task::spawn_blocking(move || {
-                let spec = crate::sandbox::SandboxSpec::from_env(folder_copy.root(), &driver)?;
-                spec.prepare(start.as_deref())?;
-                spec.command()
-            })
-            .await
-            .map_err(|e| SessionError::Refused(e.to_string()))??;
+            let window = opening.settings.window;
+            let mut spec = crate::session_project::spec(self, folder, opening).await?;
+            spec.layer = mounts.layer.clone();
+            spec.tree = mounts.tree.clone();
+            let mut command = tokio::task::spawn_blocking(move || spec.command())
+                .await
+                .map_err(|e| {
+                    SessionError::Refused(format!("Cannot prepare the Agent Session command: {e}. Check the session folder and open again."))
+                })??;
             // PDEATHSIG follows the spawning thread, so spawn on the runtime, never in spawn_blocking.
             let mut child = command.spawn().map_err(SessionError::SpawnPasta)?;
             let reader = child.stdout.take().ok_or_else(|| {
@@ -64,9 +76,30 @@ impl DriverFactory for SandboxFactory {
                 let _ = sandbox.close().await;
                 return Err(error);
             }
+            if let Some(size) = window {
+                let resize = async {
+                    let pid = sandbox.child.id().ok_or_else(|| SessionError::Refused("The sandbox stopped before the Session Window appeared. Check sandbox.err and open again.".into()))?;
+                    let pid = connection_pid(pid).await?;
+                    self.compositor.resize_window(crate::compositor::WindowPid(pid), size).await.map_err(|e| SessionError::Refused(e.to_string()))
+                }.await;
+                if let Err(error) = resize {
+                    let _ = sandbox.close().await;
+                    return Err(error);
+                }
+            }
             Ok(Box::new(sandbox) as Box<dyn Driver>)
         })
     }
+}
+async fn connection_pid(pid: u32) -> Result<u32, SessionError> {
+    tokio::task::spawn_blocking(move || {
+        let tasks = std::path::PathBuf::from(format!("/proc/{pid}/task"));
+        for task in std::fs::read_dir(tasks)? {
+            let children = std::fs::read_to_string(task?.path().join("children"))?;
+            if let Some(child) = children.split_whitespace().next().and_then(|p| p.parse().ok()) { return Ok(child); }
+        }
+        Err(SessionError::Refused("Cannot resize the Session Window because its process was not found. Check sandbox.err and open again.".into()))
+    }).await.map_err(|e| SessionError::Refused(format!("Cannot find the Session Window pid: {e}. Open again.")))?
 }
 async fn check_plugin(
     folder: &SessionFolder,

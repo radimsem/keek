@@ -75,6 +75,8 @@ impl DriverFactory for FakeFactory {
     fn open<'a>(
         &'a self,
         _: &'a SessionFolder,
+        _: &'a crate::session::Opening,
+        _: &'a crate::session::Mounts,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<Box<dyn Driver>, SessionError>> + Send + 'a>,
     > {
@@ -153,6 +155,9 @@ async fn start_actor_result(
     let render_succeeds = Arc::new(AtomicBool::new(false));
     let actor = Actor {
         project: "app".into(),
+        worktree: root.to_owned(),
+        settings: crate::project::Settings::default(),
+        warnings: vec![],
         goal: "fixture".into(),
         revision: Revision {
             branch: None,
@@ -557,3 +562,6 @@ impl crate::process::ProcessRunner for EvidenceRunner {
         })
     }
 }
+
+#[path = "session_actor_tests/project.rs"]
+mod project;

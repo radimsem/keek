@@ -37,6 +37,9 @@ enum Lifecycle {
 }
 pub struct Dependencies {
     pub sessions_dir: PathBuf,
+    pub projects_config: PathBuf,
+    pub projects_cache: PathBuf,
+    pub trees: PathBuf,
     pub cap: usize,
     pub host: HostEnvironment,
     pub clock: Arc<dyn Clock + Send + Sync>,
@@ -55,6 +58,8 @@ struct Opening {
     checks: Vec<String>,
     catalog: Arc<Catalog>,
     revision: crate::session::Revision,
+    settings: crate::project::Settings,
+    warnings: Vec<String>,
 }
 impl Registry {
     pub fn new(
@@ -92,6 +97,18 @@ impl Registry {
     }
     pub async fn finished(&mut self, finished: Finished) {
         self.sessions.remove(&finished.name);
+        let tree = crate::session_project::tree_path(&self.dependencies.trees, &finished.name);
+        let cleanup = tokio::task::spawn_blocking(move || match std::fs::remove_dir_all(tree) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e),
+        })
+        .await;
+        match cleanup {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => tracing::error!(%error, "could not remove the worktree's copy"),
+            Err(error) => tracing::error!(%error, "could not finish removing the worktree's copy"),
+        }
         if self.sessions.is_empty()
             && let Err(error) = self.dependencies.compositor.remove().await
         {
@@ -268,6 +285,7 @@ impl Registry {
         let host = self.dependencies.host.clone();
         let runner = Arc::clone(&self.dependencies.runner);
         let sessions_dir = self.dependencies.sessions_dir.clone();
+        let projects_config = self.dependencies.projects_config.clone();
         let mut catalog = self.catalog.clone();
         self.preparing.spawn(async move {
             let result = async {
@@ -275,6 +293,7 @@ impl Registry {
                 project
                     .parse::<SessionName>()
                     .map_err(|e| SessionError::Refused(e.to_string()))?;
+                let (settings, warnings) = crate::project::read_project_settings(&project, &projects_config).await?;
                 let catalog = wait_catalog(&mut catalog)
                     .await
                     .map_err(SessionError::Refused)?;
@@ -300,7 +319,11 @@ impl Registry {
                     _ => {}
                 }
                 let (root, revision) = revision(runner.as_ref(), &worktree).await?;
-                let worktree = tokio::task::spawn_blocking(move || std::fs::canonicalize(root)).await.map_err(|e| SessionError::Refused(e.to_string()))?.map_err(|e| SessionError::Refused(format!("Cannot inspect git worktree root: {e}. Check the worktree and retry.")))?;
+                let worktree = tokio::task::spawn_blocking(move || {
+                    let root = std::fs::canonicalize(root).map_err(|e| format!("Cannot inspect git worktree root: {e}. Check the worktree and retry."))?;
+                    crate::project::check_git_root(&worktree, &root).map_err(|e| e.to_string())?;
+                    Ok::<_, String>(root)
+                }).await.map_err(|e| SessionError::Refused(e.to_string()))?.map_err(SessionError::Refused)?;
                 if sessions.as_ref().is_ok_and(|sessions| worktree.starts_with(sessions)) { return Err(SessionError::Refused("Cannot open a worktree inside the sessions folder. Choose a worktree outside it.".into())); }
                 Ok(Opening {
                     project,
@@ -309,6 +332,7 @@ impl Registry {
                     checks,
                     catalog,
                     revision,
+                    settings, warnings,
                 })
             }
             .await;
@@ -343,6 +367,8 @@ impl Registry {
             checks,
             catalog,
             revision,
+            settings,
+            warnings,
         } = opening;
         match self.lifecycle {
             Lifecycle::Running => {}
@@ -409,7 +435,7 @@ impl Registry {
             name.clone(),
             Entry {
                 closing: Arc::clone(&closing),
-                worktree,
+                worktree: worktree.clone(),
                 mailbox: sender,
                 events: event_receiver,
             },
@@ -417,6 +443,9 @@ impl Registry {
         Ok((
             Actor {
                 project,
+                worktree,
+                settings,
+                warnings,
                 goal,
                 revision,
                 started,

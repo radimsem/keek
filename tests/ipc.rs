@@ -114,6 +114,7 @@ fn every_message() -> Result<Vec<Message>> {
         Message::Response {
             id,
             response: Response::Opened {
+                warnings: vec![],
                 checks: vec![keek::ipc::OpenedCheck {
                     id: keek::timeline::CheckId(1),
                     text: "criterion".into(),

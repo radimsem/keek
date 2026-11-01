@@ -32,8 +32,6 @@ done
 hyprctl plugin list -j >"$KEEK_SESSION/plugins.json"
 hyprctl version -j >"$KEEK_SESSION/hyprland-version.json"
 
-if [ -f /keek/nested/start-app.sh ]; then
-  hyprctl eval "hl.exec_cmd('/keek/nested/start-app.sh')" >"$KEEK_SESSION/exec.log" 2>&1
-fi
+hyprctl eval "hl.exec_cmd('/keek/nested/start-app.sh')" >"$KEEK_SESSION/exec.log" 2>&1
 
 exec "$KEEK_DRIVER" mcp <&8 >&9 2>"$KEEK_SESSION/driver.log" 8<&- 9>&-
