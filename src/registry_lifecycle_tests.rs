@@ -1,4 +1,6 @@
 use super::*;
+use crate::checklist::Mark;
+use crate::timeline::{CheckId, CheckOutcome};
 
 #[tokio::test]
 async fn unknown_session_says_when_none_are_open() {
@@ -46,15 +48,13 @@ async fn a_watch_reports_state_and_the_last_action_until_the_session_ends() {
         .await;
     assert!(matches!(
         received.recv().await,
-        Some(Event::StateChanged {
-            state: SessionState::Open
-        })
+        Some(Event::Snapshot(snapshot)) if snapshot.state == SessionState::Open
     ));
 
     h.mark(&name).await;
     assert!(matches!(
         received.recv().await,
-        Some(Event::CheckMarked { .. })
+        Some(Event::Snapshot(snapshot)) if snapshot.checks.iter().any(|c| c.id == CheckId(1) && matches!(&c.mark, Mark::Outcome { .. }))
     ));
     let called = h
         .request(Request::CallTool {
@@ -66,18 +66,75 @@ async fn a_watch_reports_state_and_the_last_action_until_the_session_ends() {
     assert!(matches!(called, Response::ToolResult(_)), "{called:?}");
     let action = received.recv().await;
     assert!(
-        matches!(&action, Some(Event::LastAction { tool, .. }) if tool == "click"),
+        matches!(&action, Some(Event::Snapshot(snapshot)) if snapshot.last_action.as_ref().is_some_and(|a| a.tool == "click")),
         "{action:?}"
     );
 
     assert!(matches!(h.finish_marked(name).await, Response::Closed(_)));
     assert!(matches!(
         received.recv().await,
-        Some(Event::StateChanged {
-            state: SessionState::Closing
-        })
+        Some(Event::Snapshot(snapshot)) if snapshot.state == SessionState::Closing
     ));
     assert!(matches!(ended.await.unwrap(), Response::WatchEnded));
+}
+
+#[tokio::test]
+async fn a_watch_reports_every_check_after_a_burst_of_marks() {
+    let mut h = Harness::new(2);
+    let name = h.open(h.worktree("one")).await;
+    for text in ["second", "third"] {
+        assert!(matches!(
+            h.request(Request::AddCheck {
+                session: name.clone(),
+                text: text.into()
+            })
+            .await,
+            Response::CheckAdded { .. }
+        ));
+    }
+    let (events, mut received) = mpsc::channel(8);
+    let (reply, _ended) = oneshot::channel();
+    h.registry
+        .handle(
+            Request::WatchSession {
+                session: name.clone(),
+            },
+            reply,
+            Some(events),
+        )
+        .await;
+    for check in 1..=3 {
+        assert_eq!(
+            h.request(Request::MarkCheck {
+                session: name.clone(),
+                check: CheckId(check),
+                outcome: CheckOutcome::Passed,
+                comment: String::new()
+            })
+            .await,
+            Response::CheckMarked {
+                check: CheckId(check)
+            }
+        );
+    }
+    // Let the watch task's last send borrow the state after the final mark.
+    tokio::task::yield_now().await;
+    let mut last = received.recv().await.unwrap();
+    while let Ok(event) = received.try_recv() {
+        last = event;
+    }
+    let Event::Snapshot(snapshot) = last else {
+        panic!("watched event is not a snapshot: {last:?}");
+    };
+    let marked: Vec<_> = snapshot
+        .checks
+        .iter()
+        .map(|c| (c.id, matches!(c.mark, Mark::Outcome { .. })))
+        .collect();
+    assert_eq!(
+        marked,
+        vec![(CheckId(1), true), (CheckId(2), true), (CheckId(3), true)]
+    );
 }
 
 #[tokio::test]

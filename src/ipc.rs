@@ -5,6 +5,7 @@
 //! `Hello` and `Shutdown` must keep their shape across releases, because they are how
 //! a new `keek mcp` replaces an older daemon.
 
+use crate::checklist::Mark;
 use crate::session_folder::SessionName;
 use crate::timeline::{CheckId, CheckOutcome, Millis};
 use schemars::JsonSchema;
@@ -98,30 +99,33 @@ pub struct OpenedCheck {
     pub text: String,
 }
 
+/// Everything a live view shows about one Agent Session. Each publish replaces the
+/// last value whole, so a watcher that misses one still sees every Check's outcome.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionSnapshot {
+    pub state: SessionState,
+    pub checks: Vec<CheckStatus>,
+    pub last_action: Option<LastAction>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckStatus {
+    pub id: CheckId,
+    pub text: String,
+    pub mark: Mark,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LastAction {
+    pub tool: String,
+    pub time_ms: Millis,
+}
+
 /// Something a long-running request reports before its response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum Event {
-    Progress {
-        message: String,
-    },
-    StateChanged {
-        state: SessionState,
-    },
-    LastAction {
-        tool: String,
-        time_ms: Millis,
-    },
-    CheckAdded {
-        check: CheckId,
-        text: String,
-    },
-    CheckMarked {
-        check: CheckId,
-        outcome: CheckOutcome,
-        time_ms: Millis,
-    },
+    Progress { message: String },
+    Snapshot(SessionSnapshot),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

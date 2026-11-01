@@ -1,4 +1,5 @@
 use super::*;
+use crate::checklist::Mark;
 use crate::timeline::{CheckId, CheckOutcome, TimelineEvent};
 
 #[tokio::test]
@@ -31,13 +32,11 @@ async fn refused_close_keeps_calls_and_check_marks_working() {
         })
         .await;
     assert_eq!(added, Response::CheckAdded { check: CheckId(2) });
-    assert_eq!(
-        *events.borrow_and_update(),
-        Event::CheckAdded {
-            check: CheckId(2),
-            text: "added criterion".into()
-        }
+    let snapshot = events.borrow_and_update();
+    assert!(
+        matches!(&snapshot.checks[..], [first, second] if first.id == CheckId(1) && second.id == CheckId(2) && second.text == "added criterion" && second.mark == Mark::Unmarked)
     );
+    drop(snapshot);
     assert!(matches!(
         h.request(Request::MarkCheck {
             session: session.clone(),
@@ -60,7 +59,7 @@ async fn refused_close_keeps_calls_and_check_marks_working() {
             Response::CheckMarked { check: CheckId(2) }
         );
         assert!(
-            matches!(*events.borrow_and_update(),Event::CheckMarked { check:CheckId(2), outcome:o, .. } if o==outcome)
+            matches!(&events.borrow_and_update().checks[1].mark,Mark::Outcome { outcome: o, .. } if *o == outcome)
         );
     }
     let Response::Closed(value) = h.finish(session).await else {
