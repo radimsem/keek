@@ -1,0 +1,17 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Flip</title>
+<style>html, body { margin: 0; height: 100%; background: white; cursor: none; }</style>
+<script>
+  let black = false;
+  addEventListener("pointerdown", () => {
+    black = !black;
+    document.body.style.background = black ? "black" : "white";
+    document.documentElement.style.background = black ? "black" : "white";
+    const t = Date.now();
+    requestAnimationFrame(() => {
+      const painted = Date.now();
+      fetch("/log", { method: "POST", body: JSON.stringify({ type: "flip", black, t, painted }) });
+    });
+  });
+</script>
