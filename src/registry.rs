@@ -11,6 +11,7 @@ use crate::session_folder::{SessionFolder, SessionName};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinSet;
 
@@ -24,10 +25,10 @@ pub struct Registry {
     lifecycle: Lifecycle,
 }
 struct Entry {
+    closing: Arc<AtomicBool>,
     worktree: PathBuf,
     mailbox: mpsc::Sender<ActorRequest>,
     events: watch::Receiver<Event>,
-    state: SessionState,
 }
 #[derive(Clone, Copy)]
 enum Lifecycle {
@@ -106,16 +107,6 @@ impl Registry {
         reply: oneshot::Sender<Response>,
         events: Option<mpsc::Sender<Event>>,
     ) {
-        for entry in self.sessions.values_mut() {
-            if entry.state == SessionState::Closing {
-                continue;
-            }
-            match &*entry.events.borrow() {
-                Event::StateChanged { state } => entry.state = *state,
-                Event::LastAction { .. } => entry.state = SessionState::Open,
-                Event::Progress { .. } => {}
-            }
-        }
         match request {
             Request::OpenSession {
                 project,
@@ -131,7 +122,7 @@ impl Registry {
                 arguments,
             } => {
                 if let Some(entry) = self.sessions.get_mut(&session) {
-                    if entry.state == SessionState::Closing {
+                    if entry.closing.load(Ordering::SeqCst) {
                         let _ = reply.send(Response::Refused {
                             message: format!(
                                 "Agent Session {session} is closing. Open a new Agent Session."
@@ -152,18 +143,37 @@ impl Registry {
                     let _ = reply.send(self.unknown(&session));
                 }
             }
+            Request::AddCheck { session, text } => {
+                self.send_check(&session, ActorRequest::AddCheck { text, reply });
+            }
+            Request::MarkCheck {
+                session,
+                check,
+                outcome,
+                comment,
+            } => {
+                self.send_check(
+                    &session,
+                    ActorRequest::MarkCheck {
+                        check,
+                        outcome,
+                        comment,
+                        reply,
+                    },
+                );
+            }
             Request::CloseSession { session, summary } => {
                 if let Some(entry) = self.sessions.get_mut(&session) {
-                    if entry.state == SessionState::Closing {
+                    if entry.closing.swap(true, Ordering::SeqCst) {
                         let _ = reply.send(Response::Refused { message: format!("Agent Session {session} is already closing. Open a new Agent Session.") });
                         return;
                     }
-                    if send_actor(
+                    if !send_actor(
                         &entry.mailbox,
                         ActorRequest::Close { summary, reply },
                         &session,
                     ) {
-                        entry.state = SessionState::Closing;
+                        entry.closing.store(false, Ordering::SeqCst);
                     }
                 } else {
                     let _ = reply.send(self.unknown(&session));
@@ -223,6 +233,14 @@ impl Registry {
                     names.join(", ")
                 }
             ),
+        }
+    }
+    fn send_check(&self, session: &SessionName, request: ActorRequest) {
+        // A close queued ahead may yet be refused, so the actor decides in mailbox order.
+        if let Some(entry) = self.sessions.get(session) {
+            send_actor(&entry.mailbox, request, session);
+        } else {
+            let _ = request.into_reply().send(self.unknown(session));
         }
     }
     fn begin_open(
@@ -344,16 +362,13 @@ impl Registry {
                 worktree.display()
             )));
         }
-        let time = self
-            .dependencies
-            .clock
-            .local_time()
-            .format("%H-%M-%S")
-            .to_string();
+        let started = self.dependencies.clock.local_time();
+        let time = started.format("%H-%M-%S").to_string();
+        let naming_project = project.clone();
         let sessions = self.dependencies.sessions_dir.clone();
         let used: Vec<_> = self.sessions.keys().map(ToString::to_string).collect();
         let name = tokio::task::spawn_blocking(move || {
-            choose_name(&project, &time, |name| {
+            choose_name(&naming_project, &time, |name| {
                 used.iter().any(|used| used == name) || sessions.join(name).exists()
             })
         })
@@ -386,17 +401,26 @@ impl Registry {
         let (events, event_receiver) = watch::channel(Event::StateChanged {
             state: SessionState::Opening,
         });
+        // Set when a close is queued, before the actor can report it, and cleared if the actor refuses it.
+        let closing = Arc::new(AtomicBool::new(false));
         self.sessions.insert(
             name.clone(),
             Entry {
+                closing: Arc::clone(&closing),
                 worktree,
                 mailbox: sender,
                 events: event_receiver,
-                state: SessionState::Opening,
             },
         );
         Ok((
             Actor {
+                project,
+                goal,
+                revision,
+                started,
+                checklist: crate::checklist::Checklist::new(checks),
+                runner: Arc::clone(&self.dependencies.runner),
+                closing,
                 name,
                 folder,
                 factory: Arc::clone(&self.dependencies.factory),
@@ -420,10 +444,7 @@ fn send_actor(
                 mpsc::error::TrySendError::Full(request) => (request, "is busy"),
                 mpsc::error::TrySendError::Closed(request) => (request, "closed"),
             };
-            let reply = match request {
-                ActorRequest::Call { reply, .. } | ActorRequest::Close { reply, .. } => reply,
-            };
-            let _ = reply.send(Response::Refused {
+            let _ = request.into_reply().send(Response::Refused {
                 message: format!(
                     "Agent Session {session} {reason}. Try again or open a new Agent Session."
                 ),

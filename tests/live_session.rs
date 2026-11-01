@@ -1,405 +1,4 @@
-use std::path::{Path, PathBuf};
-use std::process::Stdio;
-use std::time::Duration;
-
-use anyhow::{Context, Result, bail};
-use keek::timeline::{SessionTimeline, TimelineEvent};
-use rmcp::ServiceExt;
-use rmcp::model::CallToolRequestParams;
-use rmcp::service::{RoleClient, RunningService};
-use rmcp::transport::TokioChildProcess;
-use serde_json::{Value, json};
-use tempfile::TempDir;
-use tokio::process::Command;
-use tokio::sync::Mutex;
-
-static LIVE_DESKTOP: Mutex<()> = Mutex::const_new(());
-type Client = RunningService<RoleClient, ()>;
-const START_COMMAND: &str = "chromium --ozone-platform=wayland --kiosk --no-first-run --no-default-browser-check --password-store=basic --user-data-dir=$HOME/chromium 'data:text/html,<html><title>keek fixture</title><body onclick=\"document.body.style.background=document.body.style.background===%27red%27?%27white%27:%27red%27\" style=\"margin:0;height:100vh\">click fixture</body></html>'";
-
-struct Fixture {
-    directory: TempDir,
-    client: Client,
-    sessions: Vec<String>,
-}
-
-impl Fixture {
-    async fn start() -> Result<Self> {
-        let directory =
-            tokio::task::spawn_blocking(|| tempfile::Builder::new().prefix("keek-live-").tempdir())
-                .await??;
-        let root = directory.path().to_owned();
-        let runtime = root.join("run");
-        let host_runtime = PathBuf::from(
-            std::env::var_os("XDG_RUNTIME_DIR").context("XDG_RUNTIME_DIR is missing")?,
-        );
-        let display = PathBuf::from(
-            std::env::var_os("WAYLAND_DISPLAY").context("WAYLAND_DISPLAY is missing")?,
-        );
-        let display = if display.is_absolute() {
-            display
-        } else {
-            host_runtime.join(display)
-        };
-        let runtime_copy = runtime.clone();
-        tokio::task::spawn_blocking(move || -> Result<()> {
-            std::fs::create_dir(&runtime_copy)?;
-            std::os::unix::fs::symlink(host_runtime.join("hypr"), runtime_copy.join("hypr"))?;
-            Ok(())
-        })
-        .await??;
-        let mut command = Command::new(env!("CARGO_BIN_EXE_keek"));
-        command
-            .arg("mcp")
-            .env("XDG_RUNTIME_DIR", &runtime)
-            .env("WAYLAND_DISPLAY", display)
-            .env("XDG_CACHE_HOME", root.join("cache"))
-            .env("XDG_STATE_HOME", root.join("state"))
-            .env("XDG_CONFIG_HOME", root.join("config"))
-            .env("KEEK_TEST_START_COMMAND", START_COMMAND)
-            .env("KEEK_DAEMON_IDLE_MS", "100")
-            .stderr(Stdio::inherit())
-            .kill_on_drop(true);
-        let client = ().serve(TokioChildProcess::new(command)?).await?;
-        Ok(Self {
-            directory,
-            client,
-            sessions: Vec::new(),
-        })
-    }
-
-    async fn worktree(&self, name: &str) -> Result<PathBuf> {
-        let path = self.directory.path().join(name);
-        let create = path.clone();
-        tokio::task::spawn_blocking(move || std::fs::create_dir(create)).await??;
-        run("git", &["init", "--quiet"], Some(&path)).await?;
-        run(
-            "git",
-            &[
-                "-c",
-                "user.name=keek test",
-                "-c",
-                "user.email=keek-test@example.invalid",
-                "-c",
-                "commit.gpgsign=false",
-                "commit",
-                "--allow-empty",
-                "-m",
-                "fixture",
-            ],
-            Some(&path),
-        )
-        .await?;
-        Ok(path)
-    }
-
-    async fn open(&mut self, project: &str, worktree: &Path) -> Result<String> {
-        let result = call(&self.client, "open_session", json!({"project":project,"worktree":worktree,"goal":"verify fixture clicks","checks":["fixture receives clicks"]})).await?;
-        let name = result
-            .get("session")
-            .and_then(Value::as_str)
-            .context("open_session returned no session name")?
-            .to_owned();
-        println!(
-            "open_session returned ready Agent Session {name} for {}",
-            worktree.display()
-        );
-        self.sessions.push(name.clone());
-        Ok(name)
-    }
-
-    async fn click(&self, session: &str, count: usize) -> Result<u64> {
-        let mut window = None;
-        for _ in 0..150 {
-            let result = call(&self.client, "list_windows", json!({"session":session})).await?;
-            window = result
-                .get("windows")
-                .and_then(Value::as_array)
-                .and_then(|windows| {
-                    windows.iter().find_map(|window| {
-                        window
-                            .get("title")?
-                            .as_str()?
-                            .contains("keek fixture")
-                            .then_some(())?;
-                        Some((
-                            window.get("pid")?.as_u64()?,
-                            window.get("window_id")?.as_u64()?,
-                        ))
-                    })
-                });
-            if window.is_some() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(200)).await;
-        }
-        let (pid, window_id) = window.context("list_windows never found Chromium")?;
-        println!(
-            "{session}: list_windows found Chromium pid={pid} window_id={window_id}; allowing 5 seconds for paint"
-        );
-        tokio::time::sleep(Duration::from_secs(5)).await;
-        call(
-            &self.client,
-            "get_window_state",
-            json!({"session":session,"pid":pid,"window_id":window_id}),
-        )
-        .await?;
-        for index in 0..count {
-            call(
-                &self.client,
-                "click",
-                json!({"session":session,"pid":pid,"window_id":window_id,"x":640,"y":400}),
-            )
-            .await?;
-            println!("{session}: click {} completed at (640,400)", index + 1);
-        }
-        Ok(pid)
-    }
-
-    async fn close(&mut self, session: &str) -> Result<PathBuf> {
-        let result = call(
-            &self.client,
-            "close_session",
-            json!({"session":session,"summary":"fixture clicks completed"}),
-        )
-        .await?;
-        let folder = PathBuf::from(
-            result
-                .get("session_folder")
-                .and_then(Value::as_str)
-                .context("close_session returned no session folder")?,
-        );
-        println!("{session}: closed; records in {}", folder.display());
-        self.sessions.retain(|name| name != session);
-        Ok(folder)
-    }
-    async fn finish(mut self) -> Result<()> {
-        let mut errors = Vec::new();
-        for session in std::mem::take(&mut self.sessions) {
-            if let Err(error) = self.close(&session).await {
-                errors.push(format!("{session}: {error:#}"));
-            }
-        }
-        self.client.cancel().await?;
-        anyhow::ensure!(
-            errors.is_empty(),
-            "Agent Session cleanup failed: {}",
-            errors.join("; ")
-        );
-        Ok(())
-    }
-}
-
-async fn call(client: &Client, name: &str, arguments: Value) -> Result<Value> {
-    let result = client
-        .call_tool(
-            CallToolRequestParams::new(name.to_owned()).with_arguments(
-                arguments
-                    .as_object()
-                    .context("arguments must be an object")?
-                    .clone(),
-            ),
-        )
-        .await?;
-    let value = serde_json::to_value(&result)?;
-    if value.get("isError").and_then(Value::as_bool) == Some(true) {
-        bail!("{name} refused: {value}");
-    }
-    if let Some(value) = value.get("structuredContent") {
-        return Ok(value.clone());
-    }
-    if let Some(text) = value
-        .get("content")
-        .and_then(Value::as_array)
-        .and_then(|items| items.first())
-        .and_then(|item| item.get("text"))
-        .and_then(Value::as_str)
-        && let Ok(parsed) = serde_json::from_str(text)
-    {
-        return Ok(parsed);
-    }
-    Ok(value)
-}
-
-async fn run(program: &str, args: &[&str], cwd: Option<&Path>) -> Result<String> {
-    let mut command = Command::new(program);
-    command.args(args).kill_on_drop(true);
-    if let Some(cwd) = cwd {
-        command.current_dir(cwd);
-    }
-    let result = command.output().await?;
-    anyhow::ensure!(
-        result.status.success(),
-        "{program} failed: {}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    Ok(String::from_utf8(result.stdout)?.trim().to_owned())
-}
-
-async fn host_state() -> Result<Value> {
-    let window: Value =
-        serde_json::from_str(&run("hyprctl", &["activewindow", "-j"], None).await?)?;
-    let workspace: Value =
-        serde_json::from_str(&run("hyprctl", &["activeworkspace", "-j"], None).await?)?;
-    Ok(
-        json!({"address":window.get("address"),"workspace_id":workspace.get("id"),"workspace_name":workspace.get("name")}),
-    )
-}
-
-async fn host_config() -> Result<Vec<(PathBuf, Vec<u8>)>> {
-    let root =
-        PathBuf::from(std::env::var_os("HOME").context("HOME is missing")?).join(".config/hypr");
-    tokio::task::spawn_blocking(move || {
-        fn read(path: &Path, files: &mut Vec<(PathBuf, Vec<u8>)>) -> std::io::Result<()> {
-            for entry in std::fs::read_dir(path)? {
-                let entry = entry?;
-                let path = entry.path();
-                if path.is_dir() {
-                    read(&path, files)?;
-                } else if path.is_file() {
-                    files.push((path.clone(), std::fs::read(path)?));
-                }
-            }
-            Ok(())
-        }
-        let mut files = Vec::new();
-        read(&root, &mut files)?;
-        files.sort_by(|a, b| a.0.cmp(&b.0));
-        Ok(files)
-    })
-    .await?
-}
-
-async fn assert_records(folder: &Path, actions: usize, pid: u64) -> Result<()> {
-    let recording = folder.join("recording.mp4");
-    let duration = run(
-        "ffprobe",
-        &[
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            recording.to_str().context("recording path is not UTF-8")?,
-        ],
-        None,
-    )
-    .await?
-    .parse::<f64>()?;
-    println!("{}: ffprobe duration={duration}s", recording.display());
-    anyhow::ensure!(duration > 0.0, "Raw Recording duration is zero");
-    let folder = folder.to_owned();
-    let (timeline_actions, turns) = tokio::task::spawn_blocking(move || -> Result<_> {
-        let timeline =
-            SessionTimeline::parse(&std::fs::read_to_string(folder.join("timeline.json"))?)?;
-        let calls: Vec<_> = timeline
-            .events()
-            .iter()
-            .filter_map(|event| match event {
-                TimelineEvent::Call {
-                    tool, action: true, ..
-                } => Some(tool.as_str()),
-                TimelineEvent::Call { action: false, .. }
-                | TimelineEvent::CheckMark { .. }
-                | TimelineEvent::Takeover { .. } => None,
-            })
-            .collect();
-        assert!(
-            calls.iter().all(|tool| *tool == "click"),
-            "unexpected Actions: {calls:?}"
-        );
-        let mut turns = 0;
-        for entry in std::fs::read_dir(&folder)? {
-            let entry = entry?;
-            if entry.file_name().to_string_lossy().starts_with("turn-") && entry.path().is_dir() {
-                let action: Value =
-                    serde_json::from_slice(&std::fs::read(entry.path().join("action.json"))?)?;
-                anyhow::ensure!(
-                    action.to_string().contains("click"),
-                    "Action Log turn does not contain a click"
-                );
-                anyhow::ensure!(
-                    action.pointer("/arguments/pid").and_then(Value::as_u64) == Some(pid),
-                    "Action Log turn has the wrong pid: {action}"
-                );
-                turns += 1;
-            }
-        }
-        Ok((calls.len(), turns))
-    })
-    .await??;
-    println!(
-        "Session Timeline has {timeline_actions} Actions; Action Log has {turns} turn folders; expected {actions}"
-    );
-    anyhow::ensure!(
-        timeline_actions == actions,
-        "expected {actions} Actions, found {timeline_actions}"
-    );
-    anyhow::ensure!(turns == actions, "expected {actions} turns, found {turns}");
-    Ok(())
-}
-
-async fn assert_processes_gone(folder: &Path) -> Result<()> {
-    let marker = format!("KEEK_SESSION={}", folder.display());
-    let folder = folder.to_string_lossy().into_owned();
-    // Sandboxed processes keep the developer's uid. Root's login helpers also name
-    // Hyprland, and their environment can't be read.
-    let uid = run("id", &["-u"], None).await?;
-    for attempt in 0..=20 {
-        let result = Command::new("pgrep")
-            .args(["-u", &uid, "-f", "pasta|bwrap|Hyprland|cua-driver"])
-            .output()
-            .await?;
-        anyhow::ensure!(
-            result.status.success() || result.status.code() == Some(1),
-            "pgrep failed: {}",
-            String::from_utf8_lossy(&result.stderr)
-        );
-        let pids: Vec<_> = String::from_utf8(result.stdout)?
-            .split_whitespace()
-            .map(str::to_owned)
-            .collect();
-        let marker = marker.clone();
-        let folder = folder.clone();
-        let survivors = tokio::task::spawn_blocking(move || {
-            pids.into_iter()
-                .filter(|pid| {
-                    let base = PathBuf::from(format!("/proc/{pid}"));
-                    let environ = std::fs::read(base.join("environ"));
-                    let cmdline = std::fs::read(base.join("cmdline"));
-                    let matches = environ.as_ref().is_ok_and(|bytes| {
-                        bytes.split(|b| *b == 0).any(|v| v == marker.as_bytes())
-                    }) || cmdline.as_ref().is_ok_and(|bytes| {
-                        bytes.windows(folder.len()).any(|v| v == folder.as_bytes())
-                    });
-                    if matches {
-                        return true;
-                    }
-                    if environ.is_ok() && cmdline.is_ok() {
-                        return false;
-                    }
-                    match std::fs::read_to_string(base.join("stat")) {
-                        Ok(stat) => !stat
-                            .rsplit_once(") ")
-                            .is_some_and(|(_, rest)| rest.starts_with('Z')),
-                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
-                        Err(_) => true,
-                    }
-                })
-                .collect::<Vec<_>>()
-        })
-        .await?;
-        if survivors.is_empty() {
-            return Ok(());
-        }
-        if attempt == 20 {
-            bail!("Agent Session processes survived or could not be inspected: {survivors:?}");
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    Ok(())
-}
+include!("common/live.rs");
 
 #[tokio::test]
 #[ignore = "requires the real Hyprland desktop, pinned Cua Driver, Chromium and ffprobe"]
@@ -414,7 +13,7 @@ async fn live_session_records_three_clicks() -> Result<()> {
         let pid = fixture.click(&session, 3).await?;
         let folder = fixture.close(&session).await?;
         assert_records(&folder, 3, pid).await?;
-        assert_processes_gone(&folder).await?;
+        assert_processes_gone(&folder.cache).await?;
         let after = host_state().await?;
         println!("host state before={before}, after={after}");
         anyhow::ensure!(
@@ -450,20 +49,63 @@ async fn live_session_two_worktrees_stay_separate() -> Result<()> {
         let second_pid = fixture.click(&second, 2).await?;
         let first_folder = fixture.close(&first).await?;
         let second_folder = fixture.close(&second).await?;
-        anyhow::ensure!(first_folder != second_folder, "sessions share a folder");
+        anyhow::ensure!(
+            first_folder.report != second_folder.report,
+            "sessions share a folder"
+        );
         println!(
             "separate sessions: {} and {}",
-            first_folder.display(),
-            second_folder.display()
+            first_folder.report.display(),
+            second_folder.report.display()
         );
         assert_records(&first_folder, 1, first_pid).await?;
         assert_records(&second_folder, 2, second_pid).await?;
-        assert_processes_gone(&first_folder).await?;
-        assert_processes_gone(&second_folder).await?;
+        assert_processes_gone(&first_folder.cache).await?;
+        assert_processes_gone(&second_folder.cache).await?;
         Ok::<(), anyhow::Error>(())
     }
     .await;
     let cleanup = fixture.finish().await;
     result?;
     cleanup
+}
+
+#[tokio::test]
+#[ignore = "requires the real Hyprland desktop, pinned Cua Driver and Chromium"]
+async fn live_evidence() -> Result<()> {
+    let _desktop = LIVE_DESKTOP.lock().await;
+    let mut fixture = Fixture::start().await?;
+    let result = async {
+        let worktree = fixture.worktree("evidence").await?;
+        let session = fixture.open("myapp", &worktree).await?;
+        fixture.click(&session, 1).await?;
+        call(&fixture.client,"mark_check",json!({"session":session,"check":1,"outcome":"passed"})).await?;
+        let failed=call(&fixture.client,"add_check",json!({"session":session,"text":"fixture reports errors"})).await?;
+        call(&fixture.client,"mark_check",json!({"session":session,"check":failed["check"],"outcome":"failed","comment":"Fixture has no error display"})).await?;
+        let skipped=call(&fixture.client,"add_check",json!({"session":session,"text":"fixture keyboard input"})).await?;
+        call(&fixture.client,"mark_check",json!({"session":session,"check":skipped["check"],"outcome":"skipped","comment":"Fixture has no input field"})).await?;
+        let records=fixture.close_marked(&session).await?;
+        anyhow::ensure!(records.response["verdict"]=="Needs fixes","unexpected Verdict");
+        let videos=fixture.directory.path().join("videos");
+        for key in ["report","raw","timeline","actions","index"] {
+            let path=Path::new(records.response["evidence"][key].as_str().context("missing Evidence path")?);
+            anyhow::ensure!(path.starts_with(&videos),"Evidence escaped temp videos folder");
+        }
+        let cache=records.cache;
+        let report=records.report;
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            fn print_tree(path:&Path) -> Result<()> {
+                println!("{}",path.display());
+                if path.is_dir() { for entry in std::fs::read_dir(path)? { print_tree(&entry?.path())?; } }
+                Ok(())
+            }
+            print_tree(&videos)?;
+            println!("{}",std::fs::read_to_string(report)?);
+            anyhow::ensure!(!cache.exists(),"session cache folder remains");
+            Ok(())
+        }).await??;
+        Ok(())
+    }.await;
+    let cleanup = fixture.finish().await;
+    result.and(cleanup)
 }

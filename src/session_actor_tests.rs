@@ -147,6 +147,17 @@ async fn start_actor_result(
         state: SessionState::Opening,
     });
     let actor = Actor {
+        project: "app".into(),
+        goal: "fixture".into(),
+        revision: Revision {
+            branch: None,
+            commit: "abcdefghi".into(),
+            dirty: false,
+        },
+        started: chrono::Local::now(),
+        checklist: crate::checklist::Checklist::new(vec!["fixture works".into()]),
+        runner: Arc::new(EvidenceRunner(root.join("videos"))),
+        closing: Arc::new(AtomicBool::new(false)),
         name,
         folder: folder.clone(),
         factory: Arc::new(FakeFactory(Mutex::new(Some(driver)))),
@@ -198,6 +209,21 @@ async fn call(actor: &RunningActor, tool: &str) -> Response {
     response.await.unwrap()
 }
 async fn close(actor: &RunningActor) -> oneshot::Receiver<Response> {
+    let (reply, marked) = oneshot::channel();
+    actor
+        .sender
+        .send(ActorRequest::MarkCheck {
+            check: crate::timeline::CheckId(1),
+            outcome: crate::timeline::CheckOutcome::Passed,
+            comment: String::new(),
+            reply,
+        })
+        .await
+        .unwrap();
+    assert!(matches!(
+        marked.await.unwrap(),
+        Response::CheckMarked { .. }
+    ));
     let (reply, response) = oneshot::channel();
     actor
         .sender
@@ -231,9 +257,13 @@ async fn the_timeline_records_each_call_once_and_excludes_setup() {
     );
     let folder = actor.folder.clone();
     let calls = actor.calls.clone();
-    assert!(matches!(finish(actor).await, Response::Closed(_)));
-    let timeline =
-        SessionTimeline::parse(&std::fs::read_to_string(folder.timeline()).unwrap()).unwrap();
+    let Response::Closed(value) = finish(actor).await else {
+        panic!("close refused");
+    };
+    let timeline = SessionTimeline::parse(
+        &std::fs::read_to_string(value["evidence"]["timeline"].as_str().unwrap()).unwrap(),
+    )
+    .unwrap();
     assert_eq!(
         timeline.events(),
         [
@@ -250,6 +280,11 @@ async fn the_timeline_records_each_call_once_and_excludes_setup() {
                 start_ms: Millis(0),
                 end_ms: Millis(184),
                 is_error: false
+            },
+            TimelineEvent::CheckMark {
+                check: crate::timeline::CheckId(1),
+                outcome: crate::timeline::CheckOutcome::Passed,
+                at_ms: Millis(184),
             },
         ]
     );
@@ -291,7 +326,7 @@ async fn close_writes_the_timeline_and_closes_the_driver_when_stop_recording_fai
     );
     let timeline =
         SessionTimeline::parse(&std::fs::read_to_string(folder.timeline()).unwrap()).unwrap();
-    assert_eq!(timeline.events().len(), 1);
+    assert_eq!(timeline.events().len(), 2);
     assert!(!folder.root().join("timeline.json.tmp").exists());
 }
 
@@ -381,10 +416,13 @@ async fn a_stuck_driver_call_times_out_and_is_recorded_as_error() {
         matches!(result, Ok(Ok(Response::Refused { .. }))),
         "{result:?}"
     );
-    let folder = actor.folder.clone();
-    finish(actor).await;
-    let timeline =
-        SessionTimeline::parse(&std::fs::read_to_string(folder.timeline()).unwrap()).unwrap();
+    let Response::Closed(value) = finish(actor).await else {
+        panic!("close refused");
+    };
+    let timeline = SessionTimeline::parse(
+        &std::fs::read_to_string(value["evidence"]["timeline"].as_str().unwrap()).unwrap(),
+    )
+    .unwrap();
     assert!(matches!(
         &timeline.events()[0],
         TimelineEvent::Call { is_error: true, .. }
@@ -428,11 +466,14 @@ async fn setup_calls_precede_recording_with_the_expected_arguments() {
             ),
         ]
     );
-    let folder = actor.folder.clone();
     call(&actor, "run_steps").await;
-    finish(actor).await;
-    let timeline =
-        SessionTimeline::parse(&std::fs::read_to_string(folder.timeline()).unwrap()).unwrap();
+    let Response::Closed(value) = finish(actor).await else {
+        panic!("close refused");
+    };
+    let timeline = SessionTimeline::parse(
+        &std::fs::read_to_string(value["evidence"]["timeline"].as_str().unwrap()).unwrap(),
+    )
+    .unwrap();
     assert!(matches!(
         &timeline.events()[0],
         TimelineEvent::Call {
@@ -469,4 +510,20 @@ async fn close_reports_both_stop_and_close_failures() {
         message.contains("fixture recording failure") && message.contains("fixture close failure"),
         "{message}"
     );
+}
+
+struct EvidenceRunner(std::path::PathBuf);
+impl crate::process::ProcessRunner for EvidenceRunner {
+    fn output<'a>(
+        &'a self,
+        program: &'a str,
+        args: &'a [&'a str],
+        _: Option<&'a Path>,
+    ) -> crate::process::ProcessFuture<'a> {
+        Box::pin(async move {
+            assert_eq!(program, "xdg-user-dir");
+            assert_eq!(args, ["VIDEOS"]);
+            Ok(self.0.to_string_lossy().into_owned())
+        })
+    }
 }

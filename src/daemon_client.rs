@@ -217,6 +217,8 @@ where
             | Response::Tools(_)
             | Response::Opened { .. }
             | Response::ToolResult(_)
+            | Response::CheckAdded { .. }
+            | Response::CheckMarked { .. }
             | Response::Closed(_)
             | Response::Refused { .. }
             | Response::WatchEnded),
@@ -392,6 +394,8 @@ impl DaemonClient {
             | Response::Tools(_)
             | Response::Opened { .. }
             | Response::ToolResult(_)
+            | Response::CheckAdded { .. }
+            | Response::CheckMarked { .. }
             | Response::Closed(_)
             | Response::Refused { .. }
             | Response::WatchEnded) => Err(RequestError::Unexpected(format!("{other:?}"))),

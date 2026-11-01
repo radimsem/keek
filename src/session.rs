@@ -1,12 +1,15 @@
 use crate::catalog::Catalog;
+use crate::checklist::Checklist;
 use crate::clock::Clock;
 use crate::driver::{Driver, DriverError};
 use crate::ipc::{Event, Response, SessionState};
 use crate::session_folder::{SessionFolder, SessionName};
+use crate::timeline::{CheckId, CheckOutcome};
 use crate::timeline::{Millis, SessionTimeline, TimelineEvent};
 use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -89,6 +92,13 @@ pub trait DriverFactory: Send + Sync {
     fn open<'a>(&'a self, folder: &'a SessionFolder) -> OpenDriverFuture<'a>;
 }
 pub struct Actor {
+    pub project: String,
+    pub goal: String,
+    pub revision: Revision,
+    pub started: chrono::DateTime<chrono::Local>,
+    pub checklist: Checklist,
+    pub runner: Arc<dyn crate::process::ProcessRunner>,
+    pub closing: Arc<AtomicBool>,
     pub name: SessionName,
     pub folder: SessionFolder,
     pub factory: Arc<dyn DriverFactory>,
@@ -96,10 +106,30 @@ pub struct Actor {
     pub catalog: Arc<Catalog>,
     pub events: watch::Sender<Event>,
 }
+impl ActorRequest {
+    pub fn into_reply(self) -> oneshot::Sender<Response> {
+        match self {
+            Self::Call { reply, .. }
+            | Self::AddCheck { reply, .. }
+            | Self::MarkCheck { reply, .. }
+            | Self::Close { reply, .. } => reply,
+        }
+    }
+}
 pub enum ActorRequest {
     Call {
         tool: String,
         arguments: Value,
+        reply: oneshot::Sender<Response>,
+    },
+    AddCheck {
+        text: String,
+        reply: oneshot::Sender<Response>,
+    },
+    MarkCheck {
+        check: CheckId,
+        outcome: CheckOutcome,
+        comment: String,
         reply: oneshot::Sender<Response>,
     },
     Close {
@@ -119,7 +149,7 @@ fn refusal(error: impl std::fmt::Display) -> Response {
 }
 impl Actor {
     pub async fn run(
-        self,
+        mut self,
         mut mailbox: mpsc::Receiver<ActorRequest>,
         open_reply: oneshot::Sender<Response>,
     ) -> Finished {
@@ -159,6 +189,15 @@ impl Actor {
         });
         let _ = open_reply.send(Response::Opened {
             session: self.name.clone(),
+            checks: self
+                .checklist
+                .checks()
+                .iter()
+                .map(|c| crate::ipc::OpenedCheck {
+                    id: c.id,
+                    text: c.text.clone(),
+                })
+                .collect(),
         });
         let mut timeline = SessionTimeline::new(VIDEO_LEAD);
         while let Some(request) = mailbox.recv().await {
@@ -202,10 +241,68 @@ impl Actor {
                         Err(error) => refusal(error),
                     });
                 }
+                ActorRequest::AddCheck { text, reply } => {
+                    let response = match self.checklist.add(text.clone()) {
+                        Ok(check) => {
+                            self.events.send_replace(Event::CheckAdded { check, text });
+                            Response::CheckAdded { check }
+                        }
+                        Err(e) => refusal(e),
+                    };
+                    let _ = reply.send(response);
+                }
+                ActorRequest::MarkCheck {
+                    check,
+                    outcome,
+                    comment,
+                    reply,
+                } => {
+                    let time_ms = timeline_time(zero, self.clock.now());
+                    let response = match self.checklist.mark(check, outcome, comment, time_ms) {
+                        Ok(()) => {
+                            timeline.push(TimelineEvent::CheckMark {
+                                check,
+                                outcome,
+                                at_ms: time_ms,
+                            });
+                            self.events.send_replace(Event::CheckMarked {
+                                check,
+                                outcome,
+                                time_ms,
+                            });
+                            Response::CheckMarked { check }
+                        }
+                        Err(e) => refusal(e),
+                    };
+                    let _ = reply.send(response);
+                }
                 ActorRequest::Close { summary, reply } => {
+                    // Everything that can refuse runs before the session stops, so the Verifier can fix it and retry.
+                    let ready = match self.checklist.verdict() {
+                        Ok(verdict) => crate::evidence::writable_videos_dir(self.runner.as_ref())
+                            .await
+                            .map(|videos| (verdict, videos))
+                            .map_err(|e| e.to_string()),
+                        Err(e) => Err(e.to_string()),
+                    };
+                    let (verdict, videos) = match ready {
+                        Ok(ready) => ready,
+                        Err(message) => {
+                            self.closing.store(false, Ordering::SeqCst);
+                            let _ = reply.send(refusal(message));
+                            continue;
+                        }
+                    };
                     self.events.send_replace(Event::StateChanged {
                         state: SessionState::Closing,
                     });
+                    mailbox.close();
+                    while let Ok(queued) = mailbox.try_recv() {
+                        let _ = queued.into_reply().send(refusal(format!(
+                            "Agent Session {} is closing. Open a new Agent Session.",
+                            self.name
+                        )));
+                    }
                     let stopped = call_driver(
                         driver.as_mut(),
                         "stop_recording",
@@ -221,9 +318,14 @@ impl Actor {
                         (Err(error), Ok(())) | (Ok(()), Err(error)) => refusal(error),
                         (Ok(()), Ok(())) => match written {
                             Err(e) => refusal(e),
-                            Ok(()) => Response::Closed(
-                                json!({"recording":self.folder.recording(),"session_folder":self.folder.root(),"timeline":self.folder.timeline()}),
-                            ),
+                            Ok(()) => {
+                                match crate::session_evidence::file(&self, verdict, videos, summary)
+                                    .await
+                                {
+                                    Ok(value) => Response::Closed(value),
+                                    Err(message) => refusal(message),
+                                }
+                            }
                         },
                     };
                     return Finished {
@@ -325,7 +427,7 @@ async fn write_records(
     .map_err(|e| SessionError::Refused(e.to_string()))??;
     Ok(())
 }
-#[derive(serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 pub struct Revision {
     pub branch: Option<String>,
     pub commit: String,
