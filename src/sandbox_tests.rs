@@ -2,6 +2,7 @@ use super::*;
 
 fn spec() -> SandboxSpec {
     SandboxSpec {
+        credentials: Default::default(),
         project: "demo".into(),
         worktree: "/worktree".into(),
         tree: "/trees/demo".into(),
@@ -287,4 +288,34 @@ fn install_and_session_mount_worktrees_at_the_same_fixed_path() {
             .any(|a| a == ["--setenv", "KEEK_WORKTREE", "/keek/worktree"])
     );
     assert!(!session.iter().chain(&install).any(|a| a == "/worktree"));
+}
+#[test]
+fn credentials_follow_clearenv_and_precede_required_variables_only_in_sessions() {
+    let mut spec = spec();
+    spec.credentials = crate::credentials::Credentials::parse(
+        Path::new("fixture.env"),
+        "PASSWORD=made-up-value\nHOME=made-up-home",
+    )
+    .unwrap();
+    let args = spec.args();
+    let clear = args.iter().position(|a| a == "--clearenv").unwrap();
+    let password = args
+        .windows(3)
+        .position(|a| a == ["--setenv", "PASSWORD", "made-up-value"])
+        .unwrap();
+    let home = args
+        .windows(3)
+        .position(|a| a == ["--setenv", "HOME", "/home/test"])
+        .unwrap();
+    assert!(clear < password && password < home);
+    let install = spec.args_for(SandboxMode::Install {
+        upper: Path::new("/upper"),
+        work: Path::new("/work"),
+        log: Path::new("/log"),
+    });
+    assert!(
+        !install
+            .iter()
+            .any(|a| a == "made-up-value" || a == "made-up-home")
+    );
 }

@@ -134,3 +134,67 @@ async fn project_tree_is_removed_when_prepare_refuses_an_open() {
     assert!(refused(answer.await.unwrap()).contains("fixture install refused"));
     assert_eq!(std::fs::read_dir(trees).unwrap().count(), 0);
 }
+
+#[tokio::test]
+async fn credentials_names_and_mode_warning_reach_opened_and_goal_is_masked() {
+    use std::os::unix::fs::PermissionsExt;
+    let mut h = Harness::new(2);
+    let config = h.registry.dependencies.projects_config.clone();
+    std::fs::create_dir_all(&config).unwrap();
+    let path = config.join("app.env");
+    std::fs::write(&path, "PASSWORD=made-up-value").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let worktree = h.worktree("one");
+    let response = h
+        .request(Request::OpenSession {
+            project: "app".into(),
+            worktree,
+            goal: "made-up-value".into(),
+            checks: vec!["made-up-value".into()],
+        })
+        .await;
+    let Response::Opened {
+        session,
+        credentials,
+        warnings,
+        checks,
+    } = response
+    else {
+        panic!("open refused")
+    };
+    assert_eq!(credentials, ["PASSWORD"]);
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("644") && w.contains("chmod 600"))
+    );
+    assert_eq!(checks[0].text, "[masked]");
+    let record = std::fs::read_to_string(
+        h.registry
+            .dependencies
+            .sessions_dir
+            .join(session.to_string())
+            .join("session.json"),
+    )
+    .unwrap();
+    assert!(!record.contains("made-up-value"));
+    h.finish(session).await;
+}
+#[tokio::test]
+async fn short_credentials_refuse_open_session() {
+    let mut h = Harness::new(2);
+    let config = h.registry.dependencies.projects_config.clone();
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::write(config.join("app.env"), "PASSWORD=short").unwrap();
+    let worktree = h.worktree("one");
+    let response = h
+        .request(Request::OpenSession {
+            project: "app".into(),
+            worktree,
+            goal: "goal".into(),
+            checks: vec![],
+        })
+        .await;
+    assert!(refused(response).contains("longer"));
+    assert!(h.calls.lock().unwrap().is_empty());
+}

@@ -30,4 +30,5 @@ mod session_evidence;
 
 mod session_project;
 
+pub mod credentials;
 pub mod revision;

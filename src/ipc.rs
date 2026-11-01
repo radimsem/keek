@@ -72,6 +72,7 @@ pub enum Response {
     Status(DaemonStatus),
     Tools(Value),
     Opened {
+        credentials: Vec<String>,
         session: SessionName,
         checks: Vec<OpenedCheck>,
         warnings: Vec<String>,

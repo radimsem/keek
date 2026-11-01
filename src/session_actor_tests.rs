@@ -36,7 +36,15 @@ impl Driver for FakeDriver {
             self.calls
                 .lock()
                 .unwrap()
-                .push((tool.to_owned(), arguments));
+                .push((tool.to_owned(), arguments.clone()));
+            if arguments["echo_error"] == true {
+                return Err(DriverError::Close(arguments.to_string()));
+            }
+            if arguments["echo"] == true {
+                return Ok(
+                    json!({"content":[{"type":"text","text":arguments.to_string()}],"structuredContent":arguments}),
+                );
+            }
             if tool == "slow"
                 || (tool == "stop_recording" && self.stop_hangs.load(Ordering::SeqCst))
             {
@@ -111,6 +119,15 @@ async fn start_actor_result(
     stop_fails: bool,
     fail_setup: Option<&str>,
 ) -> (RunningActor, Response) {
+    start_actor_with_credentials(root, id, stop_fails, fail_setup, Default::default()).await
+}
+async fn start_actor_with_credentials(
+    root: &Path,
+    id: &str,
+    stop_fails: bool,
+    fail_setup: Option<&str>,
+    credentials: crate::credentials::Credentials,
+) -> (RunningActor, Response) {
     let name: SessionName = id.parse().unwrap();
     let folder = SessionFolder::new(root, &name);
     std::fs::create_dir_all(folder.root()).unwrap();
@@ -155,6 +172,7 @@ async fn start_actor_result(
     });
     let render_succeeds = Arc::new(AtomicBool::new(false));
     let actor = Actor {
+        credentials,
         project: "app".into(),
         worktree: root.to_owned(),
         settings: crate::project::Settings::default(),
@@ -566,3 +584,6 @@ impl crate::process::ProcessRunner for EvidenceRunner {
 
 #[path = "session_actor_tests/project.rs"]
 mod project;
+
+#[path = "session_actor_tests/credentials.rs"]
+mod credentials;

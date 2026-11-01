@@ -52,6 +52,7 @@ pub struct Prepared {
     reply: oneshot::Sender<Response>,
 }
 struct Opening {
+    credentials: crate::credentials::Credentials,
     project: String,
     worktree: PathBuf,
     goal: String,
@@ -293,7 +294,12 @@ impl Registry {
                 project
                     .parse::<SessionName>()
                     .map_err(|e| SessionError::Refused(e.to_string()))?;
-                let (settings, warnings) = crate::project::read_project_settings(&project, &projects_config).await?;
+                let (settings, mut warnings) = crate::project::read_project_settings(&project, &projects_config).await?;
+                let credential_path = projects_config.join(format!("{project}.env"));
+                let (credentials, warning) = tokio::task::spawn_blocking(move || crate::credentials::Credentials::read(&credential_path)).await.map_err(|e| SessionError::Refused(e.to_string()))?.map_err(|e| SessionError::Refused(e.to_string()))?;
+                warnings.extend(warning);
+                let goal = credentials.mask(&goal);
+                let checks = checks.iter().map(|text| credentials.mask(text)).collect();
                 let catalog = wait_catalog(&mut catalog)
                     .await
                     .map_err(SessionError::Refused)?;
@@ -326,6 +332,7 @@ impl Registry {
                 }).await.map_err(|e| SessionError::Refused(e.to_string()))?.map_err(SessionError::Refused)?;
                 if sessions.as_ref().is_ok_and(|sessions| worktree.starts_with(sessions)) { return Err(SessionError::Refused("Cannot open a worktree inside the sessions folder. Choose a worktree outside it.".into())); }
                 Ok(Opening {
+                    credentials,
                     project,
                     worktree,
                     goal,
@@ -361,6 +368,7 @@ impl Registry {
         opening: Opening,
     ) -> Result<(Actor, mpsc::Receiver<ActorRequest>), SessionError> {
         let Opening {
+            credentials,
             project,
             worktree,
             goal,
@@ -442,6 +450,7 @@ impl Registry {
         );
         Ok((
             Actor {
+                credentials,
                 project,
                 worktree,
                 settings,

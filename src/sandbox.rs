@@ -24,6 +24,7 @@ pub enum SandboxError {
 
 #[derive(Debug, Clone)]
 pub struct SandboxSpec {
+    pub credentials: crate::credentials::Credentials,
     pub project: String,
     pub worktree: PathBuf,
     pub tree: PathBuf,
@@ -71,6 +72,7 @@ impl SandboxSpec {
         }
         nvidia_devices.sort();
         Ok(Self {
+            credentials: Default::default(),
             project: String::new(),
             worktree: PathBuf::new(),
             tree: PathBuf::new(),
@@ -239,6 +241,12 @@ impl SandboxSpec {
             ]
             .map(OsString::from),
         );
+        if matches!(mode, SandboxMode::Session) {
+            // keek's required variables win over clashing credential names.
+            for (name, value) in self.credentials.pairs() {
+                args.extend([OsString::from("--setenv"), name.into(), value.into()]);
+            }
+        }
         for (key, value) in [
             ("HOME", self.home.as_os_str()),
             ("USER", self.user.as_ref()),
