@@ -31,7 +31,7 @@ async fn an_agent_can_read_the_verifier_protocol_and_list_tools() -> Result<()> 
 
     let tools = client.list_all_tools().await?;
     let names: Vec<&str> = tools.iter().map(|tool| tool.name.as_ref()).collect();
-    assert_eq!(names, ["keek_status"]);
+    assert_eq!(names, ["keek_status", "open_session", "close_session"]);
 
     client.cancel().await?;
     Ok(())

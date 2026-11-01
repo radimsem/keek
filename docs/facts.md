@@ -53,6 +53,7 @@ What the sandbox needs beyond its plan:
 - `ATSPI_DBUS_IMPLEMENTATION=dbus-daemon` is needed, because the default `dbus-broker` fails without systemd.
 - On NVIDIA, Hyprland aborts without `/dev/nvidia*` in the sandbox. `/etc` is mounted read-only, with a resolver file pasta can serve.
 - The plugin opens its input socket only with `plugin:cua:enabled` set in the config at load. It refuses typing on any keymap but `evdev/pc105/us`.
+- The plugin's `cua-input-v3-2.sock` lives under `$XDG_RUNTIME_DIR/hypr/<signature>/` and has to fit in `sun_path`. With a 25-character runtime folder it can't open, `hyprctl plugin list` still shows the plugin as loaded, and every `foreground` click fails with `production Hyprland input plugin is unavailable`. An 18-character folder fits, so keek always uses `/run/user/<uid>` inside the sandbox. Checked on 2026-11-01 with the versions above.
 - Hyprland's Xwayland sets its own `DISPLAY`, never the host's. keek turns it off, which is what makes `DISPLAY` absent.
 - `misc.disable_watchdog_warning` keeps Hyprland's warning out of the video.
 - A hidden nested window needs a `render_unfocused` window rule to keep rendering, and then records at the host's `misc:render_unfocused_fps` (15 by default). A visible window wasn't measured.

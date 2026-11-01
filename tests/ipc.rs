@@ -1,10 +1,13 @@
 use anyhow::Result;
-use keek::ipc::{Connection, DaemonStatus, Event, Message, Request, RequestId, Response};
+use keek::ipc::{
+    Connection, DaemonStatus, Event, Message, Request, RequestId, Response, SessionState,
+};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, duplex};
 
-fn every_message() -> Vec<Message> {
+fn every_message() -> Result<Vec<Message>> {
     let id = RequestId(7);
-    vec![
+    let session: keek::session_folder::SessionName = "app_12-00-00".parse()?;
+    Ok(vec![
         Message::Hello {
             version: "0.1.0".to_owned(),
         },
@@ -15,6 +18,81 @@ fn every_message() -> Vec<Message> {
         Message::Request {
             id,
             request: Request::Shutdown,
+        },
+        Message::Request {
+            id,
+            request: Request::ListTools,
+        },
+        Message::Request {
+            id,
+            request: Request::OpenSession {
+                project: "app".into(),
+                worktree: "/tmp/app".into(),
+                goal: "goal".into(),
+                checks: vec!["check".into()],
+            },
+        },
+        Message::Request {
+            id,
+            request: Request::CallTool {
+                session: session.clone(),
+                tool: "click".into(),
+                arguments: serde_json::json!({}),
+            },
+        },
+        Message::Request {
+            id,
+            request: Request::CloseSession {
+                session: session.clone(),
+                summary: "done".into(),
+            },
+        },
+        Message::Request {
+            id,
+            request: Request::WatchSession {
+                session: session.clone(),
+            },
+        },
+        Message::Response {
+            id,
+            response: Response::Tools(serde_json::json!({"tools":[]})),
+        },
+        Message::Response {
+            id,
+            response: Response::Opened {
+                session: session.clone(),
+            },
+        },
+        Message::Response {
+            id,
+            response: Response::ToolResult(serde_json::json!({})),
+        },
+        Message::Response {
+            id,
+            response: Response::Closed(serde_json::json!({})),
+        },
+        Message::Response {
+            id,
+            response: Response::Refused {
+                message: "no".into(),
+            },
+        },
+        Message::Response {
+            id,
+            response: Response::WatchEnded,
+        },
+        Message::Event {
+            id,
+            event: Event::StateChanged {
+                state: SessionState::Open,
+            },
+        },
+        Message::Event {
+            id,
+            event: Event::LastAction {
+                tool: "click".into(),
+                time_ms: keek::timeline::Millis(1),
+            },
         },
         Message::Response {
             id,
@@ -38,7 +116,7 @@ fn every_message() -> Vec<Message> {
                 message: "Waiting for the developer.".to_owned(),
             },
         },
-    ]
+    ])
 }
 
 #[tokio::test]
@@ -47,7 +125,7 @@ async fn every_message_crosses_a_duplex_unchanged() -> Result<()> {
     let mut sender = Connection::new(near);
     let mut receiver = Connection::new(far);
 
-    for message in every_message() {
+    for message in every_message()? {
         sender.send(&message).await?;
         assert_eq!(receiver.recv().await?, Some(message));
     }

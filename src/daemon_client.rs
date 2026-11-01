@@ -1,20 +1,26 @@
 //! How `keek mcp` reaches the daemon: connect, start one if none is running, and
 //! replace an older one when ADR 0015 allows it.
 
+use std::collections::HashMap;
 use std::io;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use semver::Version;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::UnixStream;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, mpsc, oneshot};
+use tokio::task::JoinHandle;
 
 use crate::VERSION;
 use crate::ipc::{Connection, DaemonStatus, IpcError, Message, Request, RequestId, Response};
+use crate::ipc::{ConnectionReader, ConnectionWriter, Event};
 use crate::paths::Paths;
+use crate::session_folder::SessionName;
 
 const RETRY_INTERVAL: Duration = Duration::from_millis(25);
 
@@ -206,9 +212,15 @@ where
             theirs,
             open_sessions,
         }),
-        Ok(other @ Response::Status(_)) => {
-            Err(RequestError::Unexpected(format!("{other:?}")).into())
-        }
+        Ok(
+            other @ (Response::Status(_)
+            | Response::Tools(_)
+            | Response::Opened { .. }
+            | Response::ToolResult(_)
+            | Response::Closed(_)
+            | Response::Refused { .. }
+            | Response::WatchEnded),
+        ) => Err(RequestError::Unexpected(format!("{other:?}")).into()),
         Err(error) => Err(error.into()),
     }
 }
@@ -264,172 +276,164 @@ where
     }
 }
 
-/// Dropping it tells the daemon this client left.
-#[derive(Debug)]
-pub struct DaemonClient {
-    state: Mutex<ClientState>,
+#[derive(Default)]
+struct PendingState {
+    closed: bool,
+    replies: HashMap<RequestId, PendingReply>,
 }
+type Pending = Arc<Mutex<PendingState>>;
+type Writer = Arc<Mutex<ConnectionWriter<Box<dyn AsyncWrite + Unpin + Send>>>>;
 
 #[derive(Debug)]
-struct ClientState {
-    connection: Connection<UnixStream>,
-    next_id: u64,
+struct PendingReply {
+    response: oneshot::Sender<Result<Response, RequestError>>,
+    events: Option<mpsc::Sender<Event>>,
+}
+
+/// Dropping it closes the connection and its reader task.
+pub struct DaemonClient {
+    writer: Writer,
+    pending: Pending,
+    next_id: AtomicU64,
+    reader: JoinHandle<()>,
+}
+
+impl std::fmt::Debug for DaemonClient {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("DaemonClient")
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for DaemonClient {
+    fn drop(&mut self) {
+        self.reader.abort();
+    }
 }
 
 impl DaemonClient {
-    fn new(connection: Connection<UnixStream>) -> Self {
+    fn new<S>(connection: Connection<S>) -> Self
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    {
+        let (reader, writer) = connection.split();
+        let pending = Arc::new(Mutex::new(PendingState::default()));
+        let writer = Arc::new(Mutex::new(writer.boxed()));
+        let task = tokio::spawn(read_responses(
+            reader,
+            Arc::clone(&pending),
+            Arc::clone(&writer),
+        ));
         Self {
-            state: Mutex::new(ClientState {
-                connection,
-                next_id: 1,
-            }),
+            writer,
+            pending,
+            next_id: AtomicU64::new(1),
+            reader: task,
         }
+    }
+
+    async fn start_request(
+        &self,
+        request: Request,
+        events: Option<mpsc::Sender<Event>>,
+    ) -> Result<oneshot::Receiver<Result<Response, RequestError>>, RequestError> {
+        let id = RequestId(self.next_id.fetch_add(1, Ordering::Relaxed));
+        let (reply, answer) = oneshot::channel();
+        let mut pending = self.pending.lock().await;
+        if pending.closed {
+            return Err(RequestError::DaemonGone);
+        }
+        pending.replies.insert(
+            id,
+            PendingReply {
+                response: reply,
+                events,
+            },
+        );
+        drop(pending);
+        if let Err(error) = self
+            .writer
+            .lock()
+            .await
+            .send(&Message::Request { id, request })
+            .await
+        {
+            self.pending.lock().await.replies.remove(&id);
+            return Err(error.into());
+        }
+        Ok(answer)
+    }
+
+    pub async fn request(&self, request: Request) -> Result<Response, RequestError> {
+        self.start_request(request, None)
+            .await?
+            .await
+            .map_err(|_| RequestError::DaemonGone)?
+    }
+
+    pub async fn watch_session(
+        &self,
+        session: SessionName,
+    ) -> Result<mpsc::Receiver<Event>, RequestError> {
+        let (sender, receiver) = mpsc::channel(16);
+        // The response removes the pending sender and closes the event receiver.
+        let _answer = self
+            .start_request(Request::WatchSession { session }, Some(sender))
+            .await?;
+        Ok(receiver)
     }
 
     pub async fn status(&self) -> Result<DaemonStatus, RequestError> {
-        let mut state = self.state.lock().await;
-        let id = RequestId(state.next_id);
-        state.next_id += 1;
-        match exchange(&mut state.connection, id, Request::Status).await? {
+        match self.request(Request::Status).await? {
             Response::Status(status) => Ok(status),
-            other @ (Response::ShuttingDown | Response::ShutdownRefused { .. }) => {
-                Err(RequestError::Unexpected(format!("{other:?}")))
-            }
+            other @ (Response::ShuttingDown
+            | Response::ShutdownRefused { .. }
+            | Response::Tools(_)
+            | Response::Opened { .. }
+            | Response::ToolResult(_)
+            | Response::Closed(_)
+            | Response::Refused { .. }
+            | Response::WatchEnded) => Err(RequestError::Unexpected(format!("{other:?}"))),
         }
     }
+}
+
+async fn read_responses<R: AsyncRead + Unpin>(
+    mut reader: ConnectionReader<R>,
+    pending: Pending,
+    writer: Writer,
+) {
+    loop {
+        match reader.recv().await {
+            Ok(Some(Message::Response { id, response })) => {
+                if let Some(reply) = pending.lock().await.replies.remove(&id) {
+                    let _ = reply.response.send(Ok(response));
+                }
+            }
+            Ok(Some(Message::Event { id, event })) => {
+                if let Some(sender) = pending
+                    .lock()
+                    .await
+                    .replies
+                    .get(&id)
+                    .and_then(|reply| reply.events.as_ref())
+                {
+                    let _ = sender.try_send(event);
+                }
+            }
+            Ok(Some(Message::Hello { .. } | Message::Request { .. })) | Ok(None) | Err(_) => break,
+        }
+    }
+    let mut pending = pending.lock().await;
+    pending.closed = true;
+    for (_, reply) in pending.replies.drain() {
+        let _ = reply.response.send(Err(RequestError::DaemonGone));
+    }
+    drop(pending);
+    let _ = writer.lock().await.shutdown().await;
 }
 
 #[cfg(test)]
-mod tests {
-    use tokio::io::duplex;
-
-    use super::*;
-    use crate::ipc::Event;
-
-    struct NoDaemon;
-
-    impl DaemonStarter for NoDaemon {
-        fn start(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    struct BrokenStarter;
-
-    impl DaemonStarter for BrokenStarter {
-        fn start(&mut self) -> io::Result<()> {
-            Err(io::Error::from(io::ErrorKind::PermissionDenied))
-        }
-    }
-
-    fn status() -> Response {
-        Response::Status(DaemonStatus {
-            version: VERSION.to_owned(),
-            pid: 1,
-            open_sessions: 0,
-        })
-    }
-
-    #[tokio::test]
-    async fn exchange_refuses_a_response_to_another_request() {
-        let (near, far) = duplex(4096);
-        let mut client = Connection::new(near);
-        let mut daemon = Connection::new(far);
-
-        daemon
-            .send(&Message::Response {
-                id: RequestId(4),
-                response: status(),
-            })
-            .await
-            .unwrap();
-
-        assert!(matches!(
-            exchange(&mut client, RequestId(5), Request::Status).await,
-            Err(RequestError::Unexpected(_))
-        ));
-    }
-
-    #[test]
-    fn only_a_higher_version_counts_as_newer() {
-        assert!(is_newer_than_this_build("99.0.0"));
-        assert!(!is_newer_than_this_build("0.0.1"));
-        assert!(!is_newer_than_this_build(VERSION));
-        assert!(!is_newer_than_this_build("not a version"));
-    }
-
-    #[tokio::test]
-    async fn exchange_skips_events_before_its_response() {
-        let (near, far) = duplex(4096);
-        let mut client = Connection::new(near);
-        let mut daemon = Connection::new(far);
-        let id = RequestId(5);
-
-        daemon
-            .send(&Message::Event {
-                id,
-                event: Event::Progress {
-                    message: "Working.".to_owned(),
-                },
-            })
-            .await
-            .unwrap();
-        daemon
-            .send(&Message::Response {
-                id,
-                response: status(),
-            })
-            .await
-            .unwrap();
-
-        assert_eq!(
-            exchange(&mut client, id, Request::Status).await.unwrap(),
-            status()
-        );
-    }
-
-    #[tokio::test]
-    async fn exchange_reports_a_daemon_that_hangs_up() {
-        let (near, far) = duplex(4096);
-        let mut client = Connection::new(near);
-        let mut daemon = Connection::new(far);
-
-        let (result, request) = tokio::join!(
-            exchange(&mut client, RequestId(1), Request::Status),
-            async {
-                let request = daemon.recv().await;
-                drop(daemon);
-                request
-            }
-        );
-
-        assert!(request.unwrap().is_some());
-        assert!(matches!(result, Err(RequestError::DaemonGone)));
-    }
-
-    #[tokio::test]
-    async fn a_daemon_that_never_answers_times_out_and_names_its_log() {
-        let dir = tempfile::tempdir().unwrap();
-        let paths = Paths::under_root(dir.path());
-
-        let error = connect_or_start(&paths, &mut NoDaemon, Duration::from_millis(100))
-            .await
-            .unwrap_err();
-
-        let message = error.to_string();
-        assert!(matches!(error, ConnectError::Timeout { .. }));
-        assert!(message.contains("daemon.log"), "message was: {message}");
-    }
-
-    #[tokio::test]
-    async fn a_daemon_that_cannot_start_is_reported_at_once() {
-        let dir = tempfile::tempdir().unwrap();
-        let paths = Paths::under_root(dir.path());
-
-        let error = connect_or_start(&paths, &mut BrokenStarter, Duration::from_secs(5))
-            .await
-            .unwrap_err();
-
-        assert!(matches!(error, ConnectError::Start { .. }));
-    }
-}
+#[path = "daemon_client_tests.rs"]
+mod tests;

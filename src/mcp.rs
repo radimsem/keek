@@ -1,18 +1,18 @@
-use std::time::Duration;
-
-use anyhow::{Context, Result};
-use rmcp::handler::server::wrapper::Json;
-use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
-use rmcp::{ErrorData, ServerHandler, ServiceExt, tool, tool_handler, tool_router};
-
 use crate::VERSION;
 use crate::daemon_client::{self, DaemonClient, ProcessStarter};
-use crate::ipc::DaemonStatus;
+use crate::ipc::{Request, Response};
 use crate::paths::Paths;
 use crate::verifier_protocol::VERIFIER_PROTOCOL;
-
+use anyhow::{Context, Result};
+use rmcp::model::{
+    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
+    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool,
+};
+use rmcp::service::{RequestContext, RoleServer};
+use rmcp::{ErrorData, ServerHandler, ServiceExt};
+use serde_json::{Value, json};
+use std::time::Duration;
 const DAEMON_START_TIMEOUT: Duration = Duration::from_secs(2);
-
 pub async fn serve() -> Result<()> {
     let paths = Paths::from_env()?;
     let executable = std::env::current_exe().context("could not find the keek executable")?;
@@ -22,7 +22,6 @@ pub async fn serve() -> Result<()> {
         DAEMON_START_TIMEOUT,
     )
     .await?;
-
     KeekServer { daemon }
         .serve(rmcp::transport::stdio())
         .await
@@ -32,27 +31,127 @@ pub async fn serve() -> Result<()> {
         .context("the MCP server stopped unexpectedly")?;
     Ok(())
 }
-
 struct KeekServer {
     daemon: DaemonClient,
 }
-
-#[tool_router]
-impl KeekServer {
-    #[tool(description = "Report the keek daemon's version, pid and open Agent Session count.")]
-    async fn keek_status(&self) -> Result<Json<DaemonStatus>, ErrorData> {
-        self.daemon.status().await.map(Json).map_err(|error| {
-            let error = anyhow::Error::from(error);
-            ErrorData::internal_error(format!("keek_status failed: {error:#}"), None)
-        })
-    }
+fn own_tools() -> Vec<Tool> {
+    [
+        ("keek_status","Report the keek daemon's version, pid and open Agent Session count.",json!({"type":"object","properties":{}})),
+        ("open_session","Open an Agent Session for a Verifier once its desktop is ready.",json!({"type":"object","properties":{"project":{"type":"string"},"worktree":{"type":"string"},"goal":{"type":"string"},"checks":{"type":"array","items":{"type":"string"}}},"required":["project","worktree","goal","checks"]})),
+        ("close_session","Close an Agent Session and return its Raw Recording, Action Log and Session Timeline paths.",json!({"type":"object","properties":{"session":{"type":"string"},"summary":{"type":"string"}},"required":["session","summary"]}))
+    ].into_iter().map(|(name,description,schema)|Tool::new(name,description,schema.as_object().cloned().unwrap_or_default())).collect()
 }
-
-#[tool_handler]
+fn tool_error(message: impl Into<String>) -> CallToolResult {
+    CallToolResult::error(vec![ContentBlock::text(message.into())])
+}
 impl ServerHandler for KeekServer {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("keek", VERSION))
             .with_instructions(VERIFIER_PROTOCOL)
+    }
+    async fn list_tools(
+        &self,
+        _: Option<PaginatedRequestParams>,
+        _: RequestContext<RoleServer>,
+    ) -> Result<ListToolsResult, ErrorData> {
+        let mut tools = own_tools();
+        if let Ok(Response::Tools(value)) = self.daemon.request(Request::ListTools).await
+            && let Some(list) = value.get("tools").and_then(Value::as_array)
+        {
+            for tool in list {
+                if let Ok(tool) = serde_json::from_value(tool.clone()) {
+                    tools.push(tool);
+                }
+            }
+        }
+        Ok(ListToolsResult::with_all_items(tools))
+    }
+    async fn call_tool(
+        &self,
+        params: CallToolRequestParams,
+        _: RequestContext<RoleServer>,
+    ) -> Result<CallToolResponse, ErrorData> {
+        let args = Value::Object(params.arguments.unwrap_or_default());
+        let request=match params.name.as_ref(){
+            "keek_status"=>Ok(Request::Status),
+            "open_session"=>parse_open(args),
+            "close_session"=>parse_close(args),
+            tool=>args.get("session").and_then(Value::as_str).ok_or_else(||"Every forwarded tool requires an Agent Session name in session. Call open_session first.".to_owned()).and_then(|name|name.parse().map_err(|e:crate::session_folder::InvalidSessionName|e.to_string())).map(|session|Request::CallTool{session,tool:tool.into(),arguments:args}),
+        };
+        let request = match request {
+            Ok(request) => request,
+            Err(message) => return Ok(tool_error(message).into()),
+        };
+        let response = match self.daemon.request(request).await {
+            Ok(response) => response,
+            Err(error) => return Ok(tool_error(error.to_string()).into()),
+        };
+        Ok(match response {
+            Response::ToolResult(value) => {
+                serde_json::from_value(value).unwrap_or_else(|e| tool_error(e.to_string()))
+            }
+            Response::Refused { message } => tool_error(message),
+            Response::Opened { session } => CallToolResult::structured(json!({"session":session})),
+            Response::Closed(value) => CallToolResult::structured(value),
+            Response::Status(status) => CallToolResult::structured(
+                serde_json::to_value(status)
+                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?,
+            ),
+            Response::Tools(_)
+            | Response::WatchEnded
+            | Response::ShuttingDown
+            | Response::ShutdownRefused { .. } => {
+                tool_error("Unexpected daemon response. Restart the keek MCP server.")
+            }
+        }
+        .into())
+    }
+}
+#[derive(serde::Deserialize)]
+struct OpenArguments {
+    project: String,
+    worktree: std::path::PathBuf,
+    goal: String,
+    checks: Vec<String>,
+}
+fn parse_open(value: Value) -> Result<Request, String> {
+    let args: OpenArguments = serde_json::from_value(value).map_err(|e| {
+        format!("Cannot open an Agent Session: {e}. Pass project, worktree, goal and checks.")
+    })?;
+    if !args.worktree.is_absolute() {
+        return Err("Cannot open an Agent Session: worktree must be an absolute path. Pass an absolute worktree path.".into());
+    }
+    Ok(Request::OpenSession {
+        project: args.project,
+        worktree: args.worktree,
+        goal: args.goal,
+        checks: args.checks,
+    })
+}
+#[derive(serde::Deserialize)]
+struct CloseArguments {
+    session: crate::session_folder::SessionName,
+    summary: String,
+}
+fn parse_close(value: Value) -> Result<Request, String> {
+    let args: CloseArguments = serde_json::from_value(value)
+        .map_err(|e| format!("Cannot close an Agent Session: {e}. Pass session and summary."))?;
+    Ok(Request::CloseSession {
+        session: args.session,
+        summary: args.summary,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn open_session_refuses_a_relative_worktree() {
+        let error =
+            parse_open(json!({"project":"app","worktree":"relative","goal":"test","checks":[]}))
+                .unwrap_err();
+        assert!(error.contains("absolute path"), "{error}");
     }
 }
