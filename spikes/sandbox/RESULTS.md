@@ -2,7 +2,7 @@
 
 Run on 2026-10-31 on Omarchy with Hyprland 0.56.2, aquamarine 0.15.1, cua-hyprland-plugin 0.33.2-3, Cua Driver 0.38.0, bubblewrap 0.13.1 and pasta 2026_10_02. Session folders are in `~/.cache/keek/sessions/`.
 
-**Status: stopped for a decision.** The spread on the ticket's measure is over 200 ms and the sandbox needed changes the docs don't describe, so `docs/` is unchanged. The Takeover with a person hasn't been run.
+**Status: decided on 2026-11-01.** The spread on the ticket's measure is over 200 ms and the sandbox needed changes the docs didn't describe. keek judges alignment against the page event, with a 116 ms constant and a 150 ms guard, and accepts the limits below. `docs/` holds the results. The Takeover with a person hasn't been run, and #8 and #9 now carry it.
 
 ## Acceptance criteria
 
@@ -250,6 +250,16 @@ A scripted Takeover read the clock, then turned the page magenta, and read the c
 
 The last row shows the detector can fail, and that a cut from Cua's own times would leave footage.
 
+The chosen values, rerun on the same three recordings after the decision. The first magenta frame was at least 161.9 ms inside the cut, and the last at least 185.5 ms inside it:
+
+```
+cut-4: magenta in raw 4491.7..7397.2 ms (45 frames); cut 4272.6..7603.3 ms with C=116 guard=150; removed 3.38 s of 10.44 s; magenta frames left: 0
+cut-5: magenta in raw 4433.5..7405.4 ms (46 frames); cut 4270.4..7601.2 ms with C=116 guard=150; removed 3.28 s of 10.44 s; magenta frames left: 0
+cut-6: magenta in raw 4431.6..7404.9 ms (46 frames); cut 4269.7..7590.4 ms with C=116 guard=150; removed 3.28 s of 10.44 s; magenta frames left: 0
+```
+
+C=116 with guard 0 and with guard 70 also left 0, 0, 0.
+
 ### Step 7: killing the parent
 
 After `kill -9` on the proxy during a recording, `ps -ef | grep -E 'hyprland|wf-recorder|cua-driver'` showed only the host's own session processes, and the session window and workspace `keek` were gone. This ran before the review fixes, which didn't change the process chain.
@@ -260,11 +270,11 @@ A fresh Verifier subagent with only the goal and Checks passed both Checks from 
 
 ## What the sandbox needed beyond the docs
 
-Needs a decision, because they change what a session can do:
+Accepted on 2026-11-01. They change what a session can do, so the docs now state them:
 
 - Xwayland is off, because the ticket requires `DISPLAY` absent, so an X11-only App Under Test can't run. The `DISPLAY` Hyprland set was its own Xwayland, never the host's.
 - The plugin needs the `evdev/pc105/us` keymap, so a developer on another layout types `us` during a Takeover.
-- Chromium refuses background input, so a Verifier has to pass `delivery_mode:"foreground"` on every `click` and `type_text`.
+- Chromium refuses background input, so `click` and `type_text` need `delivery_mode:"foreground"`. keek makes that the default when it forwards a tool, so a Verifier doesn't have to pass it.
 - A hidden Session Window records at the host's `misc:render_unfocused_fps` (15 here), through a `render_unfocused` window rule. A visible window wasn't measured.
 
 Implementation facts for #3:

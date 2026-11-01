@@ -5,5 +5,5 @@ Cua Driver writes the video, a 30 Hz cursor track and a record of each Action in
 ## Consequences
 
 - keek pins the driver version, stock 0.38.0 for now; the plugin's package pins the Hyprland version.
-- Cua lists Hyprland support as experimental. The first spike proved browser input and recording in a nested Hyprland; the next one proves them inside the sandbox.
+- Cua lists Hyprland support as experimental. The spikes proved browser input and recording in a nested Hyprland, first on its own and then inside the sandbox.
 - Cua's action records store full arguments, including typed text. Masking typed secrets belongs in Cua Driver ([ADR 0009](0009-shared-pieces-go-to-cua-driver.md)). Until a release carries it, keek scrubs every Test Credential value when it files Evidence.

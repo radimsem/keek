@@ -46,7 +46,7 @@ The viewer fails, even if it works, if:
 
 - keek uses one named Hyprland workspace, `keek`, for every Session Card.
 - The workspace has one slot per allowed open session: two by default, each half the monitor's width. A Session Card fills its slot; its Session Window floats in the slot above the Session Footer at a size fixed when the session opens. A Project's settings can give it a different size, such as a phone-sized window for a mobile web app.
-- A Session Window opens there silently: it never takes focus or switches the developer's workspace. It closes when its session ends.
+- A Session Window opens there silently: it never takes focus or switches the developer's workspace. It closes when its session ends. Its window rule includes `render_unfocused`, so the session keeps rendering and recording while the workspace is hidden.
 - keek ships no keybinding to reach the workspace. Its docs suggest one for the user's Hyprland config. *(my call)*
 
 ### Session Window
@@ -94,11 +94,13 @@ A Takeover starts only from the **Take control** button. Looking at, hovering ov
 
 The developer adds keek's submap snippet to their Hyprland config once. If it is missing, Take control still works, but host shortcuts stay live and the footer says so. *(my call)*
 
+The nested desktop types as `us` during a Takeover, whatever the developer's own layout is, because the Cua plugin requires that keymap. keek's docs say so.
+
 Recording during a Takeover:
 
 - The Raw Recording keeps running and keeps the footage locally.
-- The Session Timeline gets one Takeover entry: start, end and reason. None of the developer's input is logged.
-- The Verification Video replaces the Takeover with a title card: "You were in control · 0:42 · 2FA code".
+- The Session Timeline gets one Takeover entry: start, end and reason. keek reads the start before it clears `no_focus` and the end after it sets `no_focus` again, so the entry spans all of the developer's input. None of that input is logged.
+- The Verification Video replaces the Takeover with a title card: "You were in control · 0:42 · 2FA code". The cut removes time, not what is still on screen at Done, so a code left visible in a field shows after the card.
 - The Verdict Report lists each Takeover with its time and reason.
 
 ### Session end
