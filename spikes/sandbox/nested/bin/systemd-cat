@@ -1,0 +1,11 @@
+#!/bin/bash
+# The sandbox has no journal socket, so a shell started through systemd-cat
+# logs to the session folder.
+while [ $# -gt 0 ]; do
+  case $1 in
+    -t) shift 2 ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+done
+exec "$@" >>"$KEEK_SESSION/shell.log" 2>&1
