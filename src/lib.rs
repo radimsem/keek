@@ -23,3 +23,5 @@ pub mod timeline;
 pub mod verifier_protocol;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+mod session_evidence;

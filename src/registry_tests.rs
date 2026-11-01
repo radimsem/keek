@@ -76,7 +76,7 @@ impl DriverFactory for Factory {
         })
     }
 }
-struct Runner;
+struct Runner(PathBuf);
 impl ProcessRunner for Runner {
     fn output<'a>(
         &'a self,
@@ -87,6 +87,9 @@ impl ProcessRunner for Runner {
         Box<dyn std::future::Future<Output = Result<String, ProcessError>> + Send + 'a>,
     > {
         Box::pin(async move {
+            if args == ["VIDEOS"] {
+                return Ok(self.0.to_string_lossy().into_owned());
+            }
             if args.ends_with(&["rev-parse", "--show-toplevel"]) {
                 let cwd = cwd.unwrap();
                 let root = if cwd.file_name().is_some_and(|name| name == "child") {
@@ -162,7 +165,7 @@ impl Harness {
                     signature: Some("fake".into()),
                 },
                 clock: Arc::new(FixedClock),
-                runner: Arc::new(Runner),
+                runner: Arc::new(Runner(directory.path().join("videos"))),
                 compositor: compositor.clone(),
                 factory: Arc::new(Factory(calls.clone(), controls.clone())),
             },
@@ -200,12 +203,28 @@ impl Harness {
                 checks: vec!["check".into()],
             })
             .await;
-        let Response::Opened { session } = response else {
+        let Response::Opened { session, .. } = response else {
             panic!("open failed: {response:?}");
         };
         session
     }
+    async fn mark(&mut self, name: &SessionName) {
+        assert!(matches!(
+            self.request(Request::MarkCheck {
+                session: name.clone(),
+                check: crate::timeline::CheckId(1),
+                outcome: crate::timeline::CheckOutcome::Passed,
+                comment: String::new()
+            })
+            .await,
+            Response::CheckMarked { .. }
+        ));
+    }
     async fn finish(&mut self, name: SessionName) -> Response {
+        self.mark(&name).await;
+        self.finish_marked(name).await
+    }
+    async fn finish_marked(&mut self, name: SessionName) -> Response {
         let (reply, answer) = oneshot::channel();
         self.registry
             .handle(
@@ -339,7 +358,7 @@ async fn accepted_shutdown_refuses_every_later_open() {
 }
 
 #[tokio::test]
-async fn close_writes_the_timeline_and_preserves_the_session_record() {
+async fn close_files_the_timeline_and_revision_in_the_report() {
     let mut h = Harness::new(1);
     let name = h.open(h.worktree("one")).await;
     h.request(Request::CallTool {
@@ -348,20 +367,28 @@ async fn close_writes_the_timeline_and_preserves_the_session_record() {
         arguments: json!({}),
     })
     .await;
-    let response = h.finish(name.clone()).await;
-    assert!(matches!(response, Response::Closed(_)));
     let folder = SessionFolder::new(&h.registry.dependencies.sessions_dir, &name);
-    let timeline = crate::timeline::SessionTimeline::parse(
-        &std::fs::read_to_string(folder.timeline()).unwrap(),
-    )
-    .unwrap();
-    assert_eq!(timeline.events().len(), 1);
     let record: Value =
         serde_json::from_str(&std::fs::read_to_string(folder.root().join("session.json")).unwrap())
             .unwrap();
     assert_eq!(record["goal"], "goal");
     assert_eq!(record["checks"], json!(["check"]));
     assert_eq!(record["revision"]["dirty"], true);
+    let response = h.finish(name.clone()).await;
+    let Response::Closed(value) = response else {
+        panic!("close refused");
+    };
+    let timeline = crate::timeline::SessionTimeline::parse(
+        &std::fs::read_to_string(value["evidence"]["timeline"].as_str().unwrap()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(timeline.events().len(), 2);
+    assert!(!folder.root().exists());
+    let report = std::fs::read_to_string(value["evidence"]["report"].as_str().unwrap()).unwrap();
+    assert!(report.contains("# goal"));
+    assert!(report.contains("Verified feature at fake-co + uncommitted changes"));
+    assert!(report.contains("1. check: Passed"));
+
     assert!(
         h.calls
             .lock()
@@ -438,7 +465,7 @@ async fn opening_sessions_count_while_the_catalog_is_pending() {
                 project: "app".into(),
                 worktree,
                 goal: "goal".into(),
-                checks: vec![],
+                checks: vec!["check".into()],
             },
             reply,
             None,
@@ -456,7 +483,7 @@ async fn opening_sessions_count_while_the_catalog_is_pending() {
     catalog_sender.send_replace(Some(Ok(Arc::new(Catalog::default()))));
     let prepared = h.registry.preparing.join_next().await.unwrap().unwrap();
     h.registry.prepared(prepared).await;
-    let Response::Opened { session } = answer.await.unwrap() else {
+    let Response::Opened { session, .. } = answer.await.unwrap() else {
         panic!("open failed");
     };
     h.finish(session).await;
@@ -466,6 +493,7 @@ async fn opening_sessions_count_while_the_catalog_is_pending() {
 async fn a_closing_session_keeps_refusing_calls_before_the_actor_replies() {
     let mut h = Harness::new(2);
     let session = h.open(h.worktree("one")).await;
+    h.mark(&session).await;
     let (reply, answer) = oneshot::channel();
     h.registry
         .handle(
@@ -492,3 +520,6 @@ async fn a_closing_session_keeps_refusing_calls_before_the_actor_replies() {
 
 #[path = "registry_lifecycle_tests.rs"]
 mod lifecycle;
+
+#[path = "registry_check_tests.rs"]
+mod checks;

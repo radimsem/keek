@@ -51,6 +51,11 @@ async fn a_watch_reports_state_and_the_last_action_until_the_session_ends() {
         })
     ));
 
+    h.mark(&name).await;
+    assert!(matches!(
+        received.recv().await,
+        Some(Event::CheckMarked { .. })
+    ));
     let called = h
         .request(Request::CallTool {
             session: name.clone(),
@@ -65,7 +70,7 @@ async fn a_watch_reports_state_and_the_last_action_until_the_session_ends() {
         "{action:?}"
     );
 
-    assert!(matches!(h.finish(name).await, Response::Closed(_)));
+    assert!(matches!(h.finish_marked(name).await, Response::Closed(_)));
     assert!(matches!(
         received.recv().await,
         Some(Event::StateChanged {
@@ -79,6 +84,7 @@ async fn a_watch_reports_state_and_the_last_action_until_the_session_ends() {
 async fn second_close_and_call_after_close_are_refused() {
     let mut h = Harness::new(2);
     let name = h.open(h.worktree("one")).await;
+    h.mark(&name).await;
     let (slow_reply, _slow_answer) = oneshot::channel();
     h.registry
         .handle(
@@ -129,7 +135,20 @@ async fn second_close_and_call_after_close_are_refused() {
         h.request(Request::Status).await,
         Response::Status(_)
     ));
+    // The close is still queued behind the slow call, so only the actor can answer this.
+    let (late_reply, late_answer) = oneshot::channel();
+    h.registry
+        .handle(
+            Request::AddCheck {
+                session: name.clone(),
+                text: "criterion".into(),
+            },
+            late_reply,
+            None,
+        )
+        .await;
     h.controls.release.notify_one();
+    assert!(refused(late_answer.await.unwrap()).contains("closing"));
     let finished = h.registry.tasks.join_next().await.unwrap().unwrap();
     h.registry.finished(finished).await;
     assert!(matches!(close_answer.await.unwrap(), Response::Closed(_)));
@@ -230,6 +249,7 @@ async fn a_stuck_stop_frees_the_slot_after_its_timeout() {
     h.controls
         .stop_hangs
         .store(true, std::sync::atomic::Ordering::Relaxed);
+    h.mark(&name).await;
     let (reply, answer) = oneshot::channel();
     h.registry
         .handle(

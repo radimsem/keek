@@ -42,6 +42,49 @@ fn every_message() -> Result<Vec<Message>> {
         },
         Message::Request {
             id,
+            request: Request::AddCheck {
+                session: session.clone(),
+                text: "criterion".into(),
+            },
+        },
+        Message::Request {
+            id,
+            request: Request::MarkCheck {
+                session: session.clone(),
+                check: keek::timeline::CheckId(1),
+                outcome: keek::timeline::CheckOutcome::Failed,
+                comment: "observed".into(),
+            },
+        },
+        Message::Response {
+            id,
+            response: Response::CheckAdded {
+                check: keek::timeline::CheckId(2),
+            },
+        },
+        Message::Response {
+            id,
+            response: Response::CheckMarked {
+                check: keek::timeline::CheckId(1),
+            },
+        },
+        Message::Event {
+            id,
+            event: Event::CheckAdded {
+                check: keek::timeline::CheckId(2),
+                text: "criterion".into(),
+            },
+        },
+        Message::Event {
+            id,
+            event: Event::CheckMarked {
+                check: keek::timeline::CheckId(1),
+                outcome: keek::timeline::CheckOutcome::Failed,
+                time_ms: keek::timeline::Millis(12),
+            },
+        },
+        Message::Request {
+            id,
             request: Request::CloseSession {
                 session: session.clone(),
                 summary: "done".into(),
@@ -60,6 +103,10 @@ fn every_message() -> Result<Vec<Message>> {
         Message::Response {
             id,
             response: Response::Opened {
+                checks: vec![keek::ipc::OpenedCheck {
+                    id: keek::timeline::CheckId(1),
+                    text: "criterion".into(),
+                }],
                 session: session.clone(),
             },
         },

@@ -38,7 +38,9 @@ fn own_tools() -> Vec<Tool> {
     [
         ("keek_status","Report the keek daemon's version, pid and open Agent Session count.",json!({"type":"object","properties":{}})),
         ("open_session","Open an Agent Session for a Verifier once its desktop is ready.",json!({"type":"object","properties":{"project":{"type":"string"},"worktree":{"type":"string"},"goal":{"type":"string"},"checks":{"type":"array","items":{"type":"string"}}},"required":["project","worktree","goal","checks"]})),
-        ("close_session","Close an Agent Session and return its Raw Recording, Action Log and Session Timeline paths.",json!({"type":"object","properties":{"session":{"type":"string"},"summary":{"type":"string"}},"required":["session","summary"]}))
+        ("add_check","Add a Check found while verifying.",json!({"type":"object","properties":{"session":{"type":"string"},"text":{"type":"string"}},"required":["session","text"]})),
+        ("mark_check","Mark a Check passed, failed or skipped. Failed and skipped need a one-line comment.",json!({"type":"object","properties":{"session":{"type":"string"},"check":{"type":"integer"},"outcome":{"type":"string","enum":["passed","failed","skipped"]},"comment":{"type":"string"}},"required":["session","check","outcome"]})),
+        ("close_session","Derive the Verdict and file Evidence. Refuses with no Checks or unmarked Checks.",json!({"type":"object","properties":{"session":{"type":"string"},"summary":{"type":"string"}},"required":["session","summary"]}))
     ].into_iter().map(|(name,description,schema)|Tool::new(name,description,schema.as_object().cloned().unwrap_or_default())).collect()
 }
 fn tool_error(message: impl Into<String>) -> CallToolResult {
@@ -77,6 +79,8 @@ impl ServerHandler for KeekServer {
             "keek_status"=>Ok(Request::Status),
             "open_session"=>parse_open(args),
             "close_session"=>parse_close(args),
+            "add_check"=>parse_add(args),
+            "mark_check"=>parse_mark(args),
             tool=>args.get("session").and_then(Value::as_str).ok_or_else(||"Every forwarded tool requires an Agent Session name in session. Call open_session first.".to_owned()).and_then(|name|name.parse().map_err(|e:crate::session_folder::InvalidSessionName|e.to_string())).map(|session|Request::CallTool{session,tool:tool.into(),arguments:args}),
         };
         let request = match request {
@@ -92,7 +96,12 @@ impl ServerHandler for KeekServer {
                 serde_json::from_value(value).unwrap_or_else(|e| tool_error(e.to_string()))
             }
             Response::Refused { message } => tool_error(message),
-            Response::Opened { session } => CallToolResult::structured(json!({"session":session})),
+            Response::Opened { session, checks } => {
+                CallToolResult::structured(json!({"session":session,"checks":checks}))
+            }
+            Response::CheckAdded { check } | Response::CheckMarked { check } => {
+                CallToolResult::structured(json!({"check":check}))
+            }
             Response::Closed(value) => CallToolResult::structured(value),
             Response::Status(status) => CallToolResult::structured(
                 serde_json::to_value(status)
@@ -153,5 +162,59 @@ mod tests {
             parse_open(json!({"project":"app","worktree":"relative","goal":"test","checks":[]}))
                 .unwrap_err();
         assert!(error.contains("absolute path"), "{error}");
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct AddArguments {
+    session: crate::session_folder::SessionName,
+    text: String,
+}
+fn parse_add(value: Value) -> Result<Request, String> {
+    let args: AddArguments = serde_json::from_value(value)
+        .map_err(|e| format!("Cannot add a Check: {e}. Call add_check with session and text."))?;
+    Ok(Request::AddCheck {
+        session: args.session,
+        text: args.text,
+    })
+}
+#[derive(serde::Deserialize)]
+struct MarkArguments {
+    session: crate::session_folder::SessionName,
+    check: crate::timeline::CheckId,
+    outcome: crate::timeline::CheckOutcome,
+    #[serde(default)]
+    comment: String,
+}
+fn parse_mark(value: Value) -> Result<Request, String> {
+    let args: MarkArguments = serde_json::from_value(value).map_err(|e| format!("Cannot mark a Check: {e}. Call mark_check with session, check and outcome, plus a one-line comment when failed or skipped."))?;
+    Ok(Request::MarkCheck {
+        session: args.session,
+        check: args.check,
+        outcome: args.outcome,
+        comment: args.comment,
+    })
+}
+
+#[cfg(test)]
+mod check_tests {
+    use super::*;
+    #[test]
+    fn check_tools_parse_stable_ids_and_outcomes() {
+        assert!(
+            matches!(parse_add(json!({"session":"app_12-00-00","text":"criterion"})), Ok(Request::AddCheck { text, .. }) if text == "criterion")
+        );
+        assert!(
+            matches!(parse_mark(json!({"session":"app_12-00-00","check":2,"outcome":"passed"})), Ok(Request::MarkCheck { check:crate::timeline::CheckId(2), outcome:crate::timeline::CheckOutcome::Passed, comment, .. }) if comment.is_empty())
+        );
+        for outcome in ["fail", "pass", "unknown"] {
+            assert!(
+                parse_mark(json!({"session":"app_12-00-00","check":2,"outcome":outcome})).is_err()
+            );
+        }
+        let tools = own_tools();
+        for name in ["add_check", "mark_check"] {
+            assert!(tools.iter().any(|tool| tool.name == name));
+        }
     }
 }

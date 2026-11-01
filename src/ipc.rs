@@ -6,7 +6,7 @@
 //! a new `keek mcp` replaces an older daemon.
 
 use crate::session_folder::SessionName;
-use crate::timeline::Millis;
+use crate::timeline::{CheckId, CheckOutcome, Millis};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -43,6 +43,16 @@ pub enum Request {
         tool: String,
         arguments: Value,
     },
+    AddCheck {
+        session: SessionName,
+        text: String,
+    },
+    MarkCheck {
+        session: SessionName,
+        check: CheckId,
+        outcome: CheckOutcome,
+        comment: String,
+    },
     CloseSession {
         session: SessionName,
         summary: String,
@@ -60,13 +70,32 @@ pub enum Request {
 pub enum Response {
     Status(DaemonStatus),
     Tools(Value),
-    Opened { session: SessionName },
+    Opened {
+        session: SessionName,
+        checks: Vec<OpenedCheck>,
+    },
+    CheckAdded {
+        check: CheckId,
+    },
+    CheckMarked {
+        check: CheckId,
+    },
     ToolResult(Value),
     Closed(Value),
-    Refused { message: String },
+    Refused {
+        message: String,
+    },
     WatchEnded,
     ShuttingDown,
-    ShutdownRefused { open_sessions: usize },
+    ShutdownRefused {
+        open_sessions: usize,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpenedCheck {
+    pub id: CheckId,
+    pub text: String,
 }
 
 /// Something a long-running request reports before its response.
@@ -74,9 +103,25 @@ pub enum Response {
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum Event {
-    Progress { message: String },
-    StateChanged { state: SessionState },
-    LastAction { tool: String, time_ms: Millis },
+    Progress {
+        message: String,
+    },
+    StateChanged {
+        state: SessionState,
+    },
+    LastAction {
+        tool: String,
+        time_ms: Millis,
+    },
+    CheckAdded {
+        check: CheckId,
+        text: String,
+    },
+    CheckMarked {
+        check: CheckId,
+        outcome: CheckOutcome,
+        time_ms: Millis,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

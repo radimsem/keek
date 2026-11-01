@@ -92,7 +92,7 @@ The host MCP server exposes these to the Verifier. MCP calls carry no caller ide
   3. injects Test Credentials and starts the App Under Test
   4. starts recording and the Session Timeline
 
-  It returns once the desktop is ready, with the session's name (`myapp_14-03-22`) and the names of its Test Credentials. It warns when the Project has no Test Credentials or settings, which is how a misspelled name shows up.
+  It returns once the desktop is ready, with the session's name (`myapp_14-03-22`), each Check's id and text, and the names of its Test Credentials. It warns when the Project has no Test Credentials or settings, which is how a misspelled name shows up.
 - Cua Driver's tools (`get_window_state`, `click`, `type_text` and the rest), forwarded with `session` added to their schema and stripped before the call. These are not forwarded, because each would undo something keek owns:
   - Recording is always on: `start_recording`, `stop_recording`, `get_recording_state`, `replay_trajectory`.
   - keek owns the driver session, whose end stops the recording: `start_session`, `end_session`, `escalate_session`.
@@ -102,7 +102,7 @@ The host MCP server exposes these to the Verifier. MCP calls carry no caller ide
 - `request_help(session, reason)`: raises a Help Request and blocks until the developer finishes a Takeover; see [`viewer.md`](viewer.md#takeover). While it waits it sends progress notifications, because Claude Code aborts a local MCP call after 30 minutes with no response or progress.
 - `add_check(session, text)`: adds a Check the Verifier found worth checking while testing. It is marked as added in the Verdict Report and on the card.
 - `mark_check(session, check, outcome, comment)`: marks a Check passed, failed or skipped; failed and skipped need a one-line comment. A Check can be marked again until the session closes. keek pushes each mark to the Session Footer and logs it in the Session Timeline with its time.
-- `close_session(session, summary)`: refuses while a Check is unmarked and names the unmarked ones. keek derives the Verdict from the Checks ([ADR 0012](adr/0012-verdict-follows-from-the-checklist.md)), stops recording, stops the sandbox, renders, files the Evidence and returns the Verdict, every Check with its outcome and comment, and the Evidence paths.
+- `close_session(session, summary)`: refuses while a Check is unmarked and names the unmarked ones, and refuses a session with no Checks, which would otherwise Pass with nothing verified. keek derives the Verdict from the Checks ([ADR 0012](adr/0012-verdict-follows-from-the-checklist.md)), stops recording, stops the sandbox, renders, files the Evidence and returns the Verdict, every Check with its outcome and comment, and the Evidence paths.
 
 ## Recording and editing
 
@@ -157,8 +157,8 @@ While a session is open, Cua writes into `~/.cache/keek/sessions/<session>/`. `c
 ```
 
 - Names are `<project>_<HH-MM-SS>_<verdict>_<type>.<ext>`. The date folder and time use the local date and time the session started. The verdict is `pass`, `needs-fixes`, `partly-verified` or `incomplete`. A second session of the same Project starting in the same second gets `-2` after the time.
-- `verification.mp4` is the Verification Video, `raw.mp4` the Raw Recording, `timeline.json` the Session Timeline, and `actions/` the Action Log with Test Credentials scrubbed.
-- `report.md` is the Verdict Report. Its header names the goal and the revision ("Verified fix/17-parser-bom at a1b2c3d + uncommitted changes"). It lists the Verification Checklist, each Check with its outcome, comment and timestamp in the Verification Video, then the Verdict. It states that its times come from the Session Timeline, not from `actions/`. It is ready to paste into a PR body after review.
+- `verification.mp4` is the Verification Video, filed once the editor has produced one, `raw.mp4` the Raw Recording, `timeline.json` the Session Timeline, and `actions/` the Action Log with Test Credentials scrubbed.
+- `report.md` is the Verdict Report. Its header names the goal and the revision ("Verified fix/17-parser-bom at a1b2c3d + uncommitted changes"). It lists the Verification Checklist, each Check with its outcome, comment and timestamp in the Verification Video, then the Verifier's summary and the Verdict. It states that its times come from the Session Timeline, not from `actions/`. It is ready to paste into a PR body after review.
 - `index.md` gets one line per session, appended at close: date, time, branch, commit, Verdict, goal, and links to the files.
 - keek never deletes Evidence.
 
