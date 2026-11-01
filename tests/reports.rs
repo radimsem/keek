@@ -50,6 +50,7 @@ fn reports_match_the_reviewed_markdown() {
             checks: list.checks(),
             end: &end,
             time_map: &IdentityTimeMap,
+            video_error: None,
         });
         let golden = std::fs::read_to_string(format!("tests/fixtures/reports/{name}.md")).unwrap();
         assert_eq!(rendered, golden);
@@ -81,6 +82,7 @@ fn reports_map_video_times_and_handle_detached_short_revisions() {
         checks: list.checks(),
         end: &SessionEnd::Verdict(Verdict::Pass),
         time_map: &Map,
+        video_error: None,
     });
     assert!(text.contains("Verified detached HEAD at é\n"));
     assert!(text.contains("Passed at 0:09"));

@@ -94,6 +94,8 @@ struct RunningActor {
     release: Arc<Notify>,
     stop_hangs: Arc<AtomicBool>,
     fail_close: Arc<AtomicBool>,
+    clock: Arc<FakeClock>,
+    render_succeeds: Arc<AtomicBool>,
 }
 async fn start_actor(root: &Path, id: &str, stop_fails: bool) -> RunningActor {
     let (actor, response) = start_actor_result(root, id, stop_fails, None).await;
@@ -146,6 +148,7 @@ async fn start_actor_result(
     let (events, receiver) = watch::channel(Event::StateChanged {
         state: SessionState::Opening,
     });
+    let render_succeeds = Arc::new(AtomicBool::new(false));
     let actor = Actor {
         project: "app".into(),
         goal: "fixture".into(),
@@ -156,12 +159,12 @@ async fn start_actor_result(
         },
         started: chrono::Local::now(),
         checklist: crate::checklist::Checklist::new(vec!["fixture works".into()]),
-        runner: Arc::new(EvidenceRunner(root.join("videos"))),
+        runner: Arc::new(EvidenceRunner(root.join("videos"), render_succeeds.clone())),
         closing: Arc::new(AtomicBool::new(false)),
         name,
         folder: folder.clone(),
         factory: Arc::new(FakeFactory(Mutex::new(Some(driver)))),
-        clock,
+        clock: clock.clone(),
         catalog: Arc::new(Catalog::new(tools)),
         events,
     };
@@ -191,6 +194,8 @@ async fn start_actor_result(
             release,
             stop_hangs,
             fail_close,
+            clock,
+            render_succeeds,
         },
         response,
     )
@@ -512,7 +517,10 @@ async fn close_reports_both_stop_and_close_failures() {
     );
 }
 
-struct EvidenceRunner(std::path::PathBuf);
+#[path = "session_actor_tests/editor.rs"]
+mod editor;
+
+struct EvidenceRunner(std::path::PathBuf, Arc<AtomicBool>);
 impl crate::process::ProcessRunner for EvidenceRunner {
     fn output<'a>(
         &'a self,
@@ -521,9 +529,29 @@ impl crate::process::ProcessRunner for EvidenceRunner {
         _: Option<&'a Path>,
     ) -> crate::process::ProcessFuture<'a> {
         Box::pin(async move {
-            assert_eq!(program, "xdg-user-dir");
-            assert_eq!(args, ["VIDEOS"]);
-            Ok(self.0.to_string_lossy().into_owned())
+            match program {
+                "xdg-user-dir" => {
+                    assert_eq!(args, ["VIDEOS"]);
+                    Ok(self.0.to_string_lossy().into_owned())
+                }
+                "ffprobe" => Ok("60.0".into()),
+                "fc-match" => {
+                    assert_eq!(args, ["-f", "%{family}|%{file}", "JetBrains Mono"]);
+                    Ok("JetBrains Mono|/usr/share/fonts/fixture.ttf".into())
+                }
+                "ffmpeg" if args.iter().any(|arg| arg.contains("freezedetect")) => Ok(
+                    "lavfi.freezedetect.freeze_start: 0\nlavfi.freezedetect.freeze_end: 60".into(),
+                ),
+                "ffmpeg" if self.1.load(Ordering::SeqCst) => {
+                    std::fs::write(args.last().unwrap(), b"edited recording").unwrap();
+                    Ok(String::new())
+                }
+                "ffmpeg" => Err(crate::process::ProcessError::Failed {
+                    program: program.into(),
+                    message: "fixture ffmpeg failure".into(),
+                }),
+                _ => panic!("unexpected program {program}"),
+            }
         })
     }
 }

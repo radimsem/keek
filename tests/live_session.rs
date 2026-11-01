@@ -13,6 +13,7 @@ async fn live_session_records_three_clicks() -> Result<()> {
         let pid = fixture.click(&session, 3).await?;
         let folder = fixture.close(&session).await?;
         assert_records(&folder, 3, pid).await?;
+        assert_verification_video(&folder.verification).await?;
         assert_processes_gone(&folder.cache).await?;
         let after = host_state().await?;
         println!("host state before={before}, after={after}");
@@ -87,7 +88,7 @@ async fn live_evidence() -> Result<()> {
         let records=fixture.close_marked(&session).await?;
         anyhow::ensure!(records.response["verdict"]=="Needs fixes","unexpected Verdict");
         let videos=fixture.directory.path().join("videos");
-        for key in ["report","raw","timeline","actions","index"] {
+        for key in ["report","raw","verification","timeline","actions","index"] {
             let path=Path::new(records.response["evidence"][key].as_str().context("missing Evidence path")?);
             anyhow::ensure!(path.starts_with(&videos),"Evidence escaped temp videos folder");
         }
@@ -108,4 +109,29 @@ async fn live_evidence() -> Result<()> {
     }.await;
     let cleanup = fixture.finish().await;
     result.and(cleanup)
+}
+
+async fn assert_verification_video(path: &Path) -> Result<()> {
+    let duration = run(
+        "ffprobe",
+        &[
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            path.to_str()
+                .context("Verification Video path is not UTF-8")?,
+        ],
+        None,
+    )
+    .await?
+    .parse::<f64>()?;
+    println!(
+        "{}: ffprobe Verification Video duration={duration}s",
+        path.display()
+    );
+    anyhow::ensure!(duration > 0.0, "Verification Video duration is zero");
+    Ok(())
 }

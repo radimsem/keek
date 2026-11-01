@@ -319,8 +319,20 @@ impl Actor {
                         (Ok(()), Ok(())) => match written {
                             Err(e) => refusal(e),
                             Ok(()) => {
-                                match crate::session_evidence::file(&self, verdict, videos, summary)
-                                    .await
+                                let edited = crate::editor::edit(
+                                    self.runner.as_ref(),
+                                    &self.folder.recording(),
+                                    &timeline,
+                                    &self.folder.root().join("verification.mp4"),
+                                    &mut |progress| {
+                                        tracing::debug!(?progress, "editing Verification Video")
+                                    },
+                                )
+                                .await;
+                                match crate::session_evidence::file(
+                                    &self, verdict, videos, summary, edited,
+                                )
+                                .await
                                 {
                                     Ok(value) => Response::Closed(value),
                                     Err(message) => refusal(message),

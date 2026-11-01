@@ -102,7 +102,7 @@ The host MCP server exposes these to the Verifier. MCP calls carry no caller ide
 - `request_help(session, reason)`: raises a Help Request and blocks until the developer finishes a Takeover; see [`viewer.md`](viewer.md#takeover). While it waits it sends progress notifications, because Claude Code aborts a local MCP call after 30 minutes with no response or progress.
 - `add_check(session, text)`: adds a Check the Verifier found worth checking while testing. It is marked as added in the Verdict Report and on the card.
 - `mark_check(session, check, outcome, comment)`: marks a Check passed, failed or skipped; failed and skipped need a one-line comment. A Check can be marked again until the session closes. keek pushes each mark to the Session Footer and logs it in the Session Timeline with its time.
-- `close_session(session, summary)`: refuses while a Check is unmarked and names the unmarked ones, and refuses a session with no Checks, which would otherwise Pass with nothing verified. keek derives the Verdict from the Checks ([ADR 0012](adr/0012-verdict-follows-from-the-checklist.md)), stops recording, stops the sandbox, renders, files the Evidence and returns the Verdict, every Check with its outcome and comment, and the Evidence paths.
+- `close_session(session, summary)`: refuses while a Check is unmarked and names the unmarked ones, and refuses a session with no Checks, which would otherwise Pass with nothing verified. keek derives the Verdict from the Checks ([ADR 0012](adr/0012-verdict-follows-from-the-checklist.md)), stops recording, stops the sandbox, renders, files the Evidence and returns the Verdict, every Check with its outcome and comment, and the Evidence paths. If the editor fails, keek still files the rest of the Evidence and returns `video_error`, and the Verdict Report says its Check times are positions in the Raw Recording.
 
 ## Recording and editing
 
@@ -180,5 +180,6 @@ The spikes' results and the facts this design rests on are in [`facts.md`](facts
 - The 116 ms constant and 150 ms guard come from one machine, with a hidden window at 15 fps and a scripted Takeover. A busier machine or a visible window could move them, and a cut that lands late would leave Takeover footage in the Verification Video. #9 rechecks this live.
 - A Takeover cut removes time, not what is still on screen at Done. A code left visible in a field shows in the video after the title card.
 - During a Takeover the nested desktop types as `us`, whatever the developer's layout is, because the plugin requires it. A password typed for another layout fails to sign in.
+- The editor seeks by time. On a recording with long gaps between frames, which a visible Session Window may produce, a segment starting inside a gap opens on the frame after the gap. Recordings with a hidden window had gaps of at most 71 ms. #8 shows a window to a person, so recheck this there.
 - keek carries an ffmpeg editor and a credential scrub until Cua releases their replacements, and a piece Cua declines stays keek's to carry.
 - The Verifier split and the retry cap hold by instruction only. A coding agent that ignores them can verify its own change.
