@@ -1,5 +1,6 @@
 use std::fs::{self, File};
 use std::os::unix::fs::OpenOptionsExt;
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -22,6 +23,12 @@ enum Command {
     /// Serve MCP over stdio for one coding agent.
     Mcp,
     #[command(hide = true)]
+    Edit {
+        raw: PathBuf,
+        timeline: PathBuf,
+        out: PathBuf,
+    },
+    #[command(hide = true)]
     ConnectExec {
         #[arg(last = true, required = true)]
         args: Vec<String>,
@@ -32,6 +39,9 @@ enum Command {
 
 fn main() -> Result<std::process::ExitCode> {
     match Cli::parse().command {
+        Command::Edit { raw, timeline, out } => tokio::runtime::Runtime::new()?
+            .block_on(run_edit(raw, timeline, out))
+            .map(|()| std::process::ExitCode::SUCCESS),
         Command::ConnectExec { args } => {
             let (command, rest) = args
                 .split_first()
@@ -52,6 +62,49 @@ fn main() -> Result<std::process::ExitCode> {
             .block_on(run_daemon())
             .map(|()| std::process::ExitCode::SUCCESS),
     }
+}
+
+async fn run_edit(raw: PathBuf, timeline: PathBuf, out: PathBuf) -> Result<()> {
+    let text = tokio::task::spawn_blocking(move || fs::read_to_string(timeline)).await??;
+    let timeline = keek::timeline::SessionTimeline::parse(&text)?;
+    let plan = keek::editor::edit(
+        &keek::process::HostRunner,
+        &raw,
+        &timeline,
+        &out,
+        &mut |progress| {
+            eprintln!(
+                "Editing segment {} of {}.",
+                progress.segment_index + 1,
+                progress.segment_count
+            )
+        },
+    )
+    .await?;
+    let segments: Vec<_> = plan
+        .segments()
+        .iter()
+        .map(|segment| {
+            let (kind, real_ms) = match segment.kind {
+                keek::editor::SegmentKind::RealSpeed => {
+                    ("real_speed", segment.end.0 - segment.start.0)
+                }
+                keek::editor::SegmentKind::FastForward { real_ms } => ("fast_forward", real_ms.0),
+            };
+            serde_json::json!({
+                "start_ms": segment.start,
+                "end_ms": segment.end,
+                "kind": kind,
+                "real_ms": real_ms,
+                "frames": segment.frames(),
+            })
+        })
+        .collect();
+    println!(
+        "{}",
+        serde_json::json!({"output_ms": plan.output_length(), "segments": segments})
+    );
+    Ok(())
 }
 
 async fn run_daemon() -> Result<()> {
