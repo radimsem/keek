@@ -13,6 +13,7 @@ pub mod ipc;
 pub mod mcp;
 pub mod paths;
 pub mod process;
+pub mod project;
 pub mod registry;
 pub mod report;
 pub mod sandbox;
@@ -26,3 +27,5 @@ pub mod verifier_protocol;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 mod session_evidence;
+
+mod session_project;

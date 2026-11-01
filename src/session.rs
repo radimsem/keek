@@ -7,7 +7,7 @@ use crate::session_folder::{SessionFolder, SessionName};
 use crate::timeline::{CheckId, CheckOutcome};
 use crate::timeline::{Millis, SessionTimeline, TimelineEvent};
 use serde_json::{Value, json};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -88,12 +88,40 @@ pub fn choose_name(
 pub type OpenDriverFuture<'a> = std::pin::Pin<
     Box<dyn std::future::Future<Output = Result<Box<dyn Driver>, SessionError>> + Send + 'a>,
 >;
+pub struct Opening {
+    pub project: String,
+    pub worktree: PathBuf,
+    pub settings: crate::project::Settings,
+    pub name: SessionName,
+}
+#[derive(Default)]
+pub struct Mounts {
+    pub tree: PathBuf,
+    pub layer: PathBuf,
+}
 pub trait DriverFactory: Send + Sync {
-    fn open<'a>(&'a self, folder: &'a SessionFolder) -> OpenDriverFuture<'a>;
+    fn prepare<'a>(
+        &'a self,
+        _folder: &'a SessionFolder,
+        _opening: &'a Opening,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Mounts, SessionError>> + Send + 'a>,
+    > {
+        Box::pin(async { Ok(Mounts::default()) })
+    }
+    fn open<'a>(
+        &'a self,
+        folder: &'a SessionFolder,
+        opening: &'a Opening,
+        mounts: &'a Mounts,
+    ) -> OpenDriverFuture<'a>;
 }
 pub struct Actor {
     pub project: String,
+    pub worktree: PathBuf,
+    pub settings: crate::project::Settings,
     pub goal: String,
+    pub warnings: Vec<String>,
     pub revision: Revision,
     pub started: chrono::DateTime<chrono::Local>,
     pub checklist: Checklist,
@@ -169,25 +197,43 @@ impl Actor {
         mut mailbox: mpsc::Receiver<ActorRequest>,
         open_reply: oneshot::Sender<Response>,
     ) -> Finished {
+        let opening = Opening {
+            project: self.project.clone(),
+            worktree: self.worktree.clone(),
+            settings: self.settings.clone(),
+            name: self.name.clone(),
+        };
+        let mounts = match self.factory.prepare(&self.folder, &opening).await {
+            Ok(mounts) => mounts,
+            Err(error) => {
+                return Finished {
+                    name: self.name,
+                    response: refusal(error),
+                    reply: Some(open_reply),
+                };
+            }
+        };
         // Outlasts the factory's 30 s handshake limit, whose refusal names the log files.
-        let mut driver =
-            match tokio::time::timeout(Duration::from_secs(45), self.factory.open(&self.folder))
-                .await
-                .unwrap_or_else(|_| {
-                    Err(SessionError::Refused(
+        let mut driver = match tokio::time::timeout(
+            Duration::from_secs(45),
+            self.factory.open(&self.folder, &opening, &mounts),
+        )
+        .await
+        .unwrap_or_else(|_| {
+            Err(SessionError::Refused(
                 "Agent Session setup timed out after 45 s. Check the session logs and retry."
                     .into(),
             ))
-                }) {
-                Ok(d) => d,
-                Err(e) => {
-                    return Finished {
-                        name: self.name,
-                        response: refusal(e),
-                        reply: Some(open_reply),
-                    };
-                }
-            };
+        }) {
+            Ok(d) => d,
+            Err(e) => {
+                return Finished {
+                    name: self.name,
+                    response: refusal(e),
+                    reply: Some(open_reply),
+                };
+            }
+        };
         let opened = self.setup(driver.as_mut()).await;
         let zero = match opened {
             Ok(zero) => zero,
@@ -202,6 +248,7 @@ impl Actor {
         };
         self.publish(SessionState::Open, &None);
         let _ = open_reply.send(Response::Opened {
+            warnings: self.warnings.clone(),
             session: self.name.clone(),
             checks: self
                 .checklist
@@ -457,7 +504,7 @@ pub struct Revision {
 }
 // git runs on the host, in a folder the caller picks, and a repository's config can
 // name programs. `filter.<name>.clean` can't be turned off this way.
-const GIT_WITHOUT_REPOSITORY_PROGRAMS: [&str; 5] = [
+pub(crate) const GIT_WITHOUT_REPOSITORY_PROGRAMS: [&str; 5] = [
     "--no-lazy-fetch",
     "-c",
     "core.fsmonitor=false",

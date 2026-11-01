@@ -96,9 +96,13 @@ impl ServerHandler for KeekServer {
                 serde_json::from_value(value).unwrap_or_else(|e| tool_error(e.to_string()))
             }
             Response::Refused { message } => tool_error(message),
-            Response::Opened { session, checks } => {
-                CallToolResult::structured(json!({"session":session,"checks":checks}))
-            }
+            Response::Opened {
+                session,
+                checks,
+                warnings,
+            } => CallToolResult::structured(
+                json!({"session":session,"checks":checks,"warnings":warnings}),
+            ),
             Response::CheckAdded { check } | Response::CheckMarked { check } => {
                 CallToolResult::structured(json!({"check":check}))
             }

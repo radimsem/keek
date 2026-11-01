@@ -64,6 +64,8 @@ impl DriverFactory for Factory {
     fn open<'a>(
         &'a self,
         folder: &'a SessionFolder,
+        _: &'a crate::session::Opening,
+        _: &'a crate::session::Mounts,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<Box<dyn Driver>, SessionError>> + Send + 'a>,
     > {
@@ -113,6 +115,14 @@ impl ProcessRunner for Runner {
 #[derive(Default)]
 struct Compositor(Mutex<Vec<&'static str>>);
 impl crate::compositor::Compositor for Compositor {
+    fn resize_window(
+        &self,
+        _: crate::compositor::WindowPid,
+        _: crate::project::WindowSize,
+    ) -> CompositorFuture<'_> {
+        Box::pin(async { Ok(()) })
+    }
+
     fn install(&self) -> CompositorFuture<'_> {
         Box::pin(async {
             self.0.lock().unwrap().push("install");
@@ -159,6 +169,9 @@ impl Harness {
         let registry = Registry::new(
             Dependencies {
                 sessions_dir: directory.path().join("sessions"),
+                projects_config: directory.path().join("config"),
+                projects_cache: directory.path().join("projects"),
+                trees: directory.path().join("trees"),
                 cap,
                 host: HostEnvironment {
                     wayland: Some("fake".into()),
@@ -182,6 +195,13 @@ impl Harness {
     fn worktree(&self, name: &str) -> PathBuf {
         let path = self.directory.path().join(name);
         std::fs::create_dir_all(&path).unwrap();
+        // The fake runner names a folder called child's parent as the git top level.
+        let top = if path.file_name().is_some_and(|name| name == "child") {
+            path.parent().unwrap()
+        } else {
+            &path
+        };
+        std::fs::create_dir_all(top.join(".git")).unwrap();
         path
     }
     async fn request(&mut self, request: Request) -> Response {
@@ -523,3 +543,6 @@ mod lifecycle;
 
 #[path = "registry_check_tests.rs"]
 mod checks;
+
+#[path = "registry_project_tests.rs"]
+mod project;

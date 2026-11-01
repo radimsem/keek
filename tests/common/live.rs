@@ -71,7 +71,6 @@ impl Fixture {
             .env("XDG_STATE_HOME", root.join("state"))
             .env("XDG_CONFIG_HOME", root.join("config"))
             .env("XDG_VIDEOS_DIR", root.join("videos"))
-            .env("KEEK_TEST_START_COMMAND", START_COMMAND)
             .env("KEEK_DAEMON_IDLE_MS", "100")
             .stderr(Stdio::inherit())
             .kill_on_drop(true);
@@ -88,6 +87,16 @@ impl Fixture {
         let create = path.clone();
         tokio::task::spawn_blocking(move || std::fs::create_dir(create)).await??;
         run("git", &["init", "--quiet"], Some(&path)).await?;
+        let script_root=path.clone();
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::create_dir_all(script_root.join(".keek"))?;
+            let script=script_root.join(".keek/setup.sh");
+            std::fs::write(&script,format!("#!/bin/bash\ncase \"$1\" in\ninstall) exit 0 ;;\nstart) exec {START_COMMAND} ;;\nesac\n"))?;
+            std::fs::set_permissions(script,std::fs::Permissions::from_mode(0o755))?;
+            Ok(())
+        }).await??;
+        run("git", &["add",".keek/setup.sh"],Some(&path)).await?;
         run(
             "git",
             &[
@@ -163,10 +172,10 @@ impl Fixture {
             call(
                 &self.client,
                 "click",
-                json!({"session":session,"pid":pid,"window_id":window_id,"x":640,"y":400}),
+                json!({"session":session,"pid":pid,"window_id":window_id,"x":195,"y":400}),
             )
             .await?;
-            println!("{session}: click {} completed at (640,400)", index + 1);
+            println!("{session}: click {} completed at (195,400)", index + 1);
         }
         Ok(pid)
     }

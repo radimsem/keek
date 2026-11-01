@@ -189,7 +189,10 @@ async fn an_empty_checklist_refuses_close_until_a_check_is_added() {
             checks: vec![],
         })
         .await;
-    let Response::Opened { session, checks } = response else {
+    let Response::Opened {
+        session, checks, ..
+    } = response
+    else {
         panic!("open refused");
     };
     assert!(checks.is_empty());

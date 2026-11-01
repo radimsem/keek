@@ -74,6 +74,7 @@ pub enum Response {
     Opened {
         session: SessionName,
         checks: Vec<OpenedCheck>,
+        warnings: Vec<String>,
     },
     CheckAdded {
         check: CheckId,

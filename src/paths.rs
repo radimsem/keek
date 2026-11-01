@@ -7,6 +7,9 @@ pub struct Paths {
     state_dir: PathBuf,
     sessions_dir: PathBuf,
     config_file: PathBuf,
+    projects_config: PathBuf,
+    projects_cache: PathBuf,
+    trees: PathBuf,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -33,6 +36,9 @@ impl Paths {
             state_dir: root.join("state/keek"),
             sessions_dir: root.join("cache/keek/sessions"),
             config_file: root.join("config/keek/config.toml"),
+            projects_config: root.join("config/keek/projects"),
+            projects_cache: root.join("cache/keek/projects"),
+            trees: root.join("cache/keek/trees"),
         }
     }
 
@@ -55,8 +61,21 @@ impl Paths {
                 .join("keek"),
             state_dir: or_under_home("XDG_STATE_HOME", ".local/state")?.join("keek"),
             sessions_dir: or_under_home("XDG_CACHE_HOME", ".cache")?.join("keek/sessions"),
+            projects_config: or_under_home("XDG_CONFIG_HOME", ".config")?.join("keek/projects"),
+            projects_cache: or_under_home("XDG_CACHE_HOME", ".cache")?.join("keek/projects"),
+            trees: or_under_home("XDG_CACHE_HOME", ".cache")?.join("keek/trees"),
             config_file: or_under_home("XDG_CONFIG_HOME", ".config")?.join("keek/config.toml"),
         })
+    }
+
+    pub fn projects_config(&self) -> &Path {
+        &self.projects_config
+    }
+    pub fn projects_cache(&self) -> &Path {
+        &self.projects_cache
+    }
+    pub fn trees(&self) -> &Path {
+        &self.trees
     }
 
     pub fn config_file(&self) -> &Path {
@@ -135,6 +154,9 @@ mod tests {
 
         assert_eq!(paths.daemon_log(), Path::new("/state/keek/daemon.log"));
         assert_eq!(paths.sessions_dir(), Path::new("/cache/keek/sessions"));
+        assert_eq!(paths.projects_config(), Path::new("/config/keek/projects"));
+        assert_eq!(paths.projects_cache(), Path::new("/cache/keek/projects"));
+        assert_eq!(paths.trees(), Path::new("/cache/keek/trees"));
     }
 
     #[test]

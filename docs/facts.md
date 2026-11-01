@@ -18,7 +18,7 @@ Run on 2026-10-31 with Hyprland 0.56.2, aquamarine 0.15.1, `cua-hyprland-plugin`
 
 The sandbox works: a Verifier subagent signed in to a test page in Chromium, recorded, with input through the plugin's seat. Inside there is no `DISPLAY` and the buses and namespaces are separate. Through the security-context connection, the screencopy and virtual input globals are hidden. Writes to the developer's config fail, and no sandbox process survives killing its parent.
 
-Not run: `no_focus` against real clicks and keys, and a Takeover through the `keek` submap. Both need a person at the desktop, and #8 and #9 prove them. The Worktree row of the Isolation table wasn't built.
+Not run: `no_focus` against real clicks and keys, and a Takeover through the `keek` submap. Both need a person at the desktop, and #8 and #9 prove them.
 
 Alignment, from 32 clicks across 4 sessions with the window hidden at 15 fps. A click's flip is its time in the video, and the page event is the timestamp the page reads when the click lands:
 
@@ -88,3 +88,15 @@ Checked on 2026-10-30:
 - `trycua/e2e-test-agent` (Apache-2.0) plans a PR journey, drives the app and writes a verdict, report and recording, in GitHub CI against a Cua desktop pool on X11.
 - Cua's cursor is a plain arrow in the session's colour that floats while resting. Action marks, click ripple, glow, squish and rotation are settings that default to off.
 - Claude Code passes an MCP server no caller identity. It aborts a local MCP call after 30 minutes with no response or progress (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`).
+
+## Project Layer spike results
+
+Checked on 2026-11-01 with bubblewrap 0.13.1, pasta 2026_10_02, Hyprland 0.56.2 and btrfs. The following checks ran on that host:
+
+- bubblewrap's first `--overlay-src` is the bottom layer. Sessions use Project Layer, then worktree tree, then `--tmp-overlay`. Reversing the lower layers exposed stale install output over changed source. Files from the tree must win.
+- Install uses `--overlay-src <tree> --overlay <upper> <work> <worktree>`. Upper-directory whiteouts and opaque directories survive renaming and work as lower layers with another tree. Overlay work directories can contain mode-000 `work/work`, so cleanup changes directory permissions first.
+- pasta and bubblewrap pass the child's exit status through. pasta `-T` forwards namespace connections to the named host ports: the forwarded listener connected and another host listener was refused. `-T none` forwards none.
+- The host Session Window belongs to connect-exec, pasta's child, rather than pasta itself. `/proc/<pasta pid>/task/<pasta pid>/children` lists that child on this kernel; other task children can be checked as well.
+- Hyprland window resizing uses `hl.dispatch(hl.dsp.window.resize({ window = 'pid:N', x = W, y = H, relative = false }))`, after the client maps and before recording.
+
+A real session on 2026-11-01 ran `python3 -m venv` and `pip install` in `install`: DNS and TLS worked, a first open took 5.5 to 7.0 s and a reuse 2.6 s, and a 640x480 setting produced a 640x480 Raw Recording. A venv's console scripts have an absolute shebang, which is why the worktree has a fixed path inside the sandbox.
