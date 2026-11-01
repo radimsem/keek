@@ -1,4 +1,5 @@
 use std::fs::{self, File};
+use std::os::unix::fs::OpenOptionsExt;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -20,21 +21,36 @@ struct Cli {
 enum Command {
     /// Serve MCP over stdio for one coding agent.
     Mcp,
+    #[command(hide = true)]
+    ConnectExec {
+        #[arg(last = true, required = true)]
+        args: Vec<String>,
+    },
     /// Run the per-user daemon that `keek mcp` starts.
     Daemon,
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<std::process::ExitCode> {
     match Cli::parse().command {
+        Command::ConnectExec { args } => {
+            let (command, rest) = args
+                .split_first()
+                .context("Cannot start connect-exec because its command is missing. Pass a command after --.")?;
+            let status = keek::connect_exec::run(command, rest).map_err(anyhow::Error::msg)?;
+            Ok(status)
+        }
         Command::Mcp => {
             // Stdout carries MCP, so logs go to stderr.
             tracing_subscriber::fmt()
                 .with_writer(std::io::stderr)
                 .init();
-            keek::mcp::serve().await
+            tokio::runtime::Runtime::new()?
+                .block_on(keek::mcp::serve())
+                .map(|()| std::process::ExitCode::SUCCESS)
         }
-        Command::Daemon => run_daemon().await,
+        Command::Daemon => tokio::runtime::Runtime::new()?
+            .block_on(run_daemon())
+            .map(|()| std::process::ExitCode::SUCCESS),
     }
 }
 
@@ -44,6 +60,7 @@ async fn run_daemon() -> Result<()> {
     let log = File::options()
         .create(true)
         .append(true)
+        .mode(0o600)
         .open(paths.daemon_log())
         .context("could not open the daemon log")?;
     tracing_subscriber::fmt()
