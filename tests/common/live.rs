@@ -201,6 +201,7 @@ impl Fixture {
                 .join("cache/keek/sessions")
                 .join(session),
             raw: path("raw")?,
+            verification: path("verification")?,
             timeline: path("timeline")?,
             actions: path("actions")?,
             report: path("report")?,
@@ -444,6 +445,7 @@ async fn assert_processes_gone(folder: &Path) -> Result<()> {
 struct Records {
     cache: PathBuf,
     raw: PathBuf,
+    verification: PathBuf,
     timeline: PathBuf,
     actions: PathBuf,
     report: PathBuf,

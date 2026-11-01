@@ -1,5 +1,6 @@
 use crate::checklist::{Mark, SessionEnd, Verdict};
-use crate::report::{IdentityTimeMap, ReportInputs};
+use crate::editor::{EditError, EditPlan};
+use crate::report::{IdentityTimeMap, ReportInputs, VideoTimeMap};
 use crate::session::Actor;
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -9,7 +10,10 @@ pub async fn file(
     verdict: Verdict,
     videos: PathBuf,
     summary: String,
+    edited: Result<EditPlan, EditError>,
 ) -> Result<Value, String> {
+    let edit_error = edited.as_ref().err().map(ToString::to_string);
+    let report_error = edit_error.clone();
     let folder = actor.folder.root().to_owned();
     let project = actor.project.clone();
     let session = actor.name.to_string();
@@ -30,6 +34,11 @@ pub async fn file(
         })
         .collect();
     let filed = tokio::task::spawn_blocking(move || {
+        let identity = IdentityTimeMap;
+        let time_map: &dyn VideoTimeMap = match &edited {
+            Ok(plan) => plan,
+            Err(_) => &identity,
+        };
         crate::evidence::file(
             &folder,
             &videos,
@@ -43,12 +52,26 @@ pub async fn file(
                 summary: &summary,
                 checks: &checks,
                 end: &SessionEnd::Verdict(verdict),
-                time_map: &IdentityTimeMap,
+                time_map,
+                video_error: report_error.as_deref(),
             },
         )
     })
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| format!("The Verdict is {verdict}, but its Evidence was not filed. {e}"))?;
-    Ok(json!({"verdict":verdict.to_string(),"checks":check_values,"evidence":filed}))
+    let video_error = edit_error.map(|error| {
+        let filed_recording = if filed.raw.is_some() {
+            "The Raw Recording is filed with the other Evidence."
+        } else {
+            "No Raw Recording was available; the other Evidence is filed."
+        };
+        format!("{error} {filed_recording}")
+    });
+    let mut value = json!({"verdict":verdict.to_string(),"checks":check_values,"evidence":filed});
+    if let Some(error) = video_error {
+        tracing::error!(%error);
+        value["video_error"] = json!(error);
+    }
+    Ok(value)
 }

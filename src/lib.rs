@@ -7,6 +7,7 @@ pub mod connect_exec;
 pub mod daemon;
 pub mod daemon_client;
 pub mod driver;
+pub mod editor;
 pub mod evidence;
 pub mod ipc;
 pub mod mcp;

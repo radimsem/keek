@@ -64,6 +64,7 @@ mod tests {
                 checks: Checklist::new(vec![]).checks(),
                 end: &end,
                 time_map: &IdentityTimeMap,
+                video_error: None,
             },
         )
         .unwrap()
@@ -151,6 +152,7 @@ mod tests {
             checks: &[],
             end: &end,
             time_map: &IdentityTimeMap,
+            video_error: None,
         };
         for expected in [
             "myapp_14-03-22-2_pass_report.md",
@@ -289,6 +291,7 @@ mod tests {
                 checks: &[],
                 end: &SessionEnd::Verdict(Verdict::Pass),
                 time_map: &IdentityTimeMap,
+                video_error: None,
             },
         )
         .unwrap_err();
@@ -319,6 +322,7 @@ mod tests {
                 checks: &[],
                 end: &SessionEnd::Verdict(Verdict::Pass),
                 time_map: &IdentityTimeMap,
+                video_error: None,
             },
         )
         .unwrap_err();
