@@ -1,4 +1,5 @@
 pub mod catalog;
+pub mod checklist;
 pub mod clock;
 pub mod compositor;
 pub mod config;
