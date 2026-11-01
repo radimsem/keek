@@ -48,7 +48,7 @@ An Agent Session is a nested Hyprland in a bubblewrap sandbox under the develope
 | Desktop services | Its own D-Bus session bus and accessibility bus, and its own Omarchy shell, notifications and clipboard inside the nested desktop. No `DISPLAY`, the host's or its own: Xwayland is off. |
 | Home and config | A throwaway HOME. The developer's Hyprland and Omarchy config are mounted read-only, with keek's overrides on top: scale 1, the Cua plugin and the `us` keymap it requires, Xwayland off, no idle lock. |
 | Session folder | `~/.cache/keek/sessions/<session>/`, bind-mounted writable, so Cua Driver records where the host can render and file. |
-| Worktree | Tracked and untracked files, behind a throwaway write layer over the Project Layer. Git-ignored files (`.env*`, local builds, `node_modules`) are hidden. |
+| Worktree | A throwaway write layer over a tree of tracked and untracked files, over the Project Layer, in that order from top to bottom. The sandbox mounts it at `/keek/worktree`, so a Project Layer works from any worktree. `.git` is absent, so `git` does not work inside. The tree wins over install writes to tracked paths so a Verifier sees the agent's change. Git-ignored files (`.env*`, local builds, `node_modules`) are hidden unless the Setup Script creates them during install. |
 | Network | A private network namespace through pasta: outbound internet and its own localhost. Host services are reachable only through ports the Project forwards. |
 | Shared with the host | Kernel, uid, installed packages and toolchains, GPU. |
 
@@ -58,14 +58,27 @@ keek is one Rust binary ([ADR 0014](adr/0014-keek-is-one-rust-binary.md)).
 
 - **Nested Hyprland**: the host's installed Hyprland, started inside the sandbox. Its output always takes the size of its window on the host, so keek floats that window at a fixed size ([ADR 0007](adr/0007-nested-window-is-the-session-window.md)).
 - **cua-hyprland-plugin**: from Omarchy's package repository, which builds it against exact Hyprland and aquamarine versions. `open_session` checks that the plugin loaded into the nested Hyprland and refuses otherwise, naming both versions.
-- **Setup Script**: committed to the repository as `.keek/setup.sh`, one per repository. keek runs it inside the sandbox with `KEEK_PROJECT` set to the Project name, in two phases: `install` (cached as the Project Layer) and `start` (starts the App Under Test). A single-app repository ignores `KEEK_PROJECT`. *(my call: the two phases)*
-- **Project Layer**: the `install` phase's writes, cached under `~/.cache/keek/projects/<project>/` and keyed by a hash of the Setup Script and the repository's lockfiles. Rebuilt when the key changes. Every session's write layer sits on top of it.
-- **Per-Project settings**: `~/.config/keek/projects/<project>.toml`, set up by hand on each machine: the Session Window size and the host ports to forward into the sandbox.
+- **Setup Script**: committed to the repository as `.keek/setup.sh`, one per repository. keek runs it inside the sandbox with `KEEK_PROJECT` set to the Project name, in two phases *(my call: the two phases)*: `install` (cached as the Project Layer) and `start` (starts the App Under Test). A single-app repository ignores `KEEK_PROJECT`. `open_session` refuses when `.keek/setup.sh` is missing, git-ignored or not a regular file, and asks the agent to commit a Setup Script with both phases. A non-zero `start` does not refuse an Agent Session; its output goes to `start.log`.
+- **Project Layer**: the `install` phase's writes, cached under `~/.cache/keek/projects/<project>/` and keyed by SHA-256 of length-framed Setup Script content and sorted tracked lockfile paths and contents read from disk. Uncommitted edits change the key; untracked lockfiles do not. An exclusive lock for the Project serializes check and build. A build starts from the copy of the worktree files, writes into `.build/upper`, then renames that upper directory to the key on success. Writes outside the worktree, including HOME and `/tmp`, are discarded. HOME is replaced, so toolchains under the real HOME, such as mise, rustup and nvm, are not visible. Failed or timed-out installs remove `.build` and refuse `open_session` with the last 4 KiB of the host-owned `install.log`; install has a separate 20 minute limit before the desktop handshake.
+- **Worktree files**: `open_session` refuses a repository whose git top level is not the folder holding its `.git`, which is what a `core.worktree` setting does, so a repository's config can't choose the host folder that is copied. `git ls-files -co --exclude-standard -z` supplies raw paths, sorted and deduplicated. Regular files use reflink, then copy if reflink is unavailable, symlinks retain their target, and nested repositories and submodules become empty directories. Missing files and special files are skipped. The tree lives at `~/.cache/keek/trees/<session>/`, outside the writable session folder so the sandbox cannot modify an overlay lower layer. Closing or refusing an Agent Session removes its tree. A daemon crash can leave one behind.
+- **Per-Project settings**: `~/.config/keek/projects/<project>.toml`, set up by hand on each machine: the Session Window size and the host ports to forward into both install and session sandboxes. Missing settings use the 1280x800 window and no forwarded ports. Unknown keys, zero ports and zero window dimensions refuse `open_session` with the file path and a request to fix it. After the driver handshake and plugin check, keek resizes the Session Window by the connect-exec pid before recording starts.
 - **Test Credentials**: `~/.config/keek/projects/<project>.env`, injected into the sandbox as environment variables for the App Under Test. The Verifier gets only their names from `open_session`. It types `${KEEK_TEST_PASSWORD}`, and keek substitutes the value before forwarding the call and masks it in what comes back. Cua Driver still records the value, so keek scrubs every credential value from the Action Log's text files when it files Evidence, and removes the session's cache folder once filed. Screenshots can't be scrubbed, which is why Test Credentials are test-only.
 - **Host MCP server**: the only thing keek ships to the coding agent (`claude mcp add keek -- keek mcp`, or the equivalent in another harness; [ADR 0011](adr/0011-mcp-server-only.md)). Its instructions describe the Verifier protocol. It is a thin client of the keek daemon and starts one if none is running.
 - **keek daemon**: one per user ([ADR 0015](adr/0015-one-per-user-daemon-owns-sessions.md)). It owns every open Agent Session, the session cap, the slots, the Session Footers and the connection to each Cua Driver, and it keeps the Session Timeline. It exits once no client, session or Session Card remains.
 - **Cua Driver** (inside the sandbox): performs Actions through the plugin's input seat and records the session ([ADR 0003](adr/0003-cua-driver-owns-input-and-recording.md)). It runs inside so that it sees the sandbox's accessibility bus and nested display. Its config lives in the sandbox's throwaway HOME, so keek's cursor settings never touch the developer's own. keek mounts the pinned binary from an explicit path, because `~/.local/bin` sits under the HOME the sandbox replaces, and turns the driver's telemetry off.
 - **Renderer** (on the host): keek's ffmpeg editor, cutting from the Session Timeline, plus keek's Takeover title cards. Cua Driver's `recording render` replaces the editor once a release carries Fast-forward.
+
+Settings use this format; `ports` and `window` are optional, and a supplied window has two non-zero dimensions:
+
+```toml
+ports = [5432, 6379]
+
+[window]
+width = 390
+height = 844
+```
+
+`open_session` always returns a `warnings` array. Each missing settings or Test Credentials file adds a warning naming the Project and path. keek only checks that the Test Credentials file exists. It doesn't inject them yet.
 
 ## Viewer
 
