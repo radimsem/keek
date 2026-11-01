@@ -457,7 +457,7 @@ pub struct Revision {
 }
 // git runs on the host, in a folder the caller picks, and a repository's config can
 // name programs. `filter.<name>.clean` can't be turned off this way.
-const GIT_WITHOUT_REPOSITORY_PROGRAMS: [&str; 5] = [
+pub(crate) const GIT_WITHOUT_REPOSITORY_PROGRAMS: [&str; 5] = [
     "--no-lazy-fetch",
     "-c",
     "core.fsmonitor=false",

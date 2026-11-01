@@ -20,7 +20,21 @@ pub enum ProcessError {
 }
 pub type ProcessFuture<'a> =
     std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, ProcessError>> + Send + 'a>>;
+pub type BytesFuture<'a> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<u8>, ProcessError>> + Send + 'a>>;
 pub trait ProcessRunner: Send + Sync {
+    fn output_bytes<'a>(
+        &'a self,
+        program: &'a str,
+        args: &'a [&'a str],
+        cwd: Option<&'a Path>,
+    ) -> BytesFuture<'a> {
+        Box::pin(async move {
+            self.output(program, args, cwd)
+                .await
+                .map(String::into_bytes)
+        })
+    }
     fn output<'a>(
         &'a self,
         program: &'a str,
@@ -109,8 +123,20 @@ impl ProcessRunner for HostRunner {
         program: &'a str,
         args: &'a [&'a str],
         cwd: Option<&'a Path>,
+    ) -> ProcessFuture<'a> {
+        Box::pin(async move {
+            self.output_bytes(program, args, cwd)
+                .await
+                .map(|bytes| String::from_utf8_lossy(&bytes).trim().to_owned())
+        })
+    }
+    fn output_bytes<'a>(
+        &'a self,
+        program: &'a str,
+        args: &'a [&'a str],
+        cwd: Option<&'a Path>,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<String, ProcessError>> + Send + 'a>,
+        Box<dyn std::future::Future<Output = Result<Vec<u8>, ProcessError>> + Send + 'a>,
     > {
         Box::pin(async move {
             let mut command = tokio::process::Command::new(program);
@@ -142,7 +168,7 @@ impl ProcessRunner for HostRunner {
                     ),
                 });
             }
-            Ok(String::from_utf8_lossy(&out.stdout).trim().into())
+            Ok(out.stdout)
         })
     }
 }
@@ -267,5 +293,13 @@ mod tests {
                 "{error}"
             );
         }
+    }
+    #[tokio::test]
+    async fn project_file_output_preserves_raw_bytes_and_trailing_newlines() {
+        let bytes = HostRunner
+            .output_bytes("sh", &["-c", "printf 'name\\n\\000'"], None)
+            .await
+            .unwrap();
+        assert_eq!(bytes, b"name\n\0");
     }
 }
