@@ -1,7 +1,9 @@
+pub mod catalog;
 pub mod clock;
 pub mod connect_exec;
 pub mod daemon;
 pub mod daemon_client;
+pub mod driver;
 pub mod ipc;
 pub mod mcp;
 pub mod paths;
