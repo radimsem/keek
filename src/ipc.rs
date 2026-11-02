@@ -118,6 +118,7 @@ pub struct CheckStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LastAction {
     pub tool: String,
+    // Time since the Agent Session opened, independent of the recording lead.
     pub time_ms: Millis,
 }
 

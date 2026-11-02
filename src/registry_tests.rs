@@ -58,6 +58,7 @@ struct Controls {
     release: tokio::sync::Notify,
     fail_stop: std::sync::atomic::AtomicBool,
     stop_hangs: std::sync::atomic::AtomicBool,
+    fail_open: std::sync::atomic::AtomicBool,
 }
 struct Factory(Calls, Arc<Controls>);
 impl DriverFactory for Factory {
@@ -70,6 +71,13 @@ impl DriverFactory for Factory {
         Box<dyn std::future::Future<Output = Result<Box<dyn Driver>, SessionError>> + Send + 'a>,
     > {
         Box::pin(async move {
+            if self
+                .1
+                .fail_open
+                .swap(false, std::sync::atomic::Ordering::Relaxed)
+            {
+                return Err(SessionError::Refused("fixture open failed".into()));
+            }
             Ok(Box::new(FakeDriver {
                 folder: folder.root().to_owned(),
                 calls: self.0.clone(),
@@ -115,14 +123,36 @@ impl ProcessRunner for Runner {
 #[derive(Default)]
 struct Compositor(Mutex<Vec<&'static str>>);
 impl crate::compositor::Compositor for Compositor {
-    fn resize_window(
+    fn window_events(&self) -> crate::compositor::EventsFuture<'_> {
+        Box::pin(async { Ok(None) })
+    }
+    fn place_window(
         &self,
-        _: crate::compositor::WindowPid,
-        _: crate::project::WindowSize,
+        _: Option<crate::compositor::WindowPid>,
+        _: crate::compositor::Placement,
+        _: Option<crate::compositor::WindowEvents>,
     ) -> CompositorFuture<'_> {
         Box::pin(async { Ok(()) })
     }
-
+    fn slot(
+        &self,
+        index: crate::viewer::SlotId,
+        _: usize,
+        _: Option<crate::project::WindowSize>,
+    ) -> crate::compositor::SlotFuture<'_> {
+        Box::pin(async move {
+            Ok(crate::compositor::Placement {
+                slot: crate::slots::Slot {
+                    x: index.0 as i32 * 1701 + 24,
+                    y: 50,
+                    width: 1691,
+                    height: 1298,
+                },
+                monitor: "fake".into(),
+                origin: (0, 0),
+            })
+        })
+    }
     fn install(&self) -> CompositorFuture<'_> {
         Box::pin(async {
             self.0.lock().unwrap().push("install");
@@ -173,6 +203,7 @@ impl Harness {
                 projects_cache: directory.path().join("projects"),
                 trees: directory.path().join("trees"),
                 cap,
+                viewer: Arc::new(crate::viewer::NoopViewer),
                 host: HostEnvironment {
                     wayland: Some("fake".into()),
                     signature: Some("fake".into()),
@@ -211,6 +242,7 @@ impl Harness {
             tokio::select! {
                 response = &mut answer => return response.unwrap(),
                 Some(prepared) = self.registry.preparing.join_next() => self.registry.prepared(prepared.unwrap()).await,
+                Some(finished) = self.registry.tasks.join_next() => self.registry.finished(finished.unwrap()).await,
             }
         }
     }
@@ -546,3 +578,6 @@ mod checks;
 
 #[path = "registry_project_tests.rs"]
 mod project;
+
+#[path = "registry_viewer_tests.rs"]
+mod viewer;

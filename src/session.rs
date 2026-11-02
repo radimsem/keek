@@ -5,6 +5,7 @@ use crate::driver::{Driver, DriverError};
 use crate::ipc::{CheckStatus, LastAction, Response, SessionSnapshot, SessionState};
 use crate::revision::Revision;
 use crate::session_folder::{SessionFolder, SessionName};
+#[cfg(test)]
 use crate::timeline::{CheckId, CheckOutcome};
 use crate::timeline::{Millis, SessionTimeline, TimelineEvent};
 use serde_json::{Value, json};
@@ -90,6 +91,7 @@ pub type OpenDriverFuture<'a> = std::pin::Pin<
     Box<dyn std::future::Future<Output = Result<Box<dyn Driver>, SessionError>> + Send + 'a>,
 >;
 pub struct Opening {
+    pub placement: crate::compositor::Placement,
     pub credentials: crate::credentials::Credentials,
     pub project: String,
     pub worktree: PathBuf,
@@ -119,6 +121,8 @@ pub trait DriverFactory: Send + Sync {
     ) -> OpenDriverFuture<'a>;
 }
 pub struct Actor {
+    pub opened_at: Instant,
+    pub placement: crate::compositor::Placement,
     pub credentials: crate::credentials::Credentials,
     pub project: String,
     pub worktree: PathBuf,
@@ -137,42 +141,7 @@ pub struct Actor {
     pub catalog: Arc<Catalog>,
     pub events: watch::Sender<SessionSnapshot>,
 }
-impl ActorRequest {
-    pub fn into_reply(self) -> oneshot::Sender<Response> {
-        match self {
-            Self::Call { reply, .. }
-            | Self::AddCheck { reply, .. }
-            | Self::MarkCheck { reply, .. }
-            | Self::Close { reply, .. } => reply,
-        }
-    }
-}
-pub enum ActorRequest {
-    Call {
-        tool: String,
-        arguments: Value,
-        reply: oneshot::Sender<Response>,
-    },
-    AddCheck {
-        text: String,
-        reply: oneshot::Sender<Response>,
-    },
-    MarkCheck {
-        check: CheckId,
-        outcome: CheckOutcome,
-        comment: String,
-        reply: oneshot::Sender<Response>,
-    },
-    Close {
-        summary: String,
-        reply: oneshot::Sender<Response>,
-    },
-}
-pub struct Finished {
-    pub name: SessionName,
-    pub response: Response,
-    pub reply: Option<oneshot::Sender<Response>>,
-}
+pub use crate::session_messages::{ActorRequest, Finished};
 fn refusal(error: impl std::fmt::Display) -> Response {
     Response::Refused {
         message: error.to_string(),
@@ -219,6 +188,7 @@ impl Actor {
         open_reply: oneshot::Sender<Response>,
     ) -> Finished {
         let opening = Opening {
+            placement: self.placement.clone(),
             credentials: self.credentials.clone(),
             project: self.project.clone(),
             worktree: self.worktree.clone(),
@@ -304,7 +274,15 @@ impl Actor {
                         let _ = reply.send(self.mask_reply(refusal(error)));
                         continue;
                     }
-                    let start_ms = timeline_time(zero, self.clock.now());
+                    let start = self.clock.now();
+                    let action_ms = Millis(
+                        start
+                            .saturating_duration_since(self.opened_at)
+                            .as_millis()
+                            .try_into()
+                            .unwrap_or(u64::MAX),
+                    );
+                    let start_ms = timeline_time(zero, start);
                     let result =
                         call_driver(driver.as_mut(), &tool, arguments, Duration::from_secs(150))
                             .await;
@@ -322,7 +300,7 @@ impl Actor {
                     if action {
                         last_action = Some(LastAction {
                             tool,
-                            time_ms: start_ms,
+                            time_ms: action_ms,
                         });
                         self.publish(SessionState::Open, &last_action);
                     }

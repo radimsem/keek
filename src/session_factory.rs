@@ -33,7 +33,7 @@ impl DriverFactory for SandboxFactory {
         Box<dyn std::future::Future<Output = Result<Box<dyn Driver>, SessionError>> + Send + 'a>,
     > {
         Box::pin(async move {
-            let window = opening.settings.window;
+            let placement = opening.placement.clone();
             let mut spec = crate::session_project::spec(self, folder, opening).await?;
             spec.layer = mounts.layer.clone();
             spec.tree = mounts.tree.clone();
@@ -42,6 +42,11 @@ impl DriverFactory for SandboxFactory {
                 .map_err(|e| {
                     SessionError::Refused(format!("Cannot prepare the Agent Session command: {e}. Check the session folder and open again."))
                 })??;
+            let events = self
+                .compositor
+                .window_events()
+                .await
+                .map_err(|e| SessionError::Refused(e.to_string()))?;
             // PDEATHSIG follows the spawning thread, so spawn on the runtime, never in spawn_blocking.
             let mut child = command.spawn().map_err(SessionError::SpawnPasta)?;
             let reader = child.stdout.take().ok_or_else(|| {
@@ -76,16 +81,20 @@ impl DriverFactory for SandboxFactory {
                 let _ = sandbox.close().await;
                 return Err(error);
             }
-            if let Some(size) = window {
-                let resize = async {
-                    let pid = sandbox.child.id().ok_or_else(|| SessionError::Refused("The sandbox stopped before the Session Window appeared. Check sandbox.err and open again.".into()))?;
-                    let pid = connection_pid(pid).await?;
-                    self.compositor.resize_window(crate::compositor::WindowPid(pid), size).await.map_err(|e| SessionError::Refused(e.to_string()))
-                }.await;
-                if let Err(error) = resize {
-                    let _ = sandbox.close().await;
-                    return Err(error);
-                }
+            let placement_result = async {
+                let pid = sandbox.child.id().ok_or_else(|| SessionError::Refused("The sandbox stopped before the Session Window appeared. Check sandbox.err and open again.".into()))?;
+                let pid = match connection_pid(pid).await {
+                    Ok(pid) => Some(crate::compositor::WindowPid(pid)),
+                    Err(error) => {
+                        tracing::warn!(%error, "Session Window pid is unknown; matching a new window by address");
+                        None
+                    }
+                };
+                self.compositor.place_window(pid, placement, events).await.map_err(|e| SessionError::Refused(e.to_string()))
+            }.await;
+            if let Err(error) = placement_result {
+                let _ = sandbox.close().await;
+                return Err(error);
             }
             Ok(Box::new(sandbox) as Box<dyn Driver>)
         })
@@ -96,10 +105,24 @@ async fn connection_pid(pid: u32) -> Result<u32, SessionError> {
         let tasks = std::path::PathBuf::from(format!("/proc/{pid}/task"));
         for task in std::fs::read_dir(tasks)? {
             let children = std::fs::read_to_string(task?.path().join("children"))?;
-            if let Some(child) = children.split_whitespace().next().and_then(|p| p.parse().ok()) { return Ok(child); }
+            if let Some(child) = children
+                .split_whitespace()
+                .next()
+                .and_then(|p| p.parse().ok())
+            {
+                return Ok(child);
+            }
         }
-        Err(SessionError::Refused("Cannot resize the Session Window because its process was not found. Check sandbox.err and open again.".into()))
-    }).await.map_err(|e| SessionError::Refused(format!("Cannot find the Session Window pid: {e}. Open again.")))?
+        Err(SessionError::Refused(
+            "Cannot find the Session Window process. Check sandbox.err and open again.".into(),
+        ))
+    })
+    .await
+    .map_err(|e| {
+        SessionError::Refused(format!(
+            "Cannot find the Session Window pid: {e}. Open again."
+        ))
+    })?
 }
 async fn check_plugin(
     folder: &SessionFolder,
