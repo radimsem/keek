@@ -48,7 +48,7 @@ fn paths(bytes: &[u8]) -> Vec<PathBuf> {
 }
 impl ProjectFiles {
     pub async fn read(runner: &dyn ProcessRunner, worktree: &Path) -> Result<Self, ProjectError> {
-        let args: Vec<_> = crate::session::GIT_WITHOUT_REPOSITORY_PROGRAMS
+        let args: Vec<_> = crate::revision::GIT_WITHOUT_REPOSITORY_PROGRAMS
             .into_iter()
             .chain(["ls-files", "-co", "--exclude-standard", "-z"])
             .collect();
@@ -62,7 +62,7 @@ impl ProjectFiles {
         if !entries.iter().any(|p| p == script) || !regular {
             return Err(ProjectError::MissingScript);
         }
-        let args: Vec<_> = crate::session::GIT_WITHOUT_REPOSITORY_PROGRAMS
+        let args: Vec<_> = crate::revision::GIT_WITHOUT_REPOSITORY_PROGRAMS
             .into_iter()
             .chain(["ls-files", "-z"])
             .collect();

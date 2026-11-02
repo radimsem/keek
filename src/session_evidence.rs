@@ -33,11 +33,25 @@ pub async fn file(
             json!({"id":c.id,"text":c.text,"added":c.added,"outcome":outcome,"comment":comment})
         })
         .collect();
-    let filed = tokio::task::spawn_blocking(move || {
+    let credentials = actor.credentials.clone();
+    let (filed, actions_error) = tokio::task::spawn_blocking(move || {
         let identity = IdentityTimeMap;
         let time_map: &dyn VideoTimeMap = match &edited {
             Ok(plan) => plan,
             Err(_) => &identity,
+        };
+        let actions_error = crate::credential_scrub::scrub_folder(&credentials, &folder)
+            .err()
+            .map(|error| {
+                format!(
+                    "The Action Log was not filed because Test Credentials could not be removed. {error} The Action Log stays in the session folder at {}. Check and delete it.",
+                    folder.display()
+                )
+            });
+        let action_log = if actions_error.is_some() {
+            crate::evidence::ActionLog::Withhold
+        } else {
+            crate::evidence::ActionLog::File
         };
         crate::evidence::file(
             &folder,
@@ -45,6 +59,7 @@ pub async fn file(
             &project,
             &session,
             started,
+            action_log,
             &ReportInputs {
                 session: &session,
                 goal: &goal,
@@ -55,7 +70,7 @@ pub async fn file(
                 time_map,
                 video_error: report_error.as_deref(),
             },
-        )
+        ).map(|filed| (filed, actions_error))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -72,6 +87,9 @@ pub async fn file(
     if let Some(error) = video_error {
         tracing::error!(%error);
         value["video_error"] = json!(error);
+    }
+    if let Some(error) = actions_error {
+        value["actions_error"] = json!(error);
     }
     Ok(value)
 }

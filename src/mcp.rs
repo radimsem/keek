@@ -37,10 +37,10 @@ struct KeekServer {
 fn own_tools() -> Vec<Tool> {
     [
         ("keek_status","Report the keek daemon's version, pid and open Agent Session count.",json!({"type":"object","properties":{}})),
-        ("open_session","Open an Agent Session for a Verifier once its desktop is ready.",json!({"type":"object","properties":{"project":{"type":"string"},"worktree":{"type":"string"},"goal":{"type":"string"},"checks":{"type":"array","items":{"type":"string"}}},"required":["project","worktree","goal","checks"]})),
+        ("open_session","Open an Agent Session for a Verifier once its desktop is ready. Returns credentials as Test Credential names; use ${NAME} in tool arguments.",json!({"type":"object","properties":{"project":{"type":"string"},"worktree":{"type":"string"},"goal":{"type":"string"},"checks":{"type":"array","items":{"type":"string"}}},"required":["project","worktree","goal","checks"]})),
         ("add_check","Add a Check found while verifying.",json!({"type":"object","properties":{"session":{"type":"string"},"text":{"type":"string"}},"required":["session","text"]})),
         ("mark_check","Mark a Check passed, failed or skipped. Failed and skipped need a one-line comment.",json!({"type":"object","properties":{"session":{"type":"string"},"check":{"type":"integer"},"outcome":{"type":"string","enum":["passed","failed","skipped"]},"comment":{"type":"string"}},"required":["session","check","outcome"]})),
-        ("close_session","Derive the Verdict and file Evidence. Refuses with no Checks or unmarked Checks. Returns video_error if the Verification Video could not be produced; the rest of the Evidence is still filed.",json!({"type":"object","properties":{"session":{"type":"string"},"summary":{"type":"string"}},"required":["session","summary"]}))
+        ("close_session","Derive the Verdict and file Evidence. Refuses with no Checks or unmarked Checks. Returns video_error if the Verification Video could not be produced; the rest of the Evidence is still filed. Returns actions_error if Test Credentials could not be removed; the Action Log is withheld and kept in the session folder.",json!({"type":"object","properties":{"session":{"type":"string"},"summary":{"type":"string"}},"required":["session","summary"]}))
     ].into_iter().map(|(name,description,schema)|Tool::new(name,description,schema.as_object().cloned().unwrap_or_default())).collect()
 }
 fn tool_error(message: impl Into<String>) -> CallToolResult {
@@ -97,11 +97,12 @@ impl ServerHandler for KeekServer {
             }
             Response::Refused { message } => tool_error(message),
             Response::Opened {
+                credentials,
                 session,
                 checks,
                 warnings,
             } => CallToolResult::structured(
-                json!({"session":session,"checks":checks,"warnings":warnings}),
+                json!({"session":session,"checks":checks,"warnings":warnings,"credentials":credentials}),
             ),
             Response::CheckAdded { check } | Response::CheckMarked { check } => {
                 CallToolResult::structured(json!({"check":check}))

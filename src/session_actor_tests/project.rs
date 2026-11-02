@@ -38,6 +38,7 @@ async fn project_prepare_can_outlast_the_desktop_handshake_limit() {
         last_action: None,
     });
     let actor = Actor {
+        credentials: Default::default(),
         project: "app".into(),
         worktree: root.path().to_owned(),
         settings: crate::project::Settings::default(),

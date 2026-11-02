@@ -18,9 +18,11 @@ pub async fn spec(
     let driver = factory.driver.clone();
     let project = opening.project.clone();
     let worktree = opening.worktree.clone();
+    let credentials = opening.credentials.clone();
     let ports = opening.settings.ports.clone();
     tokio::task::spawn_blocking(move || {
         let mut spec = SandboxSpec::from_env(&root, &driver)?;
+        spec.credentials = credentials;
         spec.project = project;
         spec.worktree = worktree;
         spec.ports = ports;

@@ -5,7 +5,7 @@ mod tests {
         checklist::{Checklist, SessionEnd, Verdict},
         evidence,
         report::{IdentityTimeMap, ReportInputs},
-        session::Revision,
+        revision::Revision,
     };
     use std::{fs, path::Path};
 
@@ -44,6 +44,14 @@ mod tests {
         folder
     }
     fn file(folder: &Path, videos: &Path, verdict: Verdict) -> evidence::Filed {
+        file_with_actions(folder, videos, verdict, evidence::ActionLog::File)
+    }
+    fn file_with_actions(
+        folder: &Path,
+        videos: &Path,
+        verdict: Verdict,
+        actions: evidence::ActionLog,
+    ) -> evidence::Filed {
         let revision = Revision {
             branch: Some("fix/17-parser-bom".into()),
             commit: "a1b2c3d456".into(),
@@ -56,6 +64,7 @@ mod tests {
             "myapp",
             "myapp_14-03-22",
             Local.with_ymd_and_hms(2026, 10, 30, 14, 3, 22).unwrap(),
+            actions,
             &ReportInputs {
                 session: "myapp_14-03-22",
                 goal: "parser works",
@@ -164,6 +173,7 @@ mod tests {
                 "myapp",
                 "myapp_14-03-22-2",
                 Local.with_ymd_and_hms(2026, 10, 30, 14, 3, 22).unwrap(),
+                evidence::ActionLog::File,
                 &input,
             )
             .unwrap();
@@ -283,6 +293,7 @@ mod tests {
             "myapp",
             "myapp_14-03-22",
             Local::now(),
+            evidence::ActionLog::File,
             &ReportInputs {
                 session: "myapp_14-03-22",
                 goal: "g",
@@ -314,6 +325,7 @@ mod tests {
             "myapp",
             "myapp_14-03-22",
             Local::now(),
+            evidence::ActionLog::File,
             &ReportInputs {
                 session: "myapp_14-03-22",
                 goal: "g",
@@ -328,5 +340,20 @@ mod tests {
         .unwrap_err();
         assert!(error.to_string().contains(folder.to_str().unwrap()));
         assert!(folder.join("recording.mp4").exists());
+    }
+    #[test]
+    fn withholding_actions_keeps_the_session_folder_and_omits_action_files() {
+        let root = tempfile::tempdir().unwrap();
+        let folder = fixture(root.path());
+        let videos = root.path().join("videos");
+        let filed = file_with_actions(
+            &folder,
+            &videos,
+            Verdict::Pass,
+            evidence::ActionLog::Withhold,
+        );
+        assert!(filed.actions.is_none());
+        assert!(folder.exists());
+        assert!(!tree(&videos).iter().any(|s| s.contains("_actions")));
     }
 }

@@ -3,11 +3,12 @@ use crate::checklist::Checklist;
 use crate::clock::Clock;
 use crate::driver::{Driver, DriverError};
 use crate::ipc::{CheckStatus, LastAction, Response, SessionSnapshot, SessionState};
+use crate::revision::Revision;
 use crate::session_folder::{SessionFolder, SessionName};
 use crate::timeline::{CheckId, CheckOutcome};
 use crate::timeline::{Millis, SessionTimeline, TimelineEvent};
 use serde_json::{Value, json};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -89,6 +90,7 @@ pub type OpenDriverFuture<'a> = std::pin::Pin<
     Box<dyn std::future::Future<Output = Result<Box<dyn Driver>, SessionError>> + Send + 'a>,
 >;
 pub struct Opening {
+    pub credentials: crate::credentials::Credentials,
     pub project: String,
     pub worktree: PathBuf,
     pub settings: crate::project::Settings,
@@ -117,6 +119,7 @@ pub trait DriverFactory: Send + Sync {
     ) -> OpenDriverFuture<'a>;
 }
 pub struct Actor {
+    pub credentials: crate::credentials::Credentials,
     pub project: String,
     pub worktree: PathBuf,
     pub settings: crate::project::Settings,
@@ -176,6 +179,24 @@ fn refusal(error: impl std::fmt::Display) -> Response {
     }
 }
 impl Actor {
+    fn mask_reply(&self, response: Response) -> Response {
+        match response {
+            Response::ToolResult(value) => Response::ToolResult(self.credentials.mask_value(value)),
+            Response::Closed(value) => Response::Closed(self.credentials.mask_value(value)),
+            Response::Refused { message } => Response::Refused {
+                message: self.credentials.mask(&message),
+            },
+            Response::Opened { .. }
+            | Response::Status(_)
+            | Response::Tools(_)
+            | Response::CheckAdded { .. }
+            | Response::CheckMarked { .. }
+            | Response::WatchEnded
+            | Response::ShuttingDown
+            | Response::ShutdownRefused { .. } => response,
+        }
+    }
+
     fn publish(&self, state: SessionState, last_action: &Option<LastAction>) {
         self.events.send_replace(SessionSnapshot {
             state,
@@ -198,6 +219,7 @@ impl Actor {
         open_reply: oneshot::Sender<Response>,
     ) -> Finished {
         let opening = Opening {
+            credentials: self.credentials.clone(),
             project: self.project.clone(),
             worktree: self.worktree.clone(),
             settings: self.settings.clone(),
@@ -207,8 +229,8 @@ impl Actor {
             Ok(mounts) => mounts,
             Err(error) => {
                 return Finished {
+                    response: self.mask_reply(refusal(error)),
                     name: self.name,
-                    response: refusal(error),
                     reply: Some(open_reply),
                 };
             }
@@ -228,8 +250,8 @@ impl Actor {
             Ok(d) => d,
             Err(e) => {
                 return Finished {
+                    response: self.mask_reply(refusal(e)),
                     name: self.name,
-                    response: refusal(e),
                     reply: Some(open_reply),
                 };
             }
@@ -240,14 +262,15 @@ impl Actor {
             Err(error) => {
                 let _ = close_driver(driver.as_mut()).await;
                 return Finished {
+                    response: self.mask_reply(refusal(error)),
                     name: self.name,
-                    response: refusal(error),
                     reply: Some(open_reply),
                 };
             }
         };
         self.publish(SessionState::Open, &None);
         let _ = open_reply.send(Response::Opened {
+            credentials: self.credentials.names(),
             warnings: self.warnings.clone(),
             session: self.name.clone(),
             checks: self
@@ -269,14 +292,18 @@ impl Actor {
                     arguments,
                     reply,
                 } => {
-                    let (arguments, action) =
+                    let (mut arguments, action) =
                         match self.catalog.prepare_call(&tool, &self.name, arguments) {
                             Ok(args) => args,
                             Err(e) => {
-                                let _ = reply.send(refusal(e));
+                                let _ = reply.send(self.mask_reply(refusal(e)));
                                 continue;
                             }
                         };
+                    if let Err(error) = self.credentials.substitute(&mut arguments) {
+                        let _ = reply.send(self.mask_reply(refusal(error)));
+                        continue;
+                    }
                     let start_ms = timeline_time(zero, self.clock.now());
                     let result =
                         call_driver(driver.as_mut(), &tool, arguments, Duration::from_secs(150))
@@ -299,20 +326,20 @@ impl Actor {
                         });
                         self.publish(SessionState::Open, &last_action);
                     }
-                    let _ = reply.send(match result {
+                    let _ = reply.send(self.mask_reply(match result {
                         Ok(value) => Response::ToolResult(value),
                         Err(error) => refusal(error),
-                    });
+                    }));
                 }
                 ActorRequest::AddCheck { text, reply } => {
-                    let response = match self.checklist.add(text) {
+                    let response = match self.checklist.add(self.credentials.mask(&text)) {
                         Ok(check) => {
                             self.publish(SessionState::Open, &last_action);
                             Response::CheckAdded { check }
                         }
                         Err(e) => refusal(e),
                     };
-                    let _ = reply.send(response);
+                    let _ = reply.send(self.mask_reply(response));
                 }
                 ActorRequest::MarkCheck {
                     check,
@@ -321,7 +348,12 @@ impl Actor {
                     reply,
                 } => {
                     let time_ms = timeline_time(zero, self.clock.now());
-                    let response = match self.checklist.mark(check, outcome, comment, time_ms) {
+                    let response = match self.checklist.mark(
+                        check,
+                        outcome,
+                        self.credentials.mask(&comment),
+                        time_ms,
+                    ) {
                         Ok(()) => {
                             timeline.push(TimelineEvent::CheckMark {
                                 check,
@@ -333,9 +365,10 @@ impl Actor {
                         }
                         Err(e) => refusal(e),
                     };
-                    let _ = reply.send(response);
+                    let _ = reply.send(self.mask_reply(response));
                 }
                 ActorRequest::Close { summary, reply } => {
+                    let summary = self.credentials.mask(&summary);
                     // Everything that can refuse runs before the session stops, so the Verifier can fix it and retry.
                     let ready = match self.checklist.verdict() {
                         Ok(verdict) => crate::evidence::writable_videos_dir(self.runner.as_ref())
@@ -348,7 +381,7 @@ impl Actor {
                         Ok(ready) => ready,
                         Err(message) => {
                             self.closing.store(false, Ordering::SeqCst);
-                            let _ = reply.send(refusal(message));
+                            let _ = reply.send(self.mask_reply(refusal(message)));
                             continue;
                         }
                     };
@@ -398,8 +431,8 @@ impl Actor {
                         },
                     };
                     return Finished {
+                        response: self.mask_reply(response),
                         name: self.name,
-                        response,
                         reply: Some(reply),
                     };
                 }
@@ -495,69 +528,6 @@ async fn write_records(
     .await
     .map_err(|e| SessionError::Refused(e.to_string()))??;
     Ok(())
-}
-#[derive(Clone, serde::Serialize)]
-pub struct Revision {
-    pub branch: Option<String>,
-    pub commit: String,
-    pub dirty: bool,
-}
-// git runs on the host, in a folder the caller picks, and a repository's config can
-// name programs. `filter.<name>.clean` can't be turned off this way.
-pub(crate) const GIT_WITHOUT_REPOSITORY_PROGRAMS: [&str; 5] = [
-    "--no-lazy-fetch",
-    "-c",
-    "core.fsmonitor=false",
-    "-c",
-    "core.hooksPath=/dev/null",
-];
-async fn git(
-    runner: &dyn crate::process::ProcessRunner,
-    path: &Path,
-    args: &[&str],
-) -> Result<String, crate::process::ProcessError> {
-    let arguments: Vec<&str> = GIT_WITHOUT_REPOSITORY_PROGRAMS
-        .iter()
-        .chain(args)
-        .copied()
-        .collect();
-    runner.output("git", &arguments, Some(path)).await
-}
-pub async fn revision(
-    runner: &dyn crate::process::ProcessRunner,
-    path: &Path,
-) -> Result<(std::path::PathBuf, Revision), SessionError> {
-    let error = |e: crate::process::ProcessError| {
-        SessionError::Refused(format!(
-            "Cannot read git worktree {}: {e}. Pass an existing git worktree.",
-            path.display()
-        ))
-    };
-    let root = git(runner, path, &["rev-parse", "--show-toplevel"])
-        .await
-        .map_err(error)?;
-    let branch = git(
-        runner,
-        path,
-        &["symbolic-ref", "--quiet", "--short", "HEAD"],
-    )
-    .await
-    .ok();
-    let commit = git(runner, path, &["rev-parse", "HEAD"])
-        .await
-        .map_err(error)?;
-    let dirty = !git(runner, path, &["status", "--porcelain"])
-        .await
-        .map_err(error)?
-        .is_empty();
-    Ok((
-        root.into(),
-        Revision {
-            branch,
-            commit,
-            dirty,
-        },
-    ))
 }
 #[cfg(test)]
 #[path = "session_tests.rs"]

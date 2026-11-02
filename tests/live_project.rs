@@ -185,6 +185,10 @@ async fn live_project_reuses_layers_and_applies_isolation_settings_and_warnings(
         )
         .await?;
         write(settings.join("project.env"), b"FAKE_USER=throwaway\n").await?;
+        std::fs::set_permissions(
+            settings.join("project.env"),
+            std::os::unix::fs::PermissionsExt::from_mode(0o600),
+        )?;
         let original_status = status(&worktree).await?;
         let mut keys: Vec<std::ffi::OsString> = Vec::new();
         for (index, expected_count, source) in [

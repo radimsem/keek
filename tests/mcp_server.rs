@@ -15,6 +15,7 @@ async fn an_agent_can_read_the_verifier_protocol_and_list_tools() -> Result<()> 
         .as_deref()
         .context("the server sent no instructions")?;
     for required in [
+        "${NAME}",
         "3 Agent Sessions",
         "acceptance checks",
         "fresh subagent",

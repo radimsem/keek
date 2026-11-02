@@ -1,6 +1,6 @@
 use keek::checklist::{Checklist, SessionEnd, Verdict};
 use keek::report::{self, IdentityTimeMap, ReportInputs, VideoTimeMap};
-use keek::session::Revision;
+use keek::revision::Revision;
 use keek::timeline::{CheckId, CheckOutcome, Millis};
 
 #[test]
