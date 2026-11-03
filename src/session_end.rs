@@ -47,7 +47,6 @@ impl Actor {
         videos: Result<PathBuf, String>,
         summary: String,
     ) -> Response {
-        let end = end.map(|end| end_with_cause(end, driver.end_cause()));
         self.closing.store(true, Ordering::SeqCst);
         self.control.stop().await;
         if let Some(task) = controller_task.take() {
@@ -61,12 +60,22 @@ impl Actor {
         inbox.refuse_all(&self.name);
         let stopped =
             call_driver(driver, "stop_recording", json!({}), Duration::from_secs(30)).await;
+        // Closing the sandbox drops the window guard and its cause.
+        let cause = driver.end_cause();
         let closed = close_driver(driver).await;
         let written = write_records(&self.folder, timeline, &summary).await;
         let Some(end) = end else {
             self.scrub_retained().await;
             return Response::WatchEnded;
         };
+        let stop = stopped.and_then(check_result);
+        let end = end_after_stop(end, &stop, cause);
+        if let Err(error) = stop {
+            tracing::warn!(%error, "could not stop the recording");
+        }
+        if let Err(error) = closed {
+            tracing::warn!(%error, "could not close the desktop");
+        }
         let elapsed = Millis(self.clock.now().duration_since(self.opened_at).as_millis() as u64);
         let frame = crate::session_frame::capture(
             self.runner.as_ref(),
@@ -95,120 +104,103 @@ impl Actor {
             frame: frame.clone(),
             elapsed,
         };
-        let stop = stopped.and_then(check_result);
-        let (stop, closed) = match &end {
-            SessionEnd::Verdict(_) => (stop, closed),
-            SessionEnd::Incomplete(_) => {
-                if let Err(error) = stop {
-                    tracing::warn!(%error, "recording stopped before the session ended");
-                }
-                if let Err(error) = closed {
-                    tracing::warn!(%error, "desktop stopped before the session ended");
-                }
-                (Ok(()), Ok(()))
-            }
-        };
-        let response = match (stop, closed) {
-            (Err(stop), Err(close)) => refusal(format!("{stop}; {close}")),
-            (Err(error), Ok(())) | (Ok(()), Err(error)) => refusal(error),
-            (Ok(()), Ok(())) => match written {
-                Err(e) => refusal(e),
-                Ok(()) => {
-                    let output = self.folder.root().join("verification.mp4");
-                    let mut last_percent = crate::ipc::Percent(0);
-                    self.publish(
-                        SessionState::Rendering {
-                            percent: last_percent,
-                            frame: frame.clone(),
-                            elapsed,
-                        },
-                        last_action,
-                    );
-                    let mut progress = |progress: crate::editor::EditProgress| {
-                        if progress.percent != last_percent {
-                            last_percent = progress.percent;
-                            self.publish(
-                                SessionState::Rendering {
-                                    percent: last_percent,
-                                    frame: frame.clone(),
-                                    elapsed,
-                                },
-                                last_action,
-                            );
-                        }
-                    };
-                    let edited = match &end {
-                        SessionEnd::Verdict(_) => {
-                            crate::editor::edit(
-                                self.runner.as_ref(),
-                                &self.folder.recording(),
-                                timeline,
-                                &output,
-                                &mut progress,
-                            )
-                            .await
-                        }
-                        SessionEnd::Incomplete(reason) => {
-                            crate::editor::edit_incomplete(
-                                self.runner.as_ref(),
-                                &self.folder.recording(),
-                                timeline,
-                                &output,
-                                &mut progress,
-                                reason,
-                            )
-                            .await
-                        }
-                    };
-                    card.video_length = edited
-                        .as_ref()
-                        .map(|plan| {
-                            Millis(
-                                plan.output_length().0
-                                    + if matches!(end, SessionEnd::Incomplete(_)) {
-                                        crate::title_card::TAKEOVER_CARD.0
-                                    } else {
-                                        0
-                                    },
-                            )
-                        })
-                        .unwrap_or(Millis(0));
-                    match crate::session_evidence::file(
-                        self.into(),
-                        end,
-                        videos,
-                        summary,
-                        edited,
-                        timeline,
-                    )
-                    .await
-                    {
-                        Ok(value) => {
-                            card.verification = value["evidence"]["verification"]
-                                .as_str()
-                                .map(PathBuf::from);
-                            card.folder = value["evidence"]["report"]
-                                .as_str()
-                                .and_then(|path| std::path::Path::new(path).parent())
-                                .map(std::path::Path::to_owned);
-                            if let Some(index) = value["evidence"]["index"].as_str() {
-                                let index = PathBuf::from(index);
-                                let branch = self.revision.branch.clone();
-                                card.attempt = tokio::task::spawn_blocking(move || {
-                                    std::fs::read_to_string(index).ok().and_then(|text| {
-                                        crate::attempts::count(&text, branch.as_deref())
-                                    })
-                                })
-                                .await
-                                .ok()
-                                .flatten();
-                            }
-                            Response::Closed(value)
-                        }
-                        Err(message) => refusal(message),
+        let response = match written {
+            Err(e) => refusal(e),
+            Ok(()) => {
+                let output = self.folder.root().join("verification.mp4");
+                let mut last_percent = crate::ipc::Percent(0);
+                self.publish(
+                    SessionState::Rendering {
+                        percent: last_percent,
+                        frame: frame.clone(),
+                        elapsed,
+                    },
+                    last_action,
+                );
+                let mut progress = |progress: crate::editor::EditProgress| {
+                    if progress.percent != last_percent {
+                        last_percent = progress.percent;
+                        self.publish(
+                            SessionState::Rendering {
+                                percent: last_percent,
+                                frame: frame.clone(),
+                                elapsed,
+                            },
+                            last_action,
+                        );
                     }
+                };
+                let edited = match &end {
+                    SessionEnd::Verdict(_) => {
+                        crate::editor::edit(
+                            self.runner.as_ref(),
+                            &self.folder.recording(),
+                            timeline,
+                            &output,
+                            &mut progress,
+                        )
+                        .await
+                    }
+                    SessionEnd::Incomplete(reason) => {
+                        crate::editor::edit_incomplete(
+                            self.runner.as_ref(),
+                            &self.folder.recording(),
+                            timeline,
+                            &output,
+                            &mut progress,
+                            reason,
+                        )
+                        .await
+                    }
+                };
+                card.video_length = edited
+                    .as_ref()
+                    .map(|plan| {
+                        Millis(
+                            plan.output_length().0
+                                + if matches!(end, SessionEnd::Incomplete(_)) {
+                                    crate::title_card::TAKEOVER_CARD.0
+                                } else {
+                                    0
+                                },
+                        )
+                    })
+                    .unwrap_or(Millis(0));
+                match crate::session_evidence::file(
+                    self.into(),
+                    end,
+                    videos,
+                    summary,
+                    edited,
+                    timeline,
+                )
+                .await
+                {
+                    Ok(value) => {
+                        card.verification = value["evidence"]["verification"]
+                            .as_str()
+                            .map(PathBuf::from);
+                        card.folder = value["evidence"]["report"]
+                            .as_str()
+                            .and_then(|path| std::path::Path::new(path).parent())
+                            .map(std::path::Path::to_owned);
+                        if let Some(index) = value["evidence"]["index"].as_str() {
+                            let index = PathBuf::from(index);
+                            let branch = self.revision.branch.clone();
+                            card.attempt = tokio::task::spawn_blocking(move || {
+                                std::fs::read_to_string(index).ok().and_then(|text| {
+                                    crate::attempts::count(&text, branch.as_deref())
+                                })
+                            })
+                            .await
+                            .ok()
+                            .flatten();
+                        }
+                        Response::Closed(value)
+                    }
+                    Err(message) => refusal(message),
                 }
-            },
+            }
         };
         if matches!(response, Response::Refused { .. }) {
             self.scrub_retained().await;
@@ -218,16 +210,21 @@ impl Actor {
     }
 }
 
-fn end_with_cause(
+fn end_after_stop(
     end: SessionEnd,
+    stop: &Result<(), DriverError>,
     cause: Option<crate::checklist::IncompleteReason>,
 ) -> SessionEnd {
-    if end == SessionEnd::Incomplete(crate::checklist::IncompleteReason::DesktopStopped)
-        && let Some(cause) = cause
-    {
-        SessionEnd::Incomplete(cause)
-    } else {
-        end
+    use crate::checklist::IncompleteReason;
+    match (end, cause) {
+        (
+            SessionEnd::Incomplete(IncompleteReason::DesktopStopped) | SessionEnd::Verdict(_),
+            Some(cause),
+        ) => SessionEnd::Incomplete(cause),
+        (SessionEnd::Verdict(_), None) if stop.is_err() => {
+            SessionEnd::Incomplete(IncompleteReason::RecordingNotStopped)
+        }
+        (end @ (SessionEnd::Verdict(_) | SessionEnd::Incomplete(_)), _) => end,
     }
 }
 #[cfg(test)]
@@ -235,22 +232,73 @@ mod cause_tests {
     use super::*;
     use crate::checklist::{IncompleteReason::*, Verdict};
     #[test]
-    fn other_incomplete_reasons_and_verdicts_are_not_rewritten() {
-        for end in [
-            SessionEnd::Incomplete(Idle {
+    fn recording_stop_and_guard_cause_determine_the_end() {
+        let verdict = SessionEnd::Verdict(Verdict::Pass);
+        let mut cases = vec![
+            (
+                verdict.clone(),
+                Err(DriverError::Arguments),
+                Some(HostWindowOpened),
+                SessionEnd::Incomplete(HostWindowOpened),
+            ),
+            (
+                verdict.clone(),
+                Err(DriverError::Arguments),
+                None,
+                SessionEnd::Incomplete(RecordingNotStopped),
+            ),
+            (
+                verdict.clone(),
+                Ok(()),
+                Some(HostWindowOpened),
+                SessionEnd::Incomplete(HostWindowOpened),
+            ),
+            (verdict.clone(), Ok(()), None, verdict),
+            (
+                SessionEnd::Incomplete(OpenerLeft),
+                Err(DriverError::Arguments),
+                Some(HostWindowOpened),
+                SessionEnd::Incomplete(OpenerLeft),
+            ),
+            (
+                SessionEnd::Incomplete(DesktopStopped),
+                Ok(()),
+                None,
+                SessionEnd::Incomplete(DesktopStopped),
+            ),
+            (
+                SessionEnd::Incomplete(DesktopStopped),
+                Ok(()),
+                Some(HostWindowOpened),
+                SessionEnd::Incomplete(HostWindowOpened),
+            ),
+            (
+                SessionEnd::Incomplete(DesktopStopped),
+                Err(DriverError::Arguments),
+                Some(HostWindowOpened),
+                SessionEnd::Incomplete(HostWindowOpened),
+            ),
+        ];
+        for reason in [
+            Idle {
                 limit: Duration::from_secs(300),
-            }),
-            SessionEnd::Incomplete(OpenerLeft),
-            SessionEnd::Incomplete(DaemonStopped),
-            SessionEnd::Verdict(Verdict::Pass),
-            SessionEnd::Verdict(Verdict::NeedsFixes),
-            SessionEnd::Verdict(Verdict::PartlyVerified),
+            },
+            OpenerLeft,
+            DaemonStopped,
         ] {
-            assert_eq!(end_with_cause(end.clone(), Some(HostWindowOpened)), end);
+            let end = SessionEnd::Incomplete(reason);
+            cases.push((end.clone(), Ok(()), Some(HostWindowOpened), end));
         }
-        assert_eq!(
-            end_with_cause(SessionEnd::Incomplete(DesktopStopped), None),
-            SessionEnd::Incomplete(DesktopStopped)
-        );
+        for verdict in [Verdict::Pass, Verdict::NeedsFixes, Verdict::PartlyVerified] {
+            cases.push((
+                SessionEnd::Verdict(verdict),
+                Ok(()),
+                Some(HostWindowOpened),
+                SessionEnd::Incomplete(HostWindowOpened),
+            ));
+        }
+        for (end, stop, cause, expected) in cases {
+            assert_eq!(end_after_stop(end, &stop, cause), expected);
+        }
     }
 }

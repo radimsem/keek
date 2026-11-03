@@ -561,3 +561,23 @@ async fn takeover_changes_are_journaled_while_a_help_request_waits() {
 
 #[path = "registry_journal_planted_tests.rs"]
 mod planted;
+
+#[tokio::test]
+async fn a_failed_recording_stop_removes_the_journal_after_filing() {
+    let mut h = Harness::new(1);
+    let name = h.open(h.worktree("failed-stop-journal")).await;
+    let path = h
+        .directory
+        .path()
+        .join(format!("state/sessions/{name}.json"));
+    assert!(path.exists());
+    h.controls
+        .fail_stop
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    let response = h.finish(name).await;
+    assert!(
+        matches!(response, Response::Closed(value) if value["incomplete"] == crate::checklist::IncompleteReason::RecordingNotStopped.sentence() && value.get("verdict").is_none())
+    );
+    assert!(!path.exists());
+    assert!(h.registry.is_empty());
+}

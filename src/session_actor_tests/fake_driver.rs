@@ -109,6 +109,7 @@ impl Driver for FakeDriver {
                 .lock()
                 .unwrap()
                 .push(("driver close".into(), json!({})));
+            *self.cause.lock().unwrap() = None;
             self.closed.store(true, Ordering::SeqCst);
             if self.fail_close.load(Ordering::SeqCst) {
                 return Err(DriverError::Close("fixture close failure".into()));

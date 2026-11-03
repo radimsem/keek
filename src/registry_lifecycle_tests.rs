@@ -333,7 +333,9 @@ async fn a_stuck_stop_frees_the_slot_after_its_timeout() {
     tokio::time::advance(std::time::Duration::from_secs(31)).await;
     let finished = h.registry.tasks.join_next().await.unwrap().unwrap();
     h.registry.finished(finished).await;
-    assert!(matches!(answer.await.unwrap(), Response::Refused { .. }));
+    assert!(
+        matches!(answer.await.unwrap(), Response::Closed(value) if value["incomplete"] == crate::checklist::IncompleteReason::RecordingNotStopped.sentence() && value.get("verdict").is_none())
+    );
     h.controls
         .stop_hangs
         .store(false, std::sync::atomic::Ordering::Relaxed);

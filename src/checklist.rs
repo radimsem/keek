@@ -49,6 +49,7 @@ pub enum IncompleteReason {
     OpenerLeft,
     DesktopStopped,
     HostWindowOpened,
+    RecordingNotStopped,
     DaemonStopped,
 }
 fn idle_duration(limit: std::time::Duration) -> (String, &'static str, &'static str) {
@@ -82,6 +83,7 @@ impl IncompleteReason {
                 "The session opened another window on the developer's desktop"
             }
             Self::DaemonStopped => "The keek daemon stopped",
+            Self::RecordingNotStopped => return "keek could not stop the recording, so it ended the session and filed it as an Incomplete Session. Open a new Agent Session.".into(),
         };
         format!(
             "{cause}, so keek ended the session and filed it as an Incomplete Session. Open a new Agent Session."
@@ -99,6 +101,7 @@ impl IncompleteReason {
             Self::DaemonStopped => {
                 "The keek daemon stopped during the session, and the next daemon filed it.".into()
             }
+            Self::RecordingNotStopped => "keek could not stop the recording after close_session, so the session has no Verdict.".into(),
             Self::DesktopStopped => "The session's desktop stopped before close_session.".into(),
             Self::HostWindowOpened => "keek ended the session because the session opened a window on the developer's desktop other than its Session Window.".into(),
         }
@@ -113,6 +116,7 @@ impl IncompleteReason {
             Self::DesktopStopped => "Desktop stopped".into(),
             Self::HostWindowOpened => "Opened another window".into(),
             Self::DaemonStopped => "Daemon stopped".into(),
+            Self::RecordingNotStopped => "Recording not stopped".into(),
         }
     }
 }

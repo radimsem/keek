@@ -1,6 +1,6 @@
 use super::*;
 
-async fn mark(actor: &RunningActor, check: u32) -> oneshot::Receiver<Response> {
+pub(super) async fn mark(actor: &RunningActor, check: u32) -> oneshot::Receiver<Response> {
     let (reply, answer) = oneshot::channel();
     actor
         .sender
@@ -14,7 +14,7 @@ async fn mark(actor: &RunningActor, check: u32) -> oneshot::Receiver<Response> {
         .unwrap();
     answer
 }
-async fn request_close(actor: &RunningActor) -> oneshot::Receiver<Response> {
+pub(super) async fn request_close(actor: &RunningActor) -> oneshot::Receiver<Response> {
     let (reply, answer) = oneshot::channel();
     actor.closing.store(true, Ordering::SeqCst);
     actor
@@ -27,7 +27,7 @@ async fn request_close(actor: &RunningActor) -> oneshot::Receiver<Response> {
         .unwrap();
     answer
 }
-async fn slow(actor: &RunningActor) -> oneshot::Receiver<Response> {
+pub(super) async fn slow(actor: &RunningActor) -> oneshot::Receiver<Response> {
     let (reply, answer) = oneshot::channel();
     actor
         .sender
@@ -42,7 +42,7 @@ async fn slow(actor: &RunningActor) -> oneshot::Receiver<Response> {
     actor.entered.notified().await;
     answer
 }
-async fn finished(actor: RunningActor, answer: oneshot::Receiver<Response>) -> Value {
+pub(super) async fn finished(actor: RunningActor, answer: oneshot::Receiver<Response>) -> Value {
     let ended = actor.task.await.unwrap();
     ended.reply.unwrap().send(ended.response).unwrap();
     let Response::Closed(value) = answer.await.unwrap() else {

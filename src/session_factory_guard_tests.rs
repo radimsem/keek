@@ -104,6 +104,7 @@ async fn a_sandbox_driver_reports_the_fired_guards_cause() {
     assert_eq!(driver.end_cause(), Some(IncompleteReason::HostWindowOpened));
     assert_eq!(*kills.lock().unwrap(), 1);
     driver.close().await.unwrap();
+    assert_eq!(driver.end_cause(), None);
     server.await.unwrap();
 }
 #[tokio::test]
