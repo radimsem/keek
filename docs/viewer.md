@@ -110,6 +110,8 @@ keek checks for the snippet through `hyprctl binds -j`.
 
 The nested desktop types as `us` during a Takeover, whatever the developer's own layout is, because the Cua plugin requires that keymap. keek's docs say so.
 
+The nested desktop doesn't bind the host clipboard, so type a 2FA code or password during a Takeover instead of pasting it ([`facts.md`](facts.md#takeover-clipboard-results)).
+
 Recording during a Takeover:
 
 - The Raw Recording keeps running and keeps the footage locally.

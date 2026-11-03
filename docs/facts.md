@@ -90,6 +90,26 @@ Checked on 2026-11-03 with Hyprland 0.56.2 and aquamarine 0.15.1, by `live_a_sec
 - The gap from `openwindow` to `closewindow` for the second window was 32.9 ms, 59.3 ms and 46.7 ms in three runs.
 - keek filed the session as an Incomplete Session for a host window, with no Verdict. No sandbox process was left.
 
+### Takeover clipboard results
+
+Read on 2026-11-03 at the aquamarine v0.15.1 and Hyprland v0.56.2 tags, with wl-clipboard 2.3.0 installed. The installed `0.15.1-1` and `0.56.2-4` builds were not compared with those tags.
+
+- Source: aquamarine's Wayland backend binds only `wl_seat` v9, `xdg_wm_base`, `wl_compositor`, `wl_shm` and `zwp_linux_dmabuf_v1` (`src/backend/Wayland.cpp:119-137`), and takes only a keyboard and a pointer from the seat (`:348-366`). It never calls `get_data_device` and binds no primary selection or data-control manager, so a nested Hyprland has no path to the host selection, during a Takeover or outside one.
+- Source: Hyprland 0.56.2 offers a security-context client `wl_data_device_manager` and primary selection (`src/managers/ProtocolManager.cpp:362`, `:387`), but not `zwlr_data_control_manager_v1` or `ext_data_control_manager_v1` (`:202`, `:218`).
+- Source: the sandbox runs with `--clearenv`, a tmpfs over `XDG_RUNTIME_DIR` and its own network namespace, so the host's Wayland and D-Bus sockets are absent. `wl-paste` and `wl-copy` inside it see the nested clipboard only, and Cua Driver's `clipboard_read` and `clipboard_write` act on the nested clipboard too.
+- Not covered: code loaded into the nested Hyprland as a plugin runs in the process that holds the host connection, and could bind `wl_data_device_manager` while the Session Window has focus. ADR 0006 places hostile code out of scope.
+- Live: `live_a_takeover_keeps_the_host_clipboard_apart_from_the_nested_one` ran three times on 2026-11-03 and printed `Clipboard check not run: clipboard formats cannot be restored faithfully.` each time. The host clipboard held a copy from a Chromium-based app, which offers `chromium/x-source-url` and `chromium/x-internal-source-rfh-token` beside its text, and `wl-copy` can't put those back. The test left the clipboard, focus and workspace untouched.
+
+Not run: the live Takeover clipboard check itself. It runs when the host clipboard holds only text or a single type.
+
+### Live test cleanup results
+
+Checked on 2026-11-03 with Hyprland 0.56.2, over every live test file:
+
+- Each live test's daemon exited on SIGTERM within the 5 s grace: 12 daemons, none of which needed SIGKILL.
+- After each file, no keek daemon was left and the host had no `keek-footer` layer, so no Session Footer stayed on the Agents Workspace.
+- The host's focus, workspace and window count ended as they began.
+
 ## Facts this design rests on
 
 Checked on 2026-10-31 in Cua Driver 0.38.0 and `trycua/cua` main `a9902d2`:
