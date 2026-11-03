@@ -459,6 +459,7 @@ async fn the_daemon_waits_for_recovery_then_exits_when_idle() {
             std::time::Duration::from_millis(20),
         ),
         h.registry,
+        std::future::pending(),
     ));
     entered.notified().await;
     tokio::time::sleep(std::time::Duration::from_millis(60)).await;

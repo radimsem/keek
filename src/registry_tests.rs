@@ -121,7 +121,7 @@ impl ProcessRunner for Runner {
     }
 }
 #[derive(Default)]
-struct Compositor(Mutex<Vec<&'static str>>);
+struct Compositor(Mutex<Vec<&'static str>>, AtomicBool);
 impl crate::compositor::Compositor for Compositor {
     fn window_events(&self) -> crate::compositor::EventsFuture<'_> {
         Box::pin(async { Ok(None) })
@@ -162,7 +162,14 @@ impl crate::compositor::Compositor for Compositor {
     fn remove(&self) -> CompositorFuture<'_> {
         Box::pin(async {
             self.0.lock().unwrap().push("remove");
-            Ok(())
+            if self.1.load(Ordering::SeqCst) {
+                Err(ProcessError::Failed {
+                    program: "fake compositor".into(),
+                    message: "rule removal failed".into(),
+                })
+            } else {
+                Ok(())
+            }
         })
     }
 }
@@ -590,3 +597,6 @@ mod incomplete;
 
 #[path = "registry_journal_tests.rs"]
 mod journal;
+
+#[path = "registry_daemon_tests.rs"]
+mod daemon;

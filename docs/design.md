@@ -181,6 +181,8 @@ Every file carries the Project and time in its name, so a Verification Video dra
 
 ## Abnormal end
 
+A daemon that stops on SIGTERM, and the next daemon to start, disable the host window rule.
+
 An Agent Session can end without `close_session`: the Verifier finishes, crashes or runs out of context first, the coding agent's session exits, or the developer presses Ctrl-C. keek's MCP server belongs to the coding agent's session, so a Verifier ending ends no process keek can watch. Every Cua call passes through keek, so the daemon ends the session after 5 minutes without a tool call, outside a Help Request or Takeover, and when the `keek mcp` that opened it disconnects. It stops recording, stops the sandbox and renders anyway. If the daemon itself dies, the sandbox dies with it, and the next daemon to start finishes any session it finds unfiled the same way. The session is an Incomplete Session. Its files carry `incomplete` in place of a verdict, its Verdict Report says why it ended, lists the Checks marked so far and has no Verdict, and its Verification Video is labelled incomplete.
 
 keek keeps an atomic, host-only journal for each open session under `$XDG_STATE_HOME/keek/sessions/`, because the sandbox can change files in the session folder and a retained folder may already be filed. After a daemon stops, the next daemon files the journaled session as incomplete and scrubs its Action Log only if the Project's Test Credentials file still has the same bytes, with both files absent counting as unchanged. If the file changed or was removed, keek withholds the Action Log and explains why in the Verdict Report.

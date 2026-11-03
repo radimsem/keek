@@ -101,6 +101,11 @@ impl Registry {
             lifecycle: Lifecycle::Running,
         }
     }
+    pub async fn remove_host_rule(&self) {
+        if let Err(error) = self.dependencies.compositor.remove().await {
+            tracing::warn!(%error, "could not remove the host window rule");
+        }
+    }
     pub async fn control(&mut self, command: crate::viewer::ViewerCommand) {
         let (session, command) = match command {
             crate::viewer::ViewerCommand::Dismiss(session) => {

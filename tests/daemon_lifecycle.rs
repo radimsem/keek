@@ -167,3 +167,54 @@ async fn a_daemon_with_no_sessions_accepts_a_shutdown_request() -> Result<()> {
     drop(client);
     Ok(())
 }
+
+#[tokio::test]
+async fn a_terminated_daemon_exits_and_removes_its_socket() -> Result<()> {
+    let env = TestEnv::new()?;
+    let mut daemon = env
+        .keek("daemon")
+        .env("KEEK_DAEMON_IDLE_MS", "60000")
+        .stderr(Stdio::inherit())
+        .spawn()?;
+    common::wait_until("the daemon binds its socket", || env.socket().exists()).await?;
+    // A status reply proves the daemon has installed its signal listener.
+    let stream = UnixStream::connect(env.socket()).await?;
+    let mut client = Connection::new(stream);
+    client
+        .send(&Message::Hello {
+            version: env!("CARGO_PKG_VERSION").into(),
+        })
+        .await?;
+    assert!(matches!(client.recv().await?, Some(Message::Hello { .. })));
+    client
+        .send(&Message::Request {
+            id: RequestId(1),
+            request: Request::Status,
+        })
+        .await?;
+    assert!(matches!(
+        client.recv().await?,
+        Some(Message::Response {
+            response: Response::Status(_),
+            ..
+        })
+    ));
+    let pid = daemon.id().context("daemon has no pid")?;
+    assert!(
+        Command::new("sh")
+            .args(["-c", &format!("kill -TERM {pid}")])
+            .status()
+            .await?
+            .success()
+    );
+    let status = tokio::time::timeout(Duration::from_secs(5), daemon.wait()).await??;
+    assert!(
+        status.success(),
+        "SIGTERM must exit through daemon cleanup: {status}"
+    );
+    assert!(
+        !env.socket().exists(),
+        "SIGTERM left the daemon socket behind"
+    );
+    Ok(())
+}

@@ -42,6 +42,14 @@ pub async fn run_with_viewer(
         Err(TryLockError::Error(error)) => return Err(DaemonError::Lock(error)),
     }
 
+    let mut signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .map_err(DaemonError::Signal)?;
+    let terminated = async move {
+        if signal.recv().await.is_none() {
+            std::future::pending::<()>().await;
+        }
+    };
+
     crate::session_frame::clear(paths.runtime_dir()).await;
     let socket = paths.socket();
     remove_socket(&socket)?;
@@ -96,6 +104,7 @@ pub async fn run_with_viewer(
         listener,
         IdleWatch::new(crate::clock::MonotonicClock, idle_limit),
         registry,
+        terminated,
     )
     .await;
     let removed = remove_socket(&socket);
