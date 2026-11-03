@@ -100,6 +100,14 @@ A Takeover starts only from the **Take control** button. Looking at, hovering ov
 
 The developer adds keek's submap snippet to their Hyprland config once. If it is missing, Take control still works, but host shortcuts stay live and the footer says so. *(my call)*
 
+```lua
+hl.define_submap("keek", function()
+  hl.bind("SUPER + Escape", hl.dsp.submap("reset"))
+end)
+```
+
+keek checks for the snippet through `hyprctl binds -j`.
+
 The nested desktop types as `us` during a Takeover, whatever the developer's own layout is, because the Cua plugin requires that keymap. keek's docs say so.
 
 Recording during a Takeover:
