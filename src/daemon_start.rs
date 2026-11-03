@@ -42,6 +42,7 @@ pub async fn run_with_viewer(
         Err(TryLockError::Error(error)) => return Err(DaemonError::Lock(error)),
     }
 
+    crate::session_frame::clear(paths.runtime_dir()).await;
     let socket = paths.socket();
     remove_socket(&socket)?;
     let listener = UnixListener::bind(&socket).map_err(DaemonError::Bind)?;
@@ -57,6 +58,11 @@ pub async fn run_with_viewer(
     let compositor: std::sync::Arc<dyn crate::compositor::Compositor> =
         std::sync::Arc::new(crate::compositor::HostCompositor::new(runner.clone()));
     let dependencies = crate::registry::Dependencies {
+        frames_dir: paths.runtime_dir().join("frames"),
+        journals_dir: paths.state_dir().join("sessions"),
+        session_idle_limit: session_idle_limit(
+            std::env::var(SESSION_IDLE_LIMIT_ENV).ok().as_deref(),
+        )?,
         viewer,
         sessions_dir: paths.sessions_dir().to_owned(),
         projects_config: paths.projects_config().to_owned(),
@@ -77,6 +83,7 @@ pub async fn run_with_viewer(
     };
     let (catalog_sender, catalog_receiver) = tokio::sync::watch::channel(None);
     let mut registry = crate::registry::Registry::new(dependencies, catalog_receiver);
+    registry.recover().await;
     let runtime = paths.runtime_dir().to_owned();
     registry.background.spawn(async move {
         let result = crate::catalog::load(&runtime, &home)
@@ -95,4 +102,30 @@ pub async fn run_with_viewer(
     let exit = exit?;
     removed?;
     Ok(exit)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn startup_clears_old_frames_after_acquiring_the_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = Paths::under_root(root.path());
+        let frames = paths.runtime_dir().join("frames");
+        std::fs::create_dir_all(&frames).unwrap();
+        std::fs::write(frames.join("old.png"), b"old").unwrap();
+        let lock = File::options()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(paths.lock())
+            .unwrap();
+        lock.try_lock().unwrap();
+        assert!(matches!(
+            run(&paths, Duration::from_secs(1), crate::clock::MonotonicClock).await,
+            Ok(Exit::AlreadyRunning)
+        ));
+        assert!(frames.join("old.png").exists());
+    }
 }

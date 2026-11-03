@@ -34,6 +34,7 @@ pub enum EditError {
 }
 #[derive(Debug, Clone, Copy)]
 pub struct EditProgress {
+    pub percent: crate::ipc::Percent,
     pub segment_index: usize,
     pub segment_count: usize,
     pub out_time_us: u64,
@@ -53,6 +54,7 @@ async fn job(
                 .and_then(|v| v.parse().ok())
             {
                 progress(EditProgress {
+                    percent: crate::ipc::Percent(0),
                     segment_index: index,
                     segment_count: count,
                     out_time_us: us,
@@ -61,12 +63,32 @@ async fn job(
         })
         .await?)
 }
+pub async fn edit_incomplete(
+    runner: &dyn ProcessRunner,
+    raw: &Path,
+    timeline: &SessionTimeline,
+    out: &Path,
+    progress: &mut (dyn FnMut(EditProgress) + Send),
+    reason: &crate::checklist::IncompleteReason,
+) -> Result<EditPlan, EditError> {
+    edit_ending(runner, raw, timeline, out, progress, Some(reason)).await
+}
 pub async fn edit(
     runner: &dyn ProcessRunner,
     raw: &Path,
     timeline: &SessionTimeline,
     out: &Path,
     on_progress: &mut (dyn FnMut(EditProgress) + Send),
+) -> Result<EditPlan, EditError> {
+    edit_ending(runner, raw, timeline, out, on_progress, None).await
+}
+async fn edit_ending(
+    runner: &dyn ProcessRunner,
+    raw: &Path,
+    timeline: &SessionTimeline,
+    out: &Path,
+    on_progress: &mut (dyn FnMut(EditProgress) + Send),
+    incomplete: Option<&crate::checklist::IncompleteReason>,
 ) -> Result<EditPlan, EditError> {
     let destination = out.to_owned();
     // The sandbox can plant verification.mp4; remove it before any failure can let Evidence file it.
@@ -76,25 +98,7 @@ pub async fn edit(
         Err(e) => Err(e),
     })
     .await??;
-    let source = raw.to_owned();
-    let regular = tokio::task::spawn_blocking(move || {
-        std::fs::symlink_metadata(source).is_ok_and(|m| m.is_file())
-    })
-    .await?;
-    if !regular {
-        return Err(EditError::NoRecording);
-    }
-    let args = ffmpeg::duration_args(raw);
-    let args: Vec<_> = args.iter().map(String::as_str).collect();
-    let duration_text = runner.output("ffprobe", &args, None).await?;
-    let duration = duration_text
-        .trim()
-        .parse::<f64>()
-        .ok()
-        .filter(|v| v.is_finite() && *v > 0.0)
-        .map(|v| Millis((v * 1000.0).round() as u64))
-        .filter(|v| v.0 > 0)
-        .ok_or_else(|| EditError::Duration(duration_text))?;
+    let duration = recording_duration(runner, raw).await?;
     let freezes = job(runner, &ffmpeg::freeze_args(raw), 0, 0, &mut |_| {}).await?;
     let plan = plan_edit(
         timeline,
@@ -106,12 +110,13 @@ pub async fn edit(
             after: ACTION_AFTER,
         },
     );
-    let font = if plan.segments().iter().any(|s| {
-        matches!(
-            s.kind,
-            SegmentKind::FastForward { .. } | SegmentKind::Takeover { .. }
-        )
-    }) {
+    let font = if incomplete.is_some()
+        || plan.segments().iter().any(|s| {
+            matches!(
+                s.kind,
+                SegmentKind::FastForward { .. } | SegmentKind::Takeover { .. }
+            )
+        }) {
         let matched = runner
             .output(
                 "fc-match",
@@ -131,10 +136,11 @@ pub async fn edit(
     } else {
         String::new()
     };
-    let size = if plan
-        .segments()
-        .iter()
-        .any(|s| matches!(s.kind, SegmentKind::Takeover { .. }))
+    let size = if incomplete.is_some()
+        || plan
+            .segments()
+            .iter()
+            .any(|s| matches!(s.kind, SegmentKind::Takeover { .. }))
     {
         let args = ffmpeg::size_args(raw);
         let refs: Vec<_> = args.iter().map(String::as_str).collect();
@@ -152,6 +158,13 @@ pub async fn edit(
     let parts = std::path::PathBuf::from(name);
     let directory = parts.clone();
     tokio::task::spawn_blocking(move || std::fs::create_dir(directory)).await??;
+    let mut whole = progress::Progress::new(&plan, incomplete);
+    let mut report_progress = |mut p: EditProgress| {
+        if let Some(percent) = whole.update(p.segment_index, p.out_time_us) {
+            p.percent = percent;
+            on_progress(p);
+        }
+    };
     let result = async {
         for (i, segment) in plan.segments().iter().enumerate() {
             let output = parts.join(format!("{i:04}.mp4"));
@@ -163,10 +176,34 @@ pub async fn edit(
                     ffmpeg::segment_args(raw, segment, segment.frames(), &font, &output)
                 }
             };
-            job(runner, &args, i, plan.segments().len(), on_progress).await?;
+            job(
+                runner,
+                &args,
+                i,
+                plan.segments().len(),
+                &mut report_progress,
+            )
+            .await?;
+        }
+        if let Some(reason) = incomplete {
+            let output = parts.join(format!("{:04}.mp4", plan.segments().len()));
+            let args = crate::title_card::text_card_args(
+                &format!("Incomplete · {}", reason.short()),
+                size,
+                &font,
+                &output,
+            );
+            job(
+                runner,
+                &args,
+                plan.segments().len(),
+                plan.segments().len() + 1,
+                &mut report_progress,
+            )
+            .await?;
         }
         let list = parts.join("list.txt");
-        let content = (0..plan.segments().len())
+        let content = (0..plan.segments().len() + usize::from(incomplete.is_some()))
             .map(|i| format!("file '{i:04}.mp4'\n"))
             .collect::<String>();
         let list_path = list.clone();
@@ -192,6 +229,32 @@ pub async fn edit(
         tracing::warn!(%error, "could not remove the editor's parts folder");
     }
     Ok(plan)
+}
+
+pub async fn recording_duration(
+    runner: &dyn ProcessRunner,
+    raw: &Path,
+) -> Result<Millis, EditError> {
+    let source = raw.to_owned();
+    let regular = tokio::task::spawn_blocking(move || {
+        std::fs::symlink_metadata(source).is_ok_and(|m| m.is_file())
+    })
+    .await?;
+    if !regular {
+        return Err(EditError::NoRecording);
+    }
+    let args = ffmpeg::duration_args(raw);
+    let args: Vec<_> = args.iter().map(String::as_str).collect();
+    let duration_text = runner.output("ffprobe", &args, None).await?;
+    let duration = duration_text
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|v| v.is_finite() && *v > 0.0)
+        .map(|v| Millis((v * 1000.0).round() as u64))
+        .filter(|v| v.0 > 0)
+        .ok_or_else(|| EditError::Duration(duration_text))?;
+    Ok(duration)
 }
 
 #[cfg(test)]
@@ -260,7 +323,7 @@ mod takeover_tests {
     use super::*;
     use crate::process::ProcessFuture;
     use std::sync::Mutex;
-    struct Runner(Mutex<Vec<Vec<String>>>);
+    struct Runner(Mutex<Vec<Vec<String>>>, Mutex<String>);
     impl ProcessRunner for Runner {
         fn output<'a>(
             &'a self,
@@ -286,6 +349,9 @@ mod takeover_tests {
             _: &'a mut (dyn FnMut(&str) + Send),
         ) -> ProcessFuture<'a> {
             Box::pin(async move {
+                if let Some(index) = args.iter().position(|arg| *arg == "concat") {
+                    *self.1.lock().unwrap() = std::fs::read_to_string(args[index + 2]).unwrap();
+                }
                 self.0
                     .lock()
                     .unwrap()
@@ -308,7 +374,7 @@ mod takeover_tests {
             start_ms: Millis(1000),
             end_ms: Millis(4000),
         });
-        let runner = Runner(Mutex::new(Vec::new()));
+        let runner = Runner(Mutex::new(Vec::new()), Mutex::new(String::new()));
         let plan = edit(
             &runner,
             &raw,
@@ -333,4 +399,31 @@ mod takeover_tests {
                     && !arg.contains(" · 0\\\\:03 · "))
         );
     }
+    #[tokio::test]
+    async fn incomplete_video_appends_a_card_after_the_last_segment() {
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("raw.mp4");
+        std::fs::write(&raw, b"raw").unwrap();
+        let runner = Runner(Mutex::new(Vec::new()), Mutex::new(String::new()));
+        edit_incomplete(
+            &runner,
+            &raw,
+            &SessionTimeline::new(Millis(0)),
+            &dir.path().join("verification.mp4"),
+            &mut |_| {},
+            &crate::checklist::IncompleteReason::DesktopStopped,
+        )
+        .await
+        .unwrap();
+        let calls = runner.0.lock().unwrap();
+        let card = &calls[calls.len() - 2];
+        assert!(
+            card.iter()
+                .any(|arg| arg.contains("Incomplete · Desktop stopped"))
+        );
+        assert!(card.last().unwrap().ends_with("0001.mp4"));
+        assert!(runner.1.lock().unwrap().contains("file '0001.mp4'"));
+    }
 }
+
+mod progress;

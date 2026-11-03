@@ -17,10 +17,19 @@ pub enum StateLabel {
     NeedsYou,
     Takeover,
     HandBack,
+    Rendering,
+    Pass,
+    NeedsFixes,
+    PartlyVerified,
+    Incomplete,
 }
 impl StateLabel {
     pub fn css_class(self) -> Option<&'static str> {
         match self {
+            Self::Pass => Some("passed"),
+            Self::NeedsFixes => Some("failed"),
+            Self::PartlyVerified => Some("skipped"),
+            Self::Rendering | Self::Incomplete => None,
             Self::NeedsYou => Some("needs-you"),
             Self::Takeover => Some("takeover"),
             Self::HandBack => Some("hand-back"),
@@ -29,6 +38,11 @@ impl StateLabel {
     }
     pub fn text(self) -> &'static str {
         match self {
+            Self::Rendering => "Rendering",
+            Self::Pass => "Pass",
+            Self::NeedsFixes => "Needs fixes",
+            Self::PartlyVerified => "Partly verified",
+            Self::Incomplete => "Incomplete",
             Self::Opening => "Opening",
             Self::LastAction => "Last action",
             Self::ViewOnly => "View only",
@@ -92,12 +106,18 @@ pub struct CheckedView {
 pub enum FooterButton {
     TakeControl,
     Done,
+    OpenVideo,
+    OpenFolder,
+    Dismiss,
 }
 impl FooterButton {
     pub fn text(self) -> &'static str {
         match self {
             Self::TakeControl => "Take control",
             Self::Done => "Done",
+            Self::OpenVideo => "Open video",
+            Self::OpenFolder => "Open folder",
+            Self::Dismiss => "Dismiss",
         }
     }
 }
@@ -113,6 +133,7 @@ pub struct FooterView {
     pub checked: Option<CheckedView>,
     pub button: Option<FooterButton>,
     pub keycaps: bool,
+    pub buttons: Vec<FooterButton>,
 }
 pub fn duration(seconds: u64) -> String {
     if seconds >= 3600 {
@@ -148,9 +169,86 @@ pub fn for_session(
     hover: Hover,
     frozen: Option<u64>,
 ) -> FooterView {
-    let seconds = frozen
-        .unwrap_or_else(|| now.signed_duration_since(info.opened).num_seconds().max(0) as u64);
-    let (mut label, mut detail, elapsed_label) = match snapshot.state {
+    let seconds = match &snapshot.state {
+        SessionState::Rendering { elapsed, .. } => Some(elapsed.0 / 1000),
+        SessionState::Ended(ended) => Some(ended.elapsed.0 / 1000),
+        SessionState::Opening | SessionState::Open | SessionState::Closing => frozen,
+    }
+    .unwrap_or_else(|| now.signed_duration_since(info.opened).num_seconds().max(0) as u64);
+    let (mut label, mut detail, elapsed_label) = match &snapshot.state {
+        SessionState::Rendering { percent, .. } => {
+            (StateLabel::Rendering, format!("{}%", percent.0), "Ran")
+        }
+        SessionState::Ended(ended) => {
+            use crate::checklist::{SessionEnd, Verdict};
+            let label = match ended.end {
+                SessionEnd::Verdict(Verdict::Pass) => StateLabel::Pass,
+                SessionEnd::Verdict(Verdict::NeedsFixes) => StateLabel::NeedsFixes,
+                SessionEnd::Verdict(Verdict::PartlyVerified) => StateLabel::PartlyVerified,
+                SessionEnd::Incomplete(_) => StateLabel::Incomplete,
+            };
+            let detail = match &ended.end {
+                SessionEnd::Verdict(Verdict::Pass) => match &ended.verification {
+                    Some(_) => format!(
+                        "{} video · {} action{}",
+                        duration(ended.video_length.0 / 1000),
+                        ended.actions,
+                        if ended.actions == 1 { "" } else { "s" }
+                    ),
+                    None => format!(
+                        "{} action{}",
+                        ended.actions,
+                        if ended.actions == 1 { "" } else { "s" }
+                    ),
+                },
+                SessionEnd::Incomplete(reason) => reason.short(),
+                SessionEnd::Verdict(Verdict::NeedsFixes | Verdict::PartlyVerified) => {
+                    let mut failed = 0;
+                    let mut skipped = 0;
+                    for c in &snapshot.checks {
+                        match &c.mark {
+                            Mark::Unmarked => {}
+                            Mark::Outcome { outcome, .. } => match outcome {
+                                CheckOutcome::Passed => {}
+                                CheckOutcome::Failed => failed += 1,
+                                CheckOutcome::Skipped => skipped += 1,
+                            },
+                        }
+                    }
+                    let mut parts = Vec::new();
+                    if failed > 0 {
+                        parts.push(format!(
+                            "{failed} check{} failed",
+                            if failed == 1 { "" } else { "s" }
+                        ));
+                    }
+                    if skipped > 0 {
+                        parts.push(if failed > 0 {
+                            format!("{skipped} skipped")
+                        } else {
+                            format!(
+                                "{skipped} check{} skipped",
+                                if skipped == 1 { "" } else { "s" }
+                            )
+                        });
+                    }
+                    let mut detail = parts.join(", ");
+                    if matches!(ended.end, SessionEnd::Verdict(Verdict::NeedsFixes))
+                        && let Some(attempt) = ended.attempt
+                    {
+                        if !detail.is_empty() {
+                            detail.push_str(" · ");
+                        }
+                        detail.push_str(&format!("attempt {}", attempt.0));
+                        if attempt.0 <= 3 {
+                            detail.push_str(" of 3");
+                        }
+                    }
+                    detail
+                }
+            };
+            (label, detail, "Ran")
+        }
         SessionState::Opening => (
             StateLabel::Opening,
             "Preparing the desktop.".into(),
@@ -270,288 +368,25 @@ pub fn for_session(
         checked,
         button,
         keycaps,
+        buttons: match &snapshot.state {
+            SessionState::Ended(ended) => {
+                let mut buttons = Vec::new();
+                if ended.verification.is_some() {
+                    buttons.push(FooterButton::OpenVideo);
+                }
+                if ended.folder.is_some() {
+                    buttons.push(FooterButton::OpenFolder);
+                }
+                buttons.push(FooterButton::Dismiss);
+                buttons
+            }
+            SessionState::Opening
+            | SessionState::Open
+            | SessionState::Closing
+            | SessionState::Rendering { .. } => button.into_iter().collect(),
+        },
     }
 }
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn control_labels_map_to_their_css_classes() {
-        assert_eq!(StateLabel::NeedsYou.css_class(), Some("needs-you"));
-        assert_eq!(StateLabel::Takeover.css_class(), Some("takeover"));
-        assert_eq!(StateLabel::HandBack.css_class(), Some("hand-back"));
-        for label in [
-            StateLabel::Opening,
-            StateLabel::LastAction,
-            StateLabel::ViewOnly,
-            StateLabel::Closing,
-        ] {
-            assert_eq!(label.css_class(), None);
-        }
-    }
-    fn render(snapshot: &SessionSnapshot, seconds: u64, hover: bool) -> FooterView {
-        for_session(
-            &info(),
-            snapshot,
-            chrono::DateTime::from_timestamp(seconds as i64, 0).unwrap(),
-            if hover { Hover::Over } else { Hover::Away },
-            None,
-        )
-    }
-    #[test]
-    fn a_help_request_shows_its_reason_wait_and_orange_control() {
-        let mut s = snapshot(SessionState::Open);
-        s.control = crate::ipc::ControlState::HelpRequest {
-            reason: "2FA code".into(),
-            start_ms: crate::timeline::Millis(1000),
-        };
-        let view = render(&s, 25, true);
-        assert_eq!(view.label.text(), "Needs you");
-        assert_eq!(view.detail, "2FA code · waiting 0:24");
-        assert_eq!(view.button, Some(FooterButton::TakeControl));
-    }
-    #[test]
-    fn takeover_suppresses_the_hover_hint_and_shows_captured_shortcuts() {
-        let mut s = snapshot(SessionState::Open);
-        s.control = crate::ipc::ControlState::Takeover {
-            start_ms: crate::timeline::Millis(1000),
-            shortcuts: crate::ipc::HostShortcuts::Captured,
-        };
-        let view = render(&s, 19, true);
-        assert_eq!(view.label.text(), "You are in control");
-        assert_eq!(view.detail, "0:18 · host shortcuts go to the session");
-        assert_eq!(view.button, Some(FooterButton::Done));
-        assert!(view.keycaps);
-    }
-    #[test]
-    fn takeover_warns_when_the_submap_is_missing() {
-        let mut s = snapshot(SessionState::Open);
-        s.control = crate::ipc::ControlState::Takeover {
-            start_ms: crate::timeline::Millis(1000),
-            shortcuts: crate::ipc::HostShortcuts::Live,
-        };
-        let view = render(&s, 19, false);
-        assert_eq!(
-            view.detail,
-            "0:18 · host shortcuts stay live (no keek submap)"
-        );
-        assert!(!view.keycaps);
-        assert_eq!(view.label.text(), "You are in control");
-        assert_eq!(view.button, Some(FooterButton::Done));
-    }
-    #[test]
-    fn hand_back_stays_visible_and_adds_only_later_actions() {
-        let mut s = snapshot(SessionState::Open);
-        s.control = crate::ipc::ControlState::HandBack {
-            end_ms: crate::timeline::Millis(43000),
-            length: crate::timeline::Millis(42000),
-        };
-        let view = render(&s, 45, false);
-        assert_eq!(view.label.text(), "Back to the Verifier");
-        assert_eq!(view.detail, "You were in control for 0:42");
-        assert_eq!(view.button, Some(FooterButton::TakeControl));
-        assert_eq!(render(&s, 45, true).label.text(), "View only");
-        for time in [42000, 43000] {
-            s.last_action = Some(crate::ipc::LastAction {
-                tool: "click".into(),
-                time_ms: crate::timeline::Millis(time),
-            });
-            assert_eq!(render(&s, 45, false).detail, "You were in control for 0:42");
-        }
-        s.last_action = Some(crate::ipc::LastAction {
-            tool: "click".into(),
-            time_ms: crate::timeline::Millis(44000),
-        });
-        assert_eq!(
-            render(&s, 45, false).detail,
-            "You were in control for 0:42 · click · 0:01 ago"
-        );
-    }
-    #[test]
-    fn non_open_sessions_never_offer_a_control_button() {
-        for state in [SessionState::Opening, SessionState::Closing] {
-            let mut s = snapshot(state);
-            s.control = crate::ipc::ControlState::Takeover {
-                start_ms: crate::timeline::Millis(0),
-                shortcuts: crate::ipc::HostShortcuts::Live,
-            };
-            assert_eq!(render(&s, 0, false).button, None);
-        }
-    }
-    #[test]
-    fn slot_colours_repeat_after_two_sessions() {
-        assert_eq!(
-            SessionColour::for_slot(super::super::SlotId(2)),
-            SessionColour::Cyan
-        );
-        assert_eq!(
-            SessionColour::for_slot(super::super::SlotId(3)),
-            SessionColour::Violet
-        );
-    }
-    #[test]
-    fn no_checks_hide_the_checked_column() {
-        assert!(
-            render(&snapshot(SessionState::Open), 0, false)
-                .checked
-                .is_none()
-        );
-    }
-    fn snapshot(state: SessionState) -> SessionSnapshot {
-        SessionSnapshot {
-            control: crate::ipc::ControlState::Verifier,
-            state,
-            checks: vec![],
-            last_action: None,
-        }
-    }
-    #[test]
-    fn driver_actions_use_plain_words_and_unknown_actions_use_fallback() {
-        assert_eq!(action_words("right_click"), "right click");
-        assert_eq!(action_words("hotkey"), "press keys");
-        assert_eq!(action_words("set_value"), "set value");
-        assert_eq!(action_words("unknown"), "use desktop");
-    }
-    #[test]
-    fn clocks_use_minutes_and_hours() {
-        assert_eq!(duration(65), "1:05");
-        assert_eq!(duration(3661), "1:01:01");
-    }
-    #[test]
-    fn opening_has_preparing_copy() {
-        let v = render(&snapshot(SessionState::Opening), 0, false);
-        assert_eq!(
-            (v.label.text(), v.detail.as_str()),
-            ("Opening", "Preparing the desktop.")
-        );
-    }
-    #[test]
-    fn waiting_has_verifier_copy() {
-        let v = render(&snapshot(SessionState::Open), 0, false);
-        assert_eq!(
-            (v.label.text(), v.detail.as_str()),
-            ("Last action", "Waiting for the Verifier.")
-        );
-    }
-    #[test]
-    fn hover_has_view_only_copy() {
-        let v = render(&snapshot(SessionState::Open), 0, true);
-        assert_eq!(
-            (v.label.text(), v.detail.as_str()),
-            ("View only", "Use Take control to interact.")
-        );
-    }
-    #[test]
-    fn closing_has_ran_copy() {
-        let v = render(&snapshot(SessionState::Closing), 65, true);
-        assert_eq!((v.label.text(), v.elapsed_label), ("Closing", "Ran"));
-    }
-    fn info() -> super::super::SessionInfo {
-        super::super::SessionInfo {
-            name: "app_12-00-00".parse().unwrap(),
-            project: "app".into(),
-            branch: None,
-            goal: "verify login".into(),
-            opened: chrono::DateTime::from_timestamp(0, 0).unwrap(),
-            slot: super::super::SlotId(1),
-            placement: crate::slots::Slot {
-                x: 0,
-                y: 0,
-                width: 1000,
-                height: 800,
-            },
-            monitor: "DP-1".into(),
-        }
-    }
-    #[test]
-    fn session_identity_uses_detached_branch_and_slot_color() {
-        let v = for_session(
-            &info(),
-            &snapshot(SessionState::Open),
-            chrono::DateTime::from_timestamp(65, 0).unwrap(),
-            Hover::Over,
-            None,
-        );
-        assert_eq!(
-            (v.project.as_str(), v.branch.as_str(), v.goal.as_str()),
-            ("app", "detached HEAD", "verify login")
-        );
-        assert_eq!(SessionColour::for_slot(info().slot), SessionColour::Violet);
-        assert_eq!(v.elapsed, "1:05");
-    }
-    #[test]
-    fn closing_clock_keeps_its_frozen_duration() {
-        let v = for_session(
-            &info(),
-            &snapshot(SessionState::Closing),
-            chrono::DateTime::from_timestamp(999, 0).unwrap(),
-            Hover::Away,
-            Some(65),
-        );
-        assert_eq!(v.elapsed, "1:05");
-    }
-    #[test]
-    fn checklist_accessibility_names_all_marked_outcomes() {
-        let mut s = snapshot(SessionState::Open);
-        for (n, outcome) in [
-            CheckOutcome::Passed,
-            CheckOutcome::Passed,
-            CheckOutcome::Failed,
-            CheckOutcome::Skipped,
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            s.checks.push(crate::ipc::CheckStatus {
-                id: crate::timeline::CheckId(n as u32),
-                text: "check".into(),
-                mark: Mark::Outcome {
-                    outcome,
-                    comment: String::new(),
-                    at: crate::timeline::Millis(0),
-                },
-            });
-        }
-        assert_eq!(
-            render(&s, 0, false).checked.unwrap().accessible,
-            "2 passed, 1 failed, 1 skipped, 0 not checked yet"
-        );
-    }
-    #[test]
-    fn actions_show_words_and_age_without_arguments() {
-        let mut s = snapshot(SessionState::Open);
-        s.last_action = Some(crate::ipc::LastAction {
-            tool: "type_text".into(),
-            time_ms: crate::timeline::Millis(2000),
-        });
-        assert_eq!(render(&s, 5, false).detail, "type text · 0:03 ago");
-    }
-    #[test]
-    fn checklist_caps_ticks_and_names_every_outcome() {
-        let mut s = snapshot(SessionState::Open);
-        for n in 0..10 {
-            s.checks.push(crate::ipc::CheckStatus {
-                id: crate::timeline::CheckId(n),
-                text: "check".into(),
-                mark: if n == 0 {
-                    Mark::Outcome {
-                        outcome: CheckOutcome::Passed,
-                        comment: String::new(),
-                        at: crate::timeline::Millis(0),
-                    }
-                } else {
-                    Mark::Unmarked
-                },
-            });
-        }
-        let v = render(&s, 0, false);
-        let checked = v.checked.unwrap();
-        assert_eq!(checked.count, "1 of 10");
-        assert_eq!(checked.ticks.len(), 8);
-        assert_eq!(checked.overflow, 2);
-        assert_eq!(
-            checked.accessible,
-            "1 passed, 0 failed, 0 skipped, 9 not checked yet"
-        );
-    }
-}
+#[path = "footer_view_tests.rs"]
+mod test_cases;

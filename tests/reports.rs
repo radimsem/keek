@@ -24,6 +24,7 @@ fn failed_video_notice_covers_takeover_times_without_double_punctuation() {
         checks: &[],
         end: &SessionEnd::Verdict(Verdict::Pass),
         time_map: &IdentityTimeMap,
+        actions_error: None,
         video_error: Some("failed"),
     });
     assert!(rendered.contains("2FA code.\n"));
@@ -52,16 +53,40 @@ fn reports_match_the_reviewed_markdown() {
         (
             "incomplete",
             CheckOutcome::Passed,
-            SessionEnd::Incomplete {
-                reason: "Verifier disconnected.".into(),
-            },
+            SessionEnd::Incomplete(keek::checklist::IncompleteReason::OpenerLeft),
+        ),
+        (
+            "idle-minutes",
+            CheckOutcome::Passed,
+            SessionEnd::Incomplete(keek::checklist::IncompleteReason::Idle {
+                limit: std::time::Duration::from_secs(300),
+            }),
+        ),
+        (
+            "idle-seconds",
+            CheckOutcome::Passed,
+            SessionEnd::Incomplete(keek::checklist::IncompleteReason::Idle {
+                limit: std::time::Duration::from_secs(3),
+            }),
+        ),
+        (
+            "idle-fractional-seconds",
+            CheckOutcome::Passed,
+            SessionEnd::Incomplete(keek::checklist::IncompleteReason::Idle {
+                limit: std::time::Duration::from_millis(1500),
+            }),
+        ),
+        (
+            "desktop-stopped",
+            CheckOutcome::Passed,
+            SessionEnd::Incomplete(keek::checklist::IncompleteReason::DesktopStopped),
         ),
     ] {
         let mut list = Checklist::new(vec!["Parser accepts BOM".into()]);
         list.mark(CheckId(1), outcome, "Observed input".into(), Millis(62000))
             .unwrap();
         let added = list.add("Parser keeps text".into()).unwrap();
-        if name != "incomplete" {
+        if matches!(end, SessionEnd::Verdict(_)) {
             list.mark(added, CheckOutcome::Passed, "".into(), Millis(125000))
                 .unwrap();
         }
@@ -79,9 +104,36 @@ fn reports_match_the_reviewed_markdown() {
             checks: list.checks(),
             end: &end,
             time_map: &IdentityTimeMap,
+            actions_error: None,
             video_error: None,
         });
-        let golden = std::fs::read_to_string(format!("tests/fixtures/reports/{name}.md")).unwrap();
+        let (fixture, sentence) = match name {
+            "idle-minutes" => (
+                "incomplete",
+                Some("keek ended the session after 5 minutes without a tool call."),
+            ),
+            "idle-seconds" => (
+                "incomplete",
+                Some("keek ended the session after 3 seconds without a tool call."),
+            ),
+            "idle-fractional-seconds" => (
+                "incomplete",
+                Some("keek ended the session after 1.5 seconds without a tool call."),
+            ),
+            "desktop-stopped" => (
+                "incomplete",
+                Some("The session's desktop stopped before close_session."),
+            ),
+            _ => (name, None),
+        };
+        let mut golden =
+            std::fs::read_to_string(format!("tests/fixtures/reports/{fixture}.md")).unwrap();
+        if let Some(sentence) = sentence {
+            golden = golden.replace(
+                "keek ended the session because the coding agent's keek mcp disconnected.",
+                sentence,
+            );
+        }
         assert_eq!(rendered, golden);
         assert!(!golden.contains(['\u{2013}', '\u{2014}']));
         assert!(!golden.contains("## Verdict\n\nFail"));
@@ -112,6 +164,7 @@ fn reports_map_video_times_and_handle_detached_short_revisions() {
         checks: list.checks(),
         end: &SessionEnd::Verdict(Verdict::Pass),
         time_map: &Map,
+        actions_error: None,
         video_error: None,
     });
     assert!(text.contains("Verified detached HEAD at é\n"));
@@ -122,9 +175,7 @@ fn reports_map_video_times_and_handle_detached_short_revisions() {
         "2026-10-30",
         "14:03:22",
         &revision,
-        &SessionEnd::Incomplete {
-            reason: "exit".into(),
-        },
+        &SessionEnd::Incomplete(keek::checklist::IncompleteReason::DesktopStopped),
         "goal\nnext\rline",
         &[("report", "2026-10-30/report.md".into())],
     );
@@ -157,6 +208,7 @@ fn reports_list_takeovers_after_the_checklist_at_mapped_video_times() {
         timeline_events: timeline.events(),
         end: &SessionEnd::Verdict(Verdict::Pass),
         time_map: &Map,
+        actions_error: None,
         video_error: None,
     });
     assert_eq!(rendered, include_str!("fixtures/reports/takeover.md"));

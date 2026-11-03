@@ -15,6 +15,18 @@ use crate::ipc::{Connection, IpcError, Message, Request, Response};
 
 pub const IDLE_LIMIT_ENV: &str = "KEEK_DAEMON_IDLE_MS";
 const DEFAULT_IDLE_LIMIT: Duration = Duration::from_secs(60);
+pub const SESSION_IDLE_LIMIT_ENV: &str = "KEEK_SESSION_IDLE_MS";
+
+pub fn session_idle_limit(value: Option<&str>) -> Result<Duration, DaemonError> {
+    value.map_or(Ok(Duration::from_secs(300)), |value| {
+        value
+            .parse::<u64>()
+            .ok()
+            .filter(|millis| *millis > 0)
+            .map(Duration::from_millis)
+            .ok_or_else(|| DaemonError::InvalidSessionIdleLimit(value.to_owned()))
+    })
+}
 const REQUEST_QUEUE: usize = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +44,8 @@ pub enum DaemonError {
     Config(#[from] crate::config::ConfigError),
     #[error("{IDLE_LIMIT_ENV} must be a whole number of milliseconds, not {0:?}")]
     InvalidIdleLimit(String),
+    #[error("KEEK_SESSION_IDLE_MS must be a positive whole number of milliseconds, not {0:?}")]
+    InvalidSessionIdleLimit(String),
     #[error("could not create the runtime folder")]
     RuntimeDir(#[source] io::Error),
     #[error("could not take the daemon lock")]
@@ -68,7 +82,7 @@ fn remove_socket(socket: &Path) -> Result<(), DaemonError> {
     }
 }
 
-async fn serve(
+pub(crate) async fn serve(
     listener: UnixListener,
     mut idle: IdleWatch<impl Clock>,
     mut registry: crate::registry::Registry,
@@ -86,7 +100,7 @@ async fn serve(
         let remaining = idle.remaining();
 
         tokio::select! {
-            Some(command) = commands.recv() => registry.control(command),
+            Some(command) = commands.recv() => registry.control(command).await,
             accepted = listener.accept() => {
                 match accepted {
                     Ok((stream, _)) => { connections.spawn(serve_client(stream, request_sender.clone())); }
@@ -99,16 +113,17 @@ async fn serve(
             Some(finished) = registry.tasks.join_next() => {
                 match finished { Ok(finished) => registry.finished(finished).await, Err(error) => tracing::error!(%error, "Agent Session task failed") }
             }
+            Some(ended) = registry.recovery.join_next() => { if let Err(error) = ended { tracing::error!(%error, "session recovery task failed"); } }
             Some(ended) = registry.background.join_next() => { if let Err(error) = ended { tracing::error!(%error, "daemon background task failed"); } }
             Some(ended) = connections.join_next() => {
                 match ended {
                     Ok(ConnectionEnd::ShutdownAccepted) => return Ok(Exit::ShutDown),
-                    Ok(ConnectionEnd::ClientLeft) => {}
+                    Ok(ConnectionEnd::ClientLeft) => {},
                     Err(error) => tracing::error!(%error, "a client connection task failed"),
                 }
             }
             Some(pending) = requests.recv() => {
-                registry.handle(pending.request, pending.reply, pending.events).await;
+                registry.handle_connection(Some(pending.opener), pending.request, pending.reply, pending.events).await;
             }
             () = tokio::time::sleep(remaining.unwrap_or_default()), if remaining.is_some() => {
                 return Ok(Exit::Idle);
@@ -118,6 +133,7 @@ async fn serve(
 }
 
 struct PendingRequest {
+    opener: tokio::sync::watch::Receiver<()>,
     request: Request,
     reply: oneshot::Sender<Response>,
     events: Option<mpsc::Sender<crate::ipc::Event>>,
@@ -155,6 +171,7 @@ async fn serve_connection<S>(
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
+    let (_alive, opener) = tokio::sync::watch::channel(());
     match connection.recv().await? {
         None => return Ok(ConnectionEnd::ClientLeft),
         Some(Message::Hello { version }) => {
@@ -192,7 +209,7 @@ where
                 let (reply, mut answer) = oneshot::channel();
                 let (events, mut event_receiver) = mpsc::channel(REQUEST_QUEUE);
                 let watches = matches!(request, Request::WatchSession { .. });
-                requests.send(PendingRequest { request, reply, events: watches.then_some(events) }).await.map_err(|_| ConnectionError::OwnerGone)?;
+                requests.send(PendingRequest { opener: opener.clone(), request, reply, events: watches.then_some(events) }).await.map_err(|_| ConnectionError::OwnerGone)?;
                 let outgoing = outgoing.clone();
                 tasks.spawn(async move {
                     loop {
@@ -226,14 +243,14 @@ where
 }
 
 #[derive(Debug)]
-struct IdleWatch<C> {
+pub(crate) struct IdleWatch<C> {
     clock: C,
     limit: Duration,
     idle_since: Option<Instant>,
 }
 
 impl<C: Clock> IdleWatch<C> {
-    fn new(clock: C, limit: Duration) -> Self {
+    pub(crate) fn new(clock: C, limit: Duration) -> Self {
         Self {
             clock,
             limit,
@@ -318,6 +335,44 @@ mod tests {
             idle_limit(Some("soon")),
             Err(DaemonError::InvalidIdleLimit(_))
         ));
+    }
+
+    #[test]
+    fn session_idle_limit_defaults_to_five_minutes_and_accepts_milliseconds() {
+        assert_eq!(session_idle_limit(None).unwrap(), Duration::from_secs(300));
+        assert_eq!(
+            session_idle_limit(Some("3000")).unwrap(),
+            Duration::from_secs(3)
+        );
+        assert!(session_idle_limit(Some("soon")).is_err());
+        assert!(session_idle_limit(Some("0")).is_err());
+    }
+
+    #[tokio::test]
+    async fn disconnect_signals_the_connections_requests() {
+        let (near, far) = duplex(4096);
+        let (sender, mut requests) = mpsc::channel(8);
+        let server = tokio::spawn(serve_connection(Connection::new(far), sender));
+        let mut client = Connection::new(near);
+        client
+            .send(&Message::Hello {
+                version: VERSION.into(),
+            })
+            .await
+            .unwrap();
+        client.recv().await.unwrap();
+        client
+            .send(&Message::Request {
+                id: RequestId(1),
+                request: Request::Status,
+            })
+            .await
+            .unwrap();
+        let pending = requests.recv().await.unwrap();
+        assert!(pending.opener.has_changed().is_ok());
+        drop(client);
+        assert_eq!(server.await.unwrap().unwrap(), ConnectionEnd::ClientLeft);
+        assert!(pending.opener.has_changed().is_err());
     }
 
     #[tokio::test]

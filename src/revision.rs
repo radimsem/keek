@@ -1,6 +1,6 @@
 use crate::session::SessionError;
 use std::path::Path;
-#[derive(Clone, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Revision {
     pub branch: Option<String>,
     pub commit: String,

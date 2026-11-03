@@ -25,22 +25,16 @@ struct Fixture {
 
 impl Fixture {
     async fn start() -> Result<Self> {
+        Self::start_with(&[]).await
+    }
+
+    async fn start_with(extra_env: &[(&str, &str)]) -> Result<Self> {
         let directory =
             tokio::task::spawn_blocking(|| tempfile::Builder::new().prefix("keek-live-").tempdir())
                 .await??;
         let root = directory.path().to_owned();
         let runtime = root.join("run");
-        let host_runtime = PathBuf::from(
-            std::env::var_os("XDG_RUNTIME_DIR").context("XDG_RUNTIME_DIR is missing")?,
-        );
-        let display = PathBuf::from(
-            std::env::var_os("WAYLAND_DISPLAY").context("WAYLAND_DISPLAY is missing")?,
-        );
-        let display = if display.is_absolute() {
-            display
-        } else {
-            host_runtime.join(display)
-        };
+        let host_runtime = host_runtime()?;
         let runtime_copy = runtime.clone();
         tokio::task::spawn_blocking(move || -> Result<()> {
             std::fs::create_dir(&runtime_copy)?;
@@ -62,18 +56,7 @@ impl Fixture {
             Ok(())
         })
         .await??;
-        let mut command = Command::new(env!("CARGO_BIN_EXE_keek"));
-        command
-            .arg("mcp")
-            .env("XDG_RUNTIME_DIR", &runtime)
-            .env("WAYLAND_DISPLAY", display)
-            .env("XDG_CACHE_HOME", root.join("cache"))
-            .env("XDG_STATE_HOME", root.join("state"))
-            .env("XDG_CONFIG_HOME", root.join("config"))
-            .env("XDG_VIDEOS_DIR", root.join("videos"))
-            .env("KEEK_DAEMON_IDLE_MS", "100")
-            .stderr(Stdio::inherit())
-            .kill_on_drop(true);
+        let command = mcp_command(&root, extra_env)?;
         let client = ().serve(TokioChildProcess::new(command)?).await?;
         Ok(Self {
             directory,
@@ -238,6 +221,39 @@ impl Fixture {
         );
         Ok(())
     }
+}
+
+fn host_runtime() -> Result<PathBuf> {
+    Ok(PathBuf::from(
+        std::env::var_os("XDG_RUNTIME_DIR").context("XDG_RUNTIME_DIR is missing")?,
+    ))
+}
+
+/// The daemon inherits this environment from the first `keek mcp` that starts it.
+fn mcp_command(root: &Path, extra_env: &[(&str, &str)]) -> Result<Command> {
+    let display = PathBuf::from(
+        std::env::var_os("WAYLAND_DISPLAY").context("WAYLAND_DISPLAY is missing")?,
+    );
+    let display = if display.is_absolute() {
+        display
+    } else {
+        host_runtime()?.join(display)
+    };
+    let mut command = Command::new(env!("CARGO_BIN_EXE_keek"));
+    command
+        .arg("mcp")
+        .env("XDG_RUNTIME_DIR", root.join("run"))
+        .env("WAYLAND_DISPLAY", display)
+        .env("XDG_CACHE_HOME", root.join("cache"))
+        .env("XDG_STATE_HOME", root.join("state"))
+        .env("XDG_CONFIG_HOME", root.join("config"))
+        .env("XDG_VIDEOS_DIR", root.join("videos"))
+        .env("KEEK_DAEMON_IDLE_MS", "100");
+    for (name, value) in extra_env {
+        command.env(name, value);
+    }
+    command.stderr(Stdio::inherit()).kill_on_drop(true);
+    Ok(command)
 }
 
 async fn call(client: &Client, name: &str, arguments: Value) -> Result<Value> {

@@ -71,10 +71,20 @@ async fn a_watch_reports_state_and_the_last_action_until_the_session_ends() {
     );
 
     assert!(matches!(h.finish_marked(name).await, Response::Closed(_)));
-    assert!(matches!(
-        received.recv().await,
-        Some(Event::Snapshot(snapshot)) if snapshot.state == SessionState::Closing
-    ));
+    let mut previous = 0;
+    while let Some(event) = received.recv().await {
+        let Event::Snapshot(snapshot) = event else {
+            panic!("expected a snapshot");
+        };
+        let state = match snapshot.state {
+            SessionState::Closing => 1,
+            SessionState::Rendering { .. } => 2,
+            SessionState::Ended(_) => 3,
+            SessionState::Opening | SessionState::Open => panic!("session moved backwards"),
+        };
+        assert!(state >= previous);
+        previous = state;
+    }
     assert!(matches!(ended.await.unwrap(), Response::WatchEnded));
 }
 

@@ -113,15 +113,21 @@ async fn sandbox_end_releases_a_held_call_and_saves_the_takeover() {
     actor.ended.send_replace(());
     let result = tokio::time::timeout(Duration::from_secs(1), held).await;
     assert!(
-        matches!(result, Ok(Ok(Response::ToolResult(_)))),
+        matches!(result, Ok(Ok(Response::Refused { .. }))),
         "{result:?}"
     );
-    tokio::time::timeout(Duration::from_secs(1), actor.task)
+    let finished = tokio::time::timeout(Duration::from_secs(1), actor.task)
         .await
         .unwrap()
         .unwrap();
-    let timeline =
-        SessionTimeline::parse(&std::fs::read_to_string(folder.timeline()).unwrap()).unwrap();
+    let Response::Closed(value) = finished.response else {
+        panic!("Evidence was not filed")
+    };
+    assert!(!folder.root().exists());
+    let timeline = SessionTimeline::parse(
+        &std::fs::read_to_string(value["evidence"]["timeline"].as_str().unwrap()).unwrap(),
+    )
+    .unwrap();
     assert_eq!(
         timeline
             .events()

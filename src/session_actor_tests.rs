@@ -106,6 +106,26 @@ async fn start_actor_with_credentials(
     fail_setup: Option<&str>,
     credentials: crate::credentials::Credentials,
 ) -> (RunningActor, Response) {
+    start_configured(
+        root,
+        id,
+        stop_fails,
+        fail_setup,
+        credentials,
+        Duration::from_secs(300),
+        None,
+    )
+    .await
+}
+async fn start_configured(
+    root: &Path,
+    id: &str,
+    stop_fails: bool,
+    fail_setup: Option<&str>,
+    credentials: crate::credentials::Credentials,
+    idle_limit: Duration,
+    opener: Option<watch::Receiver<()>>,
+) -> (RunningActor, Response) {
     let name: SessionName = id.parse().unwrap();
     let folder = SessionFolder::new(root, &name);
     std::fs::create_dir_all(folder.root()).unwrap();
@@ -157,6 +177,10 @@ async fn start_actor_with_credentials(
     let render_succeeds = Arc::new(AtomicBool::new(false));
     let (control, control_commands) = control::Control::new();
     let actor = Actor {
+        frames_dir: root.join("frames"),
+        journal: None,
+        idle_limit,
+        opener,
         control: control.clone(),
         control_commands: Some(control_commands),
         compositor: Arc::new(FakeCompositor),
@@ -543,3 +567,6 @@ mod takeover;
 
 #[path = "session_actor_tests/queued_help.rs"]
 mod queued_help;
+
+#[path = "session_actor_tests/incomplete.rs"]
+mod incomplete;

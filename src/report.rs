@@ -21,6 +21,7 @@ pub struct ReportInputs<'a> {
     pub end: &'a SessionEnd,
     pub time_map: &'a dyn VideoTimeMap,
     pub video_error: Option<&'a str>,
+    pub actions_error: Option<&'a str>,
 }
 // open_session takes the goal and Checks as free text, and a newline would break a heading,
 // a list item or an index line.
@@ -100,15 +101,19 @@ pub fn render(input: &ReportInputs<'_>) -> String {
     }
     match input.end {
         SessionEnd::Verdict(v) => text.push_str(&format!("\n## Verdict\n\n{v}\n")),
-        SessionEnd::Incomplete { reason } => {
-            text.push_str(&format!("\n## Incomplete Session\n\n{reason}\n"))
-        }
+        SessionEnd::Incomplete(reason) => text.push_str(&format!(
+            "\n## Incomplete Session\n\n{}\n",
+            reason.sentence()
+        )),
     }
     if let Some(error) = input.video_error {
         text.push_str(&format!(
             "\n## Verification Video\n\n{}\n\nThe Check and Takeover times above are positions in the Raw Recording.\n",
             one_line(error)
         ));
+    }
+    if let Some(error) = input.actions_error {
+        text.push_str(&format!("\n## Action Log\n\n{}\n", one_line(error)));
     }
     text.push_str("\nTimes come from the Session Timeline, not from actions/.\n");
     text

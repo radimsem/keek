@@ -1,5 +1,5 @@
 mod files;
-mod layer;
+pub(crate) mod layer;
 mod settings;
 pub use files::{ProjectFiles, ProjectKey, check_git_root};
 pub use layer::{InstallFuture, Installer, ensure_layer};
