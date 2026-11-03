@@ -62,6 +62,18 @@ What the sandbox needs beyond its plan:
 - Driver variables, from `health_report` with each one removed: `CUA_DRIVER_RS_ENABLE_WAYLAND`, `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR` turn it degraded. Removing `HYPRLAND_INSTANCE_SIGNATURE` or `DBUS_SESSION_BUS_ADDRESS` still reports ok, but `health_report` doesn't test input.
 - `xdg-desktop-portal-hyprland` used 95% of a core inside one early session. It wasn't reproduced or explained.
 
+### Network reach results
+
+Probed on 2026-11-03 in a throwaway pasta namespace, not a keek Agent Session, with pasta `2026_10_02.cba3570`, iproute2 7.3.0 and kernel 7.2.8. The namespace used keek's pasta flags, including `--config-net --dns-forward 169.254.1.1 --no-map-gw -t none -u none -T none -U none`.
+
+- pasta's child was uid 0 in a new user namespace and `/usr/bin/ip` worked there. Host addresses and routes were copied, including a connected `192.168.1.0/24`, a gateway host route and a specific `10.200.0.1` route. A `/16` route would lose to the connected `/24` by longest-prefix matching; a `/16`-only block was not tested.
+- Before the rules, the router at `192.168.1.1:80` and public `1.1.1.1:443` connected, and DNS at `169.254.1.1:53` returned 61 bytes. Host listeners on its own LAN IPv4 and IPv6 link-local addresses were refused; copied namespace addresses shadowed them.
+- With the seven priority-20 unreachable rules and the priority-10 DNS exception, the router, `10.200.0.1:80` and `fe80::1` failed with `ENETUNREACH`. Public `1.1.1.1:443` connected and DNS still replied. Without the exception, DNS failed. A blackhole rule gave `EINVAL`; unreachable gave `ENETUNREACH`.
+- Route probes blocked `172.31.255.255`, `100.64.0.1`, `169.254.9.9`, `fd00::1`, `fc12::1`, `fe80::5` and `febf::1`. They routed `172.32.0.1`, `100.128.0.1`, `169.254.1.1`, `fec0::1` and `2001:db8::1`. `127.0.0.1` and `::1` remained local.
+- Inside another user namespace (`unshare -U -r`), deleting a rule failed with Operation not permitted and the five IPv4 blocks stayed.
+
+Not run: the new live Agent Session probes, including DNS, forwarded ports and rule deletion after bubblewrap. A listener on a non-template interface such as a VPN or Docker bridge was not tested: this host had no such address and creating one required root. These scout results do not establish behaviour on other pasta versions.
+
 ## Facts this design rests on
 
 Checked on 2026-10-31 in Cua Driver 0.38.0 and `trycua/cua` main `a9902d2`:

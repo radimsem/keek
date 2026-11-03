@@ -10,6 +10,7 @@ pub mod driver;
 pub mod editor;
 pub mod evidence;
 pub mod ipc;
+pub mod lan_block;
 pub mod mcp;
 pub mod paths;
 pub mod process;

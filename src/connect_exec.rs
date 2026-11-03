@@ -14,6 +14,8 @@ pub enum ConnectExecError {
     )]
     NoRuntimeDir,
     #[error(transparent)]
+    LanBlock(#[from] crate::lan_block::LanBlockError),
+    #[error(transparent)]
     SecurityContext(#[from] crate::security_context::Error),
     #[error("Can't start {command}: {source}. Check that it is installed.")]
     Spawn {
@@ -34,6 +36,15 @@ fn runtime_dir() -> Result<PathBuf, ConnectExecError> {
 }
 pub fn run(command: &str, args: &[String]) -> Result<ExitCode, ConnectExecError> {
     die_with_parent()?;
+    run_with(&crate::lan_block::HostIp, command, args)
+}
+
+fn run_with(
+    tool: &dyn crate::lan_block::IpTool,
+    command: &str,
+    args: &[String],
+) -> Result<ExitCode, ConnectExecError> {
+    crate::lan_block::block_lan(tool)?;
     let opened = open_security_context(&runtime_dir()?, ENGINE, APP_ID)?;
     let source_fd = opened.stream.as_raw_fd();
 
@@ -88,6 +99,28 @@ fn child_command(command: &str, args: &[String]) -> Command {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn connect_exec_does_not_start_the_command_when_the_lan_cannot_be_blocked() {
+        struct FailingTool;
+        impl crate::lan_block::IpTool for FailingTool {
+            fn run(&self, args: &[&str]) -> Result<(), crate::lan_block::LanBlockError> {
+                Err(crate::lan_block::LanBlockError::Rule {
+                    command: format!("ip {}", args.join(" ")),
+                    detail: "Operation not permitted".into(),
+                })
+            }
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let marker = directory.path().join("marker");
+        let args = ["-c".into(), format!("touch {}", marker.display())];
+        let result = run_with(&FailingTool, "sh", &args);
+        assert!(
+            matches!(result, Err(ConnectExecError::LanBlock(_))),
+            "{result:?}"
+        );
+        assert!(!marker.exists());
+    }
+
     #[test]
     fn child_inherits_only_path() {
         let child = child_command("bwrap", &[]);
