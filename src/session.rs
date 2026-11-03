@@ -148,7 +148,7 @@ pub struct Actor {
     pub catalog: Arc<Catalog>,
     pub events: watch::Sender<SessionSnapshot>,
 }
-pub use crate::session_messages::{ActorRequest, Finished};
+pub use crate::session_messages::{ActorRequest, CloseRequest, Finished};
 fn refusal(error: impl std::fmt::Display) -> Response {
     Response::Refused {
         message: error.to_string(),
@@ -314,3 +314,9 @@ impl Actor {
         }
     }
 }
+
+#[path = "session_inbox.rs"]
+mod inbox;
+pub use inbox::Inbox;
+#[path = "session_close.rs"]
+mod close;

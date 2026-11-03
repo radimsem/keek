@@ -254,8 +254,9 @@ async fn a_queued_close_wins_over_disconnect_during_a_call() {
         .await;
     drop(alive);
     tokio::task::yield_now().await;
-    h.controls.release.notify_one();
-    assert!(matches!(call.await.unwrap(), Response::ToolResult(_)));
+    assert!(
+        matches!(call.await.unwrap(), Response::Refused { message } if message.contains("closing") && message.contains("slow"))
+    );
     let finished = h.registry.tasks.join_next().await.unwrap().unwrap();
     h.registry.finished(finished).await;
     let Response::Closed(value) = close.await.unwrap() else {

@@ -93,7 +93,7 @@ impl Registry {
         &mut self,
         opening: Opening,
         opener: Option<watch::Receiver<()>>,
-    ) -> Result<(Actor, mpsc::Receiver<ActorRequest>), SessionError> {
+    ) -> Result<(Actor, Inbox), SessionError> {
         let Opening {
             credentials,
             project,
@@ -210,6 +210,7 @@ impl Registry {
             return Err(SessionError::Refused(error.to_string()));
         }
         let (sender, receiver) = mpsc::channel(32);
+        let (close, close_receiver) = mpsc::channel(1);
         let (events, event_receiver) = watch::channel(SessionSnapshot {
             control: crate::ipc::ControlState::Verifier,
             state: SessionState::Opening,
@@ -249,6 +250,7 @@ impl Registry {
                 closing: Arc::clone(&closing),
                 worktree: worktree.clone(),
                 mailbox: sender,
+                close,
                 events: event_receiver,
             },
         );
@@ -281,7 +283,7 @@ impl Registry {
                 catalog,
                 events,
             },
-            receiver,
+            Inbox::new(receiver, close_receiver),
         ))
     }
 }

@@ -38,7 +38,7 @@ impl Actor {
     pub(super) async fn end_session(
         &self,
         driver: &mut dyn Driver,
-        mailbox: &mut mpsc::Receiver<ActorRequest>,
+        inbox: &mut Inbox,
         controller_task: &mut Option<tokio::task::JoinHandle<()>>,
         timeline: &mut SessionTimeline,
         zero: Instant,
@@ -57,13 +57,7 @@ impl Actor {
         if end.is_some() {
             self.publish(SessionState::Closing, last_action);
         }
-        mailbox.close();
-        while let Ok(queued) = mailbox.try_recv() {
-            let _ = queued.into_reply().send(refusal(format!(
-                "Agent Session {} is closing. Open a new Agent Session.",
-                self.name
-            )));
-        }
+        inbox.refuse_all(&self.name);
         let stopped =
             call_driver(driver, "stop_recording", json!({}), Duration::from_secs(30)).await;
         let closed = close_driver(driver).await;

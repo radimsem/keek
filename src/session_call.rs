@@ -4,11 +4,14 @@ use crate::checklist::IncompleteReason;
 pub(super) enum CallEnd {
     Replied,
     End(IncompleteReason),
+    Close(CloseRequest, super::close::ReadyClose),
 }
 impl Actor {
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn forward_call(
         &mut self,
         state: &mut LoopState,
+        inbox: &mut Inbox,
         arrival: gate::Arrival,
         tool: String,
         arguments: Value,
@@ -70,6 +73,7 @@ impl Actor {
                 Some(reason),
             )
         };
+        let mut accepted_close = None;
         let (result, interrupted) = {
             let calling = call_driver(
                 state.driver.as_mut(),
@@ -78,10 +82,19 @@ impl Actor {
                 Duration::from_secs(150),
             );
             tokio::pin!(calling);
-            tokio::select! { biased;
-                    () = &mut state.ended => interrupt(IncompleteReason::DesktopStopped),
-                    result = &mut calling => (result, None),
-                    () = self.opener_gone(&mut state.opener) => interrupt(IncompleteReason::OpenerLeft),
+            loop {
+                tokio::select! { biased;
+                        () = &mut state.ended => break interrupt(IncompleteReason::DesktopStopped),
+                        close = Inbox::next_close(&mut inbox.close) => {
+                            if let Some(close) = close
+                                && let Some(ready) = self.prepare_close(inbox, &mut state.timeline, &state.last_action, state.zero, &mut state.deadline, close).await {
+                                    accepted_close = Some(ready);
+                                    break (Err(DriverError::Call { tool: tool.clone(), reason: "session is closing".into() }), None);
+                            }
+                        }
+                        result = &mut calling => break (result, None),
+                        () = self.opener_gone(&mut state.opener) => break interrupt(IncompleteReason::OpenerLeft),
+                }
             }
         };
         let end_ms = timeline_time(state.zero, self.clock.now());
@@ -97,14 +110,19 @@ impl Actor {
         });
         if action {
             state.last_action = Some(LastAction {
-                tool,
+                tool: tool.clone(),
                 time_ms: action_ms,
             });
             self.publish(SessionState::Open, &state.last_action);
         }
         self.persist(&state.timeline).await;
         state.deadline = tokio::time::Instant::now() + self.idle_limit;
-        let _ = reply.send(self.mask_reply(if let Some(reason) = interrupted {
+        let _ = reply.send(self.mask_reply(if accepted_close.is_some() {
+            refusal(format!(
+                "Agent Session {} is closing, so {tool} was stopped. Open a new Agent Session.",
+                self.name
+            ))
+        } else if let Some(reason) = interrupted {
             refusal(reason.refusal())
         } else {
             match result {
@@ -112,6 +130,10 @@ impl Actor {
                 Err(error) => refusal(error),
             }
         }));
+        if let Some((close, ready)) = accepted_close {
+            drop(_permit);
+            return CallEnd::Close(close, ready);
+        }
         if let Some(reason) = interrupted {
             return CallEnd::End(reason);
         }

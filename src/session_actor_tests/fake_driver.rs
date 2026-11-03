@@ -101,6 +101,10 @@ impl Driver for FakeDriver {
     }
     fn close(&mut self) -> DriverFuture<'_, ()> {
         Box::pin(async {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(("driver close".into(), json!({})));
             self.closed.store(true, Ordering::SeqCst);
             if self.fail_close.load(Ordering::SeqCst) {
                 return Err(DriverError::Close("fixture close failure".into()));

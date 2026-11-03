@@ -5,7 +5,8 @@ use crate::ipc::{Event, Request, Response, SessionSnapshot, SessionState};
 use crate::process::ProcessRunner;
 use crate::revision::revision;
 use crate::session::{
-    Actor, ActorRequest, DriverFactory, Finished, HostEnvironment, SessionError, choose_name,
+    Actor, ActorRequest, CloseRequest, DriverFactory, Finished, HostEnvironment, Inbox,
+    SessionError, choose_name,
 };
 use crate::session_folder::{SessionFolder, SessionName};
 use std::collections::HashMap;
@@ -38,6 +39,7 @@ struct Entry {
     closing: Arc<AtomicBool>,
     worktree: PathBuf,
     mailbox: mpsc::Sender<ActorRequest>,
+    close: mpsc::Sender<CloseRequest>,
     events: watch::Receiver<SessionSnapshot>,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -285,11 +287,7 @@ impl Registry {
                         let _ = reply.send(Response::Refused { message: format!("Agent Session {session} is already closing. Open a new Agent Session.") });
                         return;
                     }
-                    if !send_actor(
-                        &entry.mailbox,
-                        ActorRequest::Close { summary, reply },
-                        &session,
-                    ) {
+                    if !send_close(&entry.close, CloseRequest { summary, reply }, &session) {
                         entry.closing.store(false, Ordering::SeqCst);
                     }
                 } else {
@@ -353,7 +351,7 @@ impl Registry {
         }
     }
     fn send_check(&self, session: &SessionName, request: ActorRequest) {
-        // A close queued ahead may yet be refused, so the actor decides in mailbox order.
+        // The actor applies queued checks before it decides a close.
         if let Some(entry) = self.sessions.get(session) {
             send_actor(&entry.mailbox, request, session);
         } else {
@@ -387,14 +385,29 @@ pub(crate) fn send_actor(
     request: ActorRequest,
     session: &SessionName,
 ) -> bool {
-    match mailbox.try_send(request) {
+    try_deliver(mailbox, request, session, ActorRequest::into_reply)
+}
+pub(crate) fn send_close(
+    mailbox: &mpsc::Sender<CloseRequest>,
+    request: CloseRequest,
+    session: &SessionName,
+) -> bool {
+    try_deliver(mailbox, request, session, |request| request.reply)
+}
+fn try_deliver<T>(
+    sender: &mpsc::Sender<T>,
+    request: T,
+    session: &SessionName,
+    reply: impl FnOnce(T) -> oneshot::Sender<Response>,
+) -> bool {
+    match sender.try_send(request) {
         Ok(()) => true,
         Err(error) => {
             let (request, reason) = match error {
                 mpsc::error::TrySendError::Full(request) => (request, "is busy"),
                 mpsc::error::TrySendError::Closed(request) => (request, "closed"),
             };
-            let _ = request.into_reply().send(Response::Refused {
+            let _ = reply(request).send(Response::Refused {
                 message: format!(
                     "Agent Session {session} {reason}. Try again or open a new Agent Session."
                 ),

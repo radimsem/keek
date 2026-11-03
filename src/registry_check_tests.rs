@@ -113,11 +113,11 @@ async fn a_mark_sent_right_after_a_close_that_gets_refused_still_lands() {
             None,
         )
         .await;
+    assert!(refused(close_answer.await.unwrap()).contains("1: check"));
     let (mark_reply, mark_answer) = oneshot::channel();
     h.registry
         .handle(mark_passed(&session), mark_reply, None)
         .await;
-    assert!(refused(close_answer.await.unwrap()).contains("1: check"));
     assert_eq!(
         mark_answer.await.unwrap(),
         Response::CheckMarked { check: CheckId(1) }
@@ -129,6 +129,7 @@ async fn a_mark_sent_right_after_an_accepted_close_is_refused_at_once() {
     let mut h = Harness::new(1);
     let session = h.open(h.worktree("one")).await;
     h.request(mark_passed(&session)).await;
+    h.controls.stop_hangs.store(true, Ordering::SeqCst);
     let (close_reply, close_answer) = oneshot::channel();
     h.registry
         .handle(
@@ -140,11 +141,13 @@ async fn a_mark_sent_right_after_an_accepted_close_is_refused_at_once() {
             None,
         )
         .await;
+    h.controls.started.notified().await;
     let (mark_reply, mark_answer) = oneshot::channel();
     h.registry
         .handle(mark_passed(&session), mark_reply, None)
         .await;
-    assert!(refused(mark_answer.await.unwrap()).contains("closing"));
+    assert!(refused(mark_answer.await.unwrap()).contains("closed"));
+    h.controls.release.notify_one();
     let finished = h.registry.tasks.join_next().await.unwrap().unwrap();
     h.registry.finished(finished).await;
     assert!(matches!(close_answer.await.unwrap(), Response::Closed(_)));

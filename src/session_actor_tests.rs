@@ -73,10 +73,12 @@ struct RunningActor {
     ended: watch::Sender<()>,
     control: control::Control,
     sender: mpsc::Sender<ActorRequest>,
+    close: mpsc::Sender<CloseRequest>,
     task: tokio::task::JoinHandle<Finished>,
     folder: SessionFolder,
     calls: Arc<Mutex<Vec<(String, Value)>>>,
     closed: Arc<AtomicBool>,
+    closing: Arc<AtomicBool>,
     events: watch::Receiver<SessionSnapshot>,
     entered: Arc<Notify>,
     release: Arc<Notify>,
@@ -176,6 +178,7 @@ async fn start_configured(
     });
     let render_succeeds = Arc::new(AtomicBool::new(false));
     let (control, control_commands) = control::Control::new();
+    let closing = Arc::new(AtomicBool::new(false));
     let actor = Actor {
         frames_dir: root.join("frames"),
         journal: None,
@@ -213,7 +216,7 @@ async fn start_configured(
             calls: calls.clone(),
             fail_no_focus: fail_no_focus.clone(),
         }),
-        closing: Arc::new(AtomicBool::new(false)),
+        closing: closing.clone(),
         name,
         folder: folder.clone(),
         factory: Arc::new(FakeFactory(Mutex::new(Some(driver)))),
@@ -221,9 +224,10 @@ async fn start_configured(
         catalog: Arc::new(Catalog::new(tools)),
         events,
     };
-    let (sender, mailbox) = mpsc::channel(8);
+    let (sender, mailbox) = mpsc::channel(32);
+    let (close, close_receiver) = mpsc::channel(1);
     let (reply, opened) = oneshot::channel();
-    let mut task = tokio::spawn(actor.run(mailbox, reply));
+    let mut task = tokio::spawn(actor.run(Inbox::new(mailbox, close_receiver), reply));
     if fail_setup.is_some() {
         let mut finished = task.await.unwrap();
         finished
@@ -241,10 +245,12 @@ async fn start_configured(
             ended,
             control,
             sender,
+            close,
             task,
             folder,
             calls,
             closed,
+            closing,
             events: receiver,
             entered,
             release,
@@ -289,8 +295,8 @@ async fn close(actor: &RunningActor) -> oneshot::Receiver<Response> {
     ));
     let (reply, response) = oneshot::channel();
     actor
-        .sender
-        .send(ActorRequest::Close {
+        .close
+        .send(CloseRequest {
             summary: "checked fixture".into(),
             reply,
         })
@@ -570,3 +576,6 @@ mod queued_help;
 
 #[path = "session_actor_tests/incomplete.rs"]
 mod incomplete;
+
+#[path = "session_actor_tests/close.rs"]
+mod close_tests;

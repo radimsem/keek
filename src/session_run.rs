@@ -12,11 +12,7 @@ pub(super) struct LoopState {
 }
 
 impl Actor {
-    pub async fn run(
-        self,
-        mailbox: mpsc::Receiver<ActorRequest>,
-        open_reply: oneshot::Sender<Response>,
-    ) -> Finished {
+    pub async fn run(self, inbox: Inbox, open_reply: oneshot::Sender<Response>) -> Finished {
         let journal = self.journal.clone();
         let events = self.events.subscribe();
         let (stop, stopped) = oneshot::channel();
@@ -30,7 +26,7 @@ impl Actor {
                 self.opened_at,
             ));
         }
-        let finished = self.run_open(mailbox, open_reply).await;
+        let finished = self.run_open(inbox, open_reply).await;
         let _ = stop.send(());
         while watchers.join_next().await.is_some() {}
         if let Some(journal) = journal {
@@ -40,7 +36,7 @@ impl Actor {
     }
     async fn run_open(
         mut self,
-        mut mailbox: mpsc::Receiver<ActorRequest>,
+        mut inbox: Inbox,
         open_reply: oneshot::Sender<Response>,
     ) -> Finished {
         let mut opener = self.opener.take();
@@ -159,13 +155,20 @@ impl Actor {
             let request = tokio::select! { biased;
                 () = &mut state.ended => break 'requests Some(crate::checklist::IncompleteReason::DesktopStopped),
                 () = self.opener_gone(&mut state.opener) => break 'requests Some(crate::checklist::IncompleteReason::OpenerLeft),
+                close = Inbox::next_close(&mut inbox.close) => {
+                    if let Some(close) = close
+                        && let Some((close, ready)) = self.close_when_idle(&mut state, &mut inbox, close).await {
+                            return self.finish_close(&mut state, &mut inbox, &mut controller_task, close, ready).await;
+                    }
+                    continue;
+                }
                 _ = control_events.changed() => {
                     let now_paused = control_events.borrow().control.pauses_idle();
                     if paused && !now_paused { state.deadline = tokio::time::Instant::now() + self.idle_limit; }
                     continue;
                 }
                 () = tokio::time::sleep_until(state.deadline), if !paused && !self.closing.load(Ordering::SeqCst) => { if !self.closing.load(Ordering::SeqCst) { break 'requests Some(crate::checklist::IncompleteReason::Idle { limit: self.idle_limit }); } continue; },
-                request = mailbox.recv() => { let Some(request) = request else { break 'requests None; }; request }
+                request = Inbox::next_request(&mut inbox.requests, &mut inbox.deferred) => { let Some(request) = request else { break 'requests None; }; request }
             };
             state.deadline = tokio::time::Instant::now() + self.idle_limit;
             match request {
@@ -187,15 +190,27 @@ impl Actor {
                     reply,
                 } => {
                     match self
-                        .forward_call(&mut state, arrival, tool, arguments, reply)
+                        .forward_call(&mut state, &mut inbox, arrival, tool, arguments, reply)
                         .await
                     {
                         call::CallEnd::Replied => {}
+                        call::CallEnd::Close(close, ready) => {
+                            return self
+                                .finish_close(
+                                    &mut state,
+                                    &mut inbox,
+                                    &mut controller_task,
+                                    close,
+                                    ready,
+                                )
+                                .await;
+                        }
                         call::CallEnd::End(reason) => break 'requests Some(reason),
                     }
                 }
                 ActorRequest::AddCheck { text, reply } => {
-                    self.add_check(&mut state, text, reply).await;
+                    self.add_check(&state.last_action, &state.timeline, text, reply)
+                        .await;
                 }
                 ActorRequest::MarkCheck {
                     check,
@@ -203,53 +218,16 @@ impl Actor {
                     comment,
                     reply,
                 } => {
-                    self.mark_check(&mut state, check, outcome, comment, reply)
-                        .await;
-                }
-                ActorRequest::Close { summary, reply } => {
-                    let _permit = loop {
-                        match self.control.gate.enter().await {
-                            gate::Entry::Run(permit) => break permit,
-                            gate::Entry::HandBack(_) => {}
-                        }
-                    };
-
-                    let summary = self.credentials.mask(&summary);
-                    // Everything that can refuse runs before the session stops, so the Verifier can fix it and retry.
-                    let ready = match self.checklist.verdict() {
-                        Ok(verdict) => crate::evidence::writable_videos_dir(self.runner.as_ref())
-                            .await
-                            .map(|videos| (verdict, videos))
-                            .map_err(|e| e.to_string()),
-                        Err(e) => Err(e.to_string()),
-                    };
-                    let (verdict, videos) = match ready {
-                        Ok(ready) => ready,
-                        Err(message) => {
-                            self.closing.store(false, Ordering::SeqCst);
-                            let _ = reply.send(self.mask_reply(refusal(message)));
-                            continue;
-                        }
-                    };
-                    drop(_permit);
-                    let response = self
-                        .end_session(
-                            state.driver.as_mut(),
-                            &mut mailbox,
-                            &mut controller_task,
-                            &mut state.timeline,
-                            state.zero,
-                            &state.last_action,
-                            Some(crate::checklist::SessionEnd::Verdict(verdict)),
-                            Ok(videos),
-                            summary,
-                        )
-                        .await;
-                    return Finished {
-                        response: self.mask_reply(response),
-                        name: self.name,
-                        reply: Some(reply),
-                    };
+                    self.mark_check(
+                        &state.last_action,
+                        &mut state.timeline,
+                        state.zero,
+                        check,
+                        outcome,
+                        comment,
+                        reply,
+                    )
+                    .await;
                 }
             }
         };
@@ -262,7 +240,7 @@ impl Actor {
         let response = self
             .end_session(
                 state.driver.as_mut(),
-                &mut mailbox,
+                &mut inbox,
                 &mut controller_task,
                 &mut state.timeline,
                 state.zero,
@@ -280,46 +258,50 @@ impl Actor {
     }
     pub(super) async fn add_check(
         &mut self,
-        state: &mut LoopState,
+        last_action: &Option<LastAction>,
+        timeline: &SessionTimeline,
         text: String,
         reply: oneshot::Sender<Response>,
     ) {
         let response = match self.checklist.add(self.credentials.mask(&text)) {
             Ok(check) => {
-                self.publish(SessionState::Open, &state.last_action);
+                self.publish(SessionState::Open, last_action);
                 Response::CheckAdded { check }
             }
             Err(e) => refusal(e),
         };
-        self.persist(&state.timeline).await;
+        self.persist(timeline).await;
         let _ = reply.send(self.mask_reply(response));
     }
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn mark_check(
         &mut self,
-        state: &mut LoopState,
+        last_action: &Option<LastAction>,
+        timeline: &mut SessionTimeline,
+        zero: Instant,
         check: CheckId,
         outcome: CheckOutcome,
         comment: String,
         reply: oneshot::Sender<Response>,
     ) {
-        let time_ms = timeline_time(state.zero, self.clock.now());
+        let time_ms = timeline_time(zero, self.clock.now());
         let response =
             match self
                 .checklist
                 .mark(check, outcome, self.credentials.mask(&comment), time_ms)
             {
                 Ok(()) => {
-                    state.timeline.push(TimelineEvent::CheckMark {
+                    timeline.push(TimelineEvent::CheckMark {
                         check,
                         outcome,
                         at_ms: time_ms,
                     });
-                    self.publish(SessionState::Open, &state.last_action);
+                    self.publish(SessionState::Open, last_action);
                     Response::CheckMarked { check }
                 }
                 Err(e) => refusal(e),
             };
-        self.persist(&state.timeline).await;
+        self.persist(timeline).await;
         let _ = reply.send(self.mask_reply(response));
     }
     pub(super) async fn record_takeovers(&self, timeline: &mut SessionTimeline, zero: Instant) {
