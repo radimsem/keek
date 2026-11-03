@@ -8,6 +8,11 @@ pub struct Theme {
     pub green: String,
     pub red: String,
     pub yellow: String,
+    pub orange: String,
+    pub control: String,
+    pub ink: String,
+    pub blue_text: String,
+    pub active_border: String,
 }
 fn css_color(value: &str) -> Option<String> {
     let digits = value
@@ -39,6 +44,11 @@ pub fn parse(input: &str) -> Theme {
         green: color("green", "#a9c972"),
         red: color("red", "#ff8e7c"),
         yellow: color("yellow", "#ebcf70"),
+        orange: color("orange", &color("yellow", "#ebcf70")),
+        control: color("lighter_background", "#254b67"),
+        ink: color("darker_background", "#12334b"),
+        blue_text: color("bright_blue", "#77baf3"),
+        active_border: color("hyprland_active_border", &color("accent", "#77baf3")),
     }
 }
 fn state_home(
@@ -98,5 +108,25 @@ mod tests {
         assert_eq!(t.background, "#123456");
         assert_eq!(t.foreground, "#abcdef");
         assert_eq!(t.dim, "#c9c2b6");
+    }
+    #[test]
+    fn new_roles_use_the_documented_fallbacks() {
+        let t = parse("yellow = '#abcdef'\naccent = '#123456'");
+        assert_eq!(t.orange, "#abcdef");
+        assert_eq!(t.active_border, "#123456");
+        assert_eq!(t.control, "#254b67");
+        assert_eq!(t.ink, "#12334b");
+        assert_eq!(t.blue_text, "#77baf3");
+    }
+    #[test]
+    fn new_roles_read_their_theme_keys() {
+        let t = parse(
+            "lighter_background = '#010101'\ndarker_background = '#020202'\nbright_blue = '#030303'\nhyprland_active_border = '#040404'\norange = '#050505'",
+        );
+        assert_eq!(t.control, "#010101");
+        assert_eq!(t.ink, "#020202");
+        assert_eq!(t.blue_text, "#030303");
+        assert_eq!(t.active_border, "#040404");
+        assert_eq!(t.orange, "#050505");
     }
 }

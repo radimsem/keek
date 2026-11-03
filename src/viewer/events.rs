@@ -47,7 +47,12 @@ pub async fn watch(sender: mpsc::Sender<HashSet<String>>) {
                         | HyprEvent::FocusedMonitor(_)
                         | HyprEvent::MoveWorkspace { .. },
                     ) => break,
-                    Some(HyprEvent::OpenWindow { .. } | HyprEvent::CloseWindow(_)) | None => {}
+                    Some(
+                        HyprEvent::Submap(_)
+                        | HyprEvent::OpenWindow { .. }
+                        | HyprEvent::CloseWindow(_),
+                    )
+                    | None => {}
                 },
                 Ok(None) => {
                     tracing::warn!(

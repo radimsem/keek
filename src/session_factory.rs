@@ -76,7 +76,11 @@ impl DriverFactory for SandboxFactory {
                     )));
                 }
             };
-            let mut sandbox = SandboxDriver { driver, child };
+            let mut sandbox = SandboxDriver {
+                driver,
+                child,
+                window: None,
+            };
             if let Err(error) = check_plugin(folder, self.runner.as_ref()).await {
                 let _ = sandbox.close().await;
                 return Err(error);
@@ -92,9 +96,12 @@ impl DriverFactory for SandboxFactory {
                 };
                 self.compositor.place_window(pid, placement, events).await.map_err(|e| SessionError::Refused(e.to_string()))
             }.await;
-            if let Err(error) = placement_result {
-                let _ = sandbox.close().await;
-                return Err(error);
+            match placement_result {
+                Ok(address) => sandbox.window = Some(address),
+                Err(error) => {
+                    let _ = sandbox.close().await;
+                    return Err(error);
+                }
             }
             Ok(Box::new(sandbox) as Box<dyn Driver>)
         })
@@ -171,10 +178,17 @@ async fn check_plugin(
     )))
 }
 struct SandboxDriver {
+    window: Option<crate::compositor::WindowAddress>,
     driver: CuaDriver,
     child: tokio::process::Child,
 }
 impl Driver for SandboxDriver {
+    fn ended(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+        self.driver.ended()
+    }
+    fn session_window(&self) -> Option<crate::compositor::WindowAddress> {
+        self.window.clone()
+    }
     fn list_tools(&mut self) -> DriverFuture<'_, Vec<rmcp::model::Tool>> {
         self.driver.list_tools()
     }

@@ -75,12 +75,18 @@ async fn serve(
 ) -> Result<Exit, DaemonError> {
     let (request_sender, mut requests) = mpsc::channel::<PendingRequest>(REQUEST_QUEUE);
     let mut connections: JoinSet<ConnectionEnd> = JoinSet::new();
+    let mut commands = registry
+        .dependencies
+        .viewer
+        .take_commands()
+        .unwrap_or_else(|| mpsc::channel(1).1);
 
     loop {
         idle.update(registry.keeps_daemon_alive() || !connections.is_empty());
         let remaining = idle.remaining();
 
         tokio::select! {
+            Some(command) = commands.recv() => registry.control(command),
             accepted = listener.accept() => {
                 match accepted {
                     Ok((stream, _)) => { connections.spawn(serve_client(stream, request_sender.clone())); }

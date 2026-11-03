@@ -131,8 +131,8 @@ impl crate::compositor::Compositor for Compositor {
         _: Option<crate::compositor::WindowPid>,
         _: crate::compositor::Placement,
         _: Option<crate::compositor::WindowEvents>,
-    ) -> CompositorFuture<'_> {
-        Box::pin(async { Ok(()) })
+    ) -> crate::compositor::WindowFuture<'_> {
+        Box::pin(async { Ok(crate::compositor::WindowAddress("0xabc".into())) })
     }
     fn slot(
         &self,

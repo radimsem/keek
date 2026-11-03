@@ -171,6 +171,7 @@ impl Registry {
         }
         let (sender, receiver) = mpsc::channel(32);
         let (events, event_receiver) = watch::channel(SessionSnapshot {
+            control: crate::ipc::ControlState::Verifier,
             state: SessionState::Opening,
             checks: vec![],
             last_action: None,
@@ -193,9 +194,11 @@ impl Registry {
                 event_receiver.clone(),
             )
             .await;
+        let (control, control_commands) = crate::session::control::Control::new();
         self.sessions.insert(
             name.clone(),
             Entry {
+                control: control.clone(),
                 slot,
                 closing: Arc::clone(&closing),
                 worktree: worktree.clone(),
@@ -205,6 +208,9 @@ impl Registry {
         );
         Ok((
             Actor {
+                control,
+                control_commands: Some(control_commands),
+                compositor: self.dependencies.compositor.clone(),
                 opened_at,
                 placement,
                 credentials,

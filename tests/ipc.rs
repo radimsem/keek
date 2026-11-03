@@ -4,6 +4,46 @@ use keek::ipc::{
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, duplex};
 
+#[test]
+fn snapshots_round_trip_every_control_and_shortcut_state() {
+    use keek::ipc::{ControlState, HostShortcuts, SessionSnapshot};
+    use keek::timeline::Millis;
+    for control in [
+        ControlState::Verifier,
+        ControlState::HelpRequest {
+            reason: "2FA code".into(),
+            start_ms: Millis(1),
+        },
+        ControlState::Takeover {
+            start_ms: Millis(2),
+            shortcuts: HostShortcuts::Captured,
+        },
+        ControlState::Takeover {
+            start_ms: Millis(2),
+            shortcuts: HostShortcuts::Live,
+        },
+        ControlState::HandBack {
+            end_ms: Millis(3),
+            length: Millis(2),
+        },
+    ] {
+        let snapshot = SessionSnapshot {
+            control,
+            state: SessionState::Open,
+            checks: vec![],
+            last_action: None,
+        };
+        let value = serde_json::to_value(&snapshot).unwrap();
+        if let Some(shortcuts) = value["control"].get("shortcuts") {
+            assert!(shortcuts == "captured" || shortcuts == "live");
+        }
+        assert_eq!(
+            serde_json::from_value::<SessionSnapshot>(value).unwrap(),
+            snapshot
+        );
+    }
+}
+
 fn every_message() -> Result<Vec<Message>> {
     let id = RequestId(7);
     let session: keek::session_folder::SessionName = "app_12-00-00".parse()?;
@@ -41,6 +81,13 @@ fn every_message() -> Result<Vec<Message>> {
             },
         },
         Message::Request {
+            id: RequestId(90),
+            request: Request::RequestHelp {
+                session: session.clone(),
+                reason: "2FA code".into(),
+            },
+        },
+        Message::Request {
             id,
             request: Request::AddCheck {
                 session: session.clone(),
@@ -71,6 +118,7 @@ fn every_message() -> Result<Vec<Message>> {
         Message::Event {
             id,
             event: Event::Snapshot(keek::ipc::SessionSnapshot {
+                control: keek::ipc::ControlState::Verifier,
                 state: SessionState::Open,
                 checks: vec![
                     keek::ipc::CheckStatus {

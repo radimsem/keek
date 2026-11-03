@@ -25,6 +25,7 @@ pub struct Registry {
     lifecycle: Lifecycle,
 }
 struct Entry {
+    control: crate::session::control::Control,
     slot: crate::viewer::SlotId,
     closing: Arc<AtomicBool>,
     worktree: PathBuf,
@@ -77,6 +78,21 @@ impl Registry {
             catalog,
             dependencies,
             lifecycle: Lifecycle::Running,
+        }
+    }
+    pub fn control(&self, command: crate::viewer::ViewerCommand) {
+        let (session, command) = match command {
+            crate::viewer::ViewerCommand::TakeControl(session) => {
+                (session, crate::session::control::Command::TakeControl)
+            }
+            crate::viewer::ViewerCommand::Done(session) => {
+                (session, crate::session::control::Command::Done)
+            }
+        };
+        if let Some(entry) = self.sessions.get(&session)
+            && let Err(error) = entry.control.commands.try_send(command)
+        {
+            tracing::warn!(%error, "Takeover command could not be delivered");
         }
     }
     pub fn len(&self) -> usize {
@@ -155,8 +171,24 @@ impl Registry {
                     send_actor(
                         &entry.mailbox,
                         ActorRequest::Call {
+                            arrival: entry.control.gate.arrival(),
                             tool,
                             arguments,
+                            reply,
+                        },
+                        &session,
+                    );
+                } else {
+                    let _ = reply.send(self.unknown(&session));
+                }
+            }
+            Request::RequestHelp { session, reason } => {
+                if let Some(entry) = self.sessions.get(&session) {
+                    send_actor(
+                        &entry.mailbox,
+                        ActorRequest::RequestHelp {
+                            arrival: entry.control.gate.arrival(),
+                            reason,
                             reply,
                         },
                         &session,
@@ -283,7 +315,7 @@ impl Registry {
         }
     }
 }
-fn send_actor(
+pub(crate) fn send_actor(
     mailbox: &mpsc::Sender<ActorRequest>,
     request: ActorRequest,
     session: &SessionName,

@@ -1,5 +1,6 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HyprEvent {
+    Submap(String),
     Workspace(String),
     FocusedMonitor(String),
     MoveWorkspace {
@@ -16,6 +17,7 @@ pub enum HyprEvent {
 pub fn parse(line: &str) -> Option<HyprEvent> {
     let (name, data) = line.trim_end().split_once(">>")?;
     match name {
+        "submap" => Some(HyprEvent::Submap(data.into())),
         "workspace" if !data.is_empty() => Some(HyprEvent::Workspace(data.into())),
         "workspacev2" => {
             let (_, name) = data.split_once(',')?;

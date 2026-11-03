@@ -105,6 +105,7 @@ async fn watch_events_reach_only_the_matching_request() {
         panic!("no second watch");
     };
     let event = Event::Snapshot(SessionSnapshot {
+        control: crate::ipc::ControlState::Verifier,
         state: SessionState::Open,
         checks: vec![],
         last_action: Some(LastAction {

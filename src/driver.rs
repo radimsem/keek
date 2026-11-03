@@ -39,12 +39,19 @@ pub enum DriverError {
 }
 
 pub trait Driver: Send {
+    fn ended(&self) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        Box::pin(std::future::pending())
+    }
+    fn session_window(&self) -> Option<crate::compositor::WindowAddress> {
+        None
+    }
     fn list_tools(&mut self) -> DriverFuture<'_, Vec<Tool>>;
     fn call_tool<'a>(&'a mut self, name: &'a str, arguments: Value) -> DriverFuture<'a, Value>;
     fn close(&mut self) -> DriverFuture<'_, ()>;
 }
 
 pub struct CuaDriver {
+    ended: tokio::sync::watch::Receiver<DriverState>,
     service: rmcp::service::RunningService<rmcp::service::RoleClient, ()>,
 }
 impl CuaDriver {
@@ -54,14 +61,32 @@ impl CuaDriver {
         W: tokio::io::AsyncWrite + Unpin + Send + 'static,
     {
         use rmcp::ServiceExt;
+        let (ended_tx, ended) = tokio::sync::watch::channel(DriverState::Running);
+        let reader = EndReader {
+            reader,
+            ended: ended_tx,
+        };
         let service = ()
             .serve((reader, writer))
             .await
             .map_err(|error| DriverError::Handshake(error.to_string()))?;
-        Ok(Self { service })
+        Ok(Self { service, ended })
     }
 }
 impl Driver for CuaDriver {
+    fn ended(&self) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let mut ended = self.ended.clone();
+        Box::pin(async move {
+            loop {
+                if *ended.borrow_and_update() == DriverState::Ended {
+                    return;
+                }
+                if ended.changed().await.is_err() {
+                    return;
+                }
+            }
+        })
+    }
     fn list_tools(&mut self) -> DriverFuture<'_, Vec<Tool>> {
         Box::pin(async {
             self.service
@@ -95,6 +120,37 @@ impl Driver for CuaDriver {
                 .map(|_| ())
                 .map_err(|error| DriverError::Close(error.to_string()))
         })
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DriverState {
+    Running,
+    Ended,
+}
+struct EndReader<R> {
+    reader: R,
+    ended: tokio::sync::watch::Sender<DriverState>,
+}
+impl<R> Drop for EndReader<R> {
+    fn drop(&mut self) {
+        self.ended.send_replace(DriverState::Ended);
+    }
+}
+impl<R: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for EndReader<R> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buffer: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let before = buffer.filled().len();
+        let result = Pin::new(&mut self.reader).poll_read(cx, buffer);
+        if matches!(&result, std::task::Poll::Ready(Err(_)))
+            || matches!(&result, std::task::Poll::Ready(Ok(()))) && before == buffer.filled().len()
+        {
+            self.ended.send_replace(DriverState::Ended);
+        }
+        result
     }
 }
 

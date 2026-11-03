@@ -4,6 +4,34 @@ use keek::revision::Revision;
 use keek::timeline::{CheckId, CheckOutcome, Millis};
 
 #[test]
+fn failed_video_notice_covers_takeover_times_without_double_punctuation() {
+    let events = [keek::timeline::TimelineEvent::Takeover {
+        reason: Some("2FA code.".into()),
+        start_ms: Millis(1000),
+        end_ms: Millis(2000),
+    }];
+    let revision = Revision {
+        branch: None,
+        commit: "abc".into(),
+        dirty: false,
+    };
+    let rendered = report::render(&ReportInputs {
+        session: "s",
+        goal: "g",
+        revision: &revision,
+        summary: "",
+        timeline_events: &events,
+        checks: &[],
+        end: &SessionEnd::Verdict(Verdict::Pass),
+        time_map: &IdentityTimeMap,
+        video_error: Some("failed"),
+    });
+    assert!(rendered.contains("2FA code.\n"));
+    assert!(!rendered.contains("2FA code.."));
+    assert!(rendered.contains("Check and Takeover times"));
+}
+
+#[test]
 fn reports_match_the_reviewed_markdown() {
     for (name, outcome, end) in [
         (
@@ -43,6 +71,7 @@ fn reports_match_the_reviewed_markdown() {
             dirty: true,
         };
         let rendered = report::render(&ReportInputs {
+            timeline_events: &[],
             session: "myapp_14-03-22",
             goal: "Verify parser BOM",
             revision: &revision,
@@ -75,6 +104,7 @@ fn reports_map_video_times_and_handle_detached_short_revisions() {
         dirty: false,
     };
     let text = report::render(&ReportInputs {
+        timeline_events: &[],
         session: "s",
         goal: "g",
         revision: &revision,
@@ -102,4 +132,32 @@ fn reports_map_video_times_and_handle_detached_short_revisions() {
         line,
         "2026-10-30 14:03:22 | detached HEAD | é | Incomplete | goal next line | [report](2026-10-30/report.md)\n"
     );
+}
+
+#[test]
+fn reports_list_takeovers_after_the_checklist_at_mapped_video_times() {
+    struct Map;
+    impl VideoTimeMap for Map {
+        fn video_time(&self, raw: Millis) -> Millis {
+            Millis(raw.0 / 2)
+        }
+    }
+    let timeline = keek::timeline::SessionTimeline::parse(r#"{"schema_version":1,"video_lead_ms":0,"events":[{"kind":"takeover","reason":"2FA code","start_ms":130000,"end_ms":172000},{"kind":"takeover","start_ms":180000,"end_ms":181000}]}"#).unwrap();
+    let revision = Revision {
+        branch: Some("main".into()),
+        commit: "abcdef123".into(),
+        dirty: false,
+    };
+    let rendered = report::render(&ReportInputs {
+        session: "app",
+        goal: "Verify login",
+        revision: &revision,
+        summary: "",
+        checks: &[],
+        timeline_events: timeline.events(),
+        end: &SessionEnd::Verdict(Verdict::Pass),
+        time_map: &Map,
+        video_error: None,
+    });
+    assert_eq!(rendered, include_str!("fixtures/reports/takeover.md"));
 }

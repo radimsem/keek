@@ -91,3 +91,31 @@ fn session_name_refuses_anything_that_could_leave_the_sessions_folder() {
     }
     assert!(FIXTURE_SESSION.parse::<SessionName>().is_ok());
 }
+
+#[test]
+fn takeovers_without_a_reason_parse() {
+    let timeline = SessionTimeline::parse(r#"{"schema_version":1,"video_lead_ms":0,"events":[{"kind":"takeover","start_ms":1000,"end_ms":2000}]}"#).unwrap();
+    assert!(matches!(
+        timeline.events().first(),
+        Some(keek::timeline::TimelineEvent::Takeover { reason: None, .. })
+    ));
+}
+#[test]
+fn timeline_stays_ordered_when_a_completed_takeover_is_added_later() {
+    use keek::timeline::{CheckId, CheckOutcome, TimelineEvent};
+    let mut timeline = SessionTimeline::new(Millis(0));
+    timeline.push(TimelineEvent::CheckMark {
+        check: CheckId(1),
+        outcome: CheckOutcome::Passed,
+        at_ms: Millis(500),
+    });
+    timeline.push(TimelineEvent::Takeover {
+        reason: None,
+        start_ms: Millis(100),
+        end_ms: Millis(400),
+    });
+    assert!(matches!(
+        timeline.events().first(),
+        Some(TimelineEvent::Takeover { .. })
+    ));
+}

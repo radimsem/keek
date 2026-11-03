@@ -54,9 +54,7 @@ fn common() -> Vec<String> {
 }
 // Only the freezedetect job needs ffmpeg's info log, and an error message shouldn't carry its banner.
 fn quiet() -> Vec<String> {
-    let mut args = common();
-    args.extend(["-v".into(), "error".into()]);
-    args
+    crate::title_card::ffmpeg_prefix()
 }
 pub fn duration_args(raw: &Path) -> Vec<String> {
     [
@@ -89,19 +87,7 @@ pub fn freeze_args(raw: &Path) -> Vec<String> {
     ]);
     args
 }
-pub fn escape_font(font: &str) -> String {
-    fn escape(text: &str, special: &str) -> String {
-        let mut out = String::new();
-        for c in text.chars() {
-            if special.contains(c) {
-                out.push('\\');
-            }
-            out.push(c);
-        }
-        out
-    }
-    escape(&escape(font, "\\':"), "\\'[],;")
-}
+use crate::title_card::{encode_args, escape_font};
 pub fn segment_args(
     raw: &Path,
     segment: &Segment,
@@ -122,8 +108,8 @@ pub fn segment_args(
         "-an".into(),
     ]);
     // Cua Driver records full range yuvj420p, and format=yuv420p alone keeps that range.
-    let filter = match segment.kind {
-        SegmentKind::RealSpeed => {
+    let filter = match &segment.kind {
+        SegmentKind::RealSpeed | SegmentKind::Takeover { .. } => {
             "fps=30:start_time=0,tpad=stop_mode=clone:stop_duration=1,scale=out_range=tv,format=yuv420p".into()
         }
         SegmentKind::FastForward { real_ms } => format!(
@@ -133,21 +119,8 @@ pub fn segment_args(
             ((real_ms.0 + 500) / 1000).max(1)
         ),
     };
-    args.extend([
-        "-vf".into(),
-        filter,
-        "-frames:v".into(),
-        frames.to_string(),
-        "-c:v".into(),
-        "libx264".into(),
-        "-preset".into(),
-        "veryfast".into(),
-        "-crf".into(),
-        "18".into(),
-        "-video_track_timescale".into(),
-        "30000".into(),
-        path(out),
-    ]);
+    args.extend(["-vf".into(), filter]);
+    args.extend(encode_args(frames, out));
     args
 }
 pub fn join_args(list: &Path, out: &Path) -> Vec<String> {
@@ -165,6 +138,25 @@ pub fn join_args(list: &Path, out: &Path) -> Vec<String> {
     ]);
     args
 }
+pub fn size_args(raw: &Path) -> Vec<String> {
+    [
+        "-v",
+        "error",
+        "-f",
+        "mov",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height",
+        "-of",
+        "csv=p=0:s=x",
+    ]
+    .map(str::to_owned)
+    .into_iter()
+    .chain([path(raw)])
+    .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
