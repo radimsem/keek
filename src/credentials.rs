@@ -69,6 +69,9 @@ fn percent_form(text: &str, raw: &[u8], lower: bool, plus: bool) -> String {
     }
     out
 }
+// One variable rather than one per name, so a credential named PATH can't clash with the environment pasta inherits.
+pub(crate) const SANDBOX_ENV: &str = "KEEK_CREDENTIALS";
+
 impl Credentials {
     pub fn parse(path: &Path, text: &str) -> Result<Self, CredentialsError> {
         let mut pairs: BTreeMap<String, String> = BTreeMap::new();
@@ -166,9 +169,6 @@ impl Credentials {
     pub fn names(&self) -> Vec<String> {
         self.pairs.keys().cloned().collect()
     }
-    pub(crate) fn pairs(&self) -> impl Iterator<Item = (&str, &str)> {
-        self.pairs.iter().map(|(k, v)| (k.as_str(), v.as_str()))
-    }
     pub fn substitute(&self, arguments: &mut Value) -> Result<(), CredentialsError> {
         match arguments {
             Value::String(text) => {
@@ -261,6 +261,22 @@ impl Credentials {
             }
             Value::Null | Value::Bool(_) | Value::Number(_) => value,
         }
+    }
+    pub(crate) fn sandbox_env(&self) -> Option<String> {
+        (!self.pairs.is_empty()).then(|| {
+            self.pairs
+                .iter()
+                .map(|(name, value)| format!("{name}={value}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+    }
+    // Names are rechecked here because a value is only ever as trusted as the environment it arrived in.
+    pub(crate) fn from_sandbox_env(text: &str) -> impl Iterator<Item = (&str, &str)> {
+        text.split('\n').filter_map(|line| {
+            let (name, value) = line.split_once('=')?;
+            valid_name(name).then_some((name, value))
+        })
     }
 }
 #[cfg(test)]
@@ -399,5 +415,13 @@ mod tests {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
         assert!(Credentials::read(&path).unwrap().1.is_none());
         assert!(Credentials::read(root.path()).is_err());
+    }
+    #[test]
+    fn the_sandbox_environment_holds_one_pair_per_line_in_name_order() {
+        assert_eq!(
+            credentials().sandbox_env().as_deref(),
+            Some("OTHER=long enough\nPASSWORD=pa\"ss\\w&rd 1")
+        );
+        assert_eq!(Credentials::default().sandbox_env(), None);
     }
 }
