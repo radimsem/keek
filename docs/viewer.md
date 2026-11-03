@@ -36,7 +36,7 @@ The viewer fails, even if it works, if:
 ## Constraints
 
 - Omarchy is the only supported host. Use Omarchy's helpers where they exist (`omarchy-notification-send` for notifications).
-- Long-running host code reacts to events instead of polling, following Omarchy's rule for background work. Hyprland's event socket reports windows and workspaces.
+- Long-running host code reacts to events instead of polling, following Omarchy's rule for background work. Hyprland's event socket reports windows and workspaces. One exception: while an Agent Session is open, the daemon lists host windows once a second, because Hyprland sends no event when a window's class changes.
 - Every nested Hyprland window has class `aquamarine` and title `aquamarine - WAYLAND-1`, and neither can be set. Its output takes the window's size on every resize.
 - `hyprctl setprop address:<addr> no_focus 1` makes Hyprland refuse focus to a window and skip it in pointer hit tests. Setting it does not take focus away from a window that already has it.
 
