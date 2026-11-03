@@ -9,7 +9,7 @@ One isolated, recorded desktop run in which a Verifier checks a change, from ope
 _Avoid_: workspace, sandbox, VM, run
 
 **Incomplete Session**:
-An Agent Session that ended without the Verifier closing it, through a crash, an exit or an idle timeout. It still produces Evidence but has no Verdict.
+An Agent Session that ended through a crash, an exit, an idle timeout, a window it opened on the developer's desktop besides its Session Window, or a close that could not stop the recording. It still produces Evidence but has no Verdict.
 _Avoid_: failed session, aborted run
 
 **Verifier**:

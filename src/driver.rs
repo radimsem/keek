@@ -39,6 +39,9 @@ pub enum DriverError {
 }
 
 pub trait Driver: Send {
+    fn end_cause(&self) -> Option<crate::checklist::IncompleteReason> {
+        None
+    }
     fn ended(&self) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(std::future::pending())
     }

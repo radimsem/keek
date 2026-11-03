@@ -161,8 +161,8 @@ async fn checks_comments_and_summary_are_masked_in_snapshots_and_reports() {
     let folder = actor.folder.root().to_owned();
     let (reply, response) = oneshot::channel();
     actor
-        .sender
-        .send(ActorRequest::Close {
+        .close
+        .send(CloseRequest {
             summary: VALUE.into(),
             reply,
         })

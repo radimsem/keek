@@ -7,6 +7,7 @@ pub(super) enum Screenshot {
     ReportedFailure,
 }
 pub(super) struct FakeDriver {
+    pub(super) cause: Arc<Mutex<Option<IncompleteReason>>>,
     pub(super) screenshot: Arc<Mutex<Screenshot>>,
     pub(super) ended: watch::Receiver<()>,
     pub(super) id: String,
@@ -21,6 +22,9 @@ pub(super) struct FakeDriver {
     pub(super) release: Arc<Notify>,
 }
 impl Driver for FakeDriver {
+    fn end_cause(&self) -> Option<IncompleteReason> {
+        *self.cause.lock().unwrap()
+    }
     fn ended(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
         let mut ended = self.ended.clone();
         Box::pin(async move {
@@ -101,6 +105,11 @@ impl Driver for FakeDriver {
     }
     fn close(&mut self) -> DriverFuture<'_, ()> {
         Box::pin(async {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(("driver close".into(), json!({})));
+            *self.cause.lock().unwrap() = None;
             self.closed.store(true, Ordering::SeqCst);
             if self.fail_close.load(Ordering::SeqCst) {
                 return Err(DriverError::Close("fixture close failure".into()));

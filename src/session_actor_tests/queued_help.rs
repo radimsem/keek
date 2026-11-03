@@ -137,13 +137,13 @@ async fn sandbox_end_releases_a_held_call_and_saves_the_takeover() {
         1
     );
     let (reply, response) = oneshot::channel();
-    let request = ActorRequest::Close {
+    let request = CloseRequest {
         summary: "done".into(),
         reply,
     };
     let session = "ended-takeover".parse().unwrap();
-    assert!(!crate::registry::send_actor(
-        &actor.sender,
+    assert!(!crate::registry::send_close(
+        &actor.close,
         request,
         &session
     ));

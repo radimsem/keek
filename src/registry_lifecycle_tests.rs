@@ -165,6 +165,7 @@ async fn second_close_and_call_after_close_are_refused() {
         )
         .await;
     h.controls.started.notified().await;
+    h.controls.stop_hangs.store(true, Ordering::SeqCst);
     let (close_reply, close_answer) = oneshot::channel();
     h.registry
         .handle(
@@ -202,7 +203,7 @@ async fn second_close_and_call_after_close_are_refused() {
         h.request(Request::Status).await,
         Response::Status(_)
     ));
-    // The close is still queued behind the slow call, so only the actor can answer this.
+    h.controls.started.notified().await;
     let (late_reply, late_answer) = oneshot::channel();
     h.registry
         .handle(
@@ -215,7 +216,7 @@ async fn second_close_and_call_after_close_are_refused() {
         )
         .await;
     h.controls.release.notify_one();
-    assert!(refused(late_answer.await.unwrap()).contains("closing"));
+    assert!(refused(late_answer.await.unwrap()).contains("closed"));
     let finished = h.registry.tasks.join_next().await.unwrap().unwrap();
     h.registry.finished(finished).await;
     assert!(matches!(close_answer.await.unwrap(), Response::Closed(_)));
@@ -332,7 +333,9 @@ async fn a_stuck_stop_frees_the_slot_after_its_timeout() {
     tokio::time::advance(std::time::Duration::from_secs(31)).await;
     let finished = h.registry.tasks.join_next().await.unwrap().unwrap();
     h.registry.finished(finished).await;
-    assert!(matches!(answer.await.unwrap(), Response::Refused { .. }));
+    assert!(
+        matches!(answer.await.unwrap(), Response::Closed(value) if value["incomplete"] == crate::checklist::IncompleteReason::RecordingNotStopped.sentence() && value.get("verdict").is_none())
+    );
     h.controls
         .stop_hangs
         .store(false, std::sync::atomic::Ordering::Relaxed);
@@ -347,8 +350,8 @@ async fn a_full_or_closed_mailbox_refuses_without_dropping_the_reply() {
     let (first, _answer) = oneshot::channel();
     assert!(send_actor(
         &sender,
-        ActorRequest::Close {
-            summary: "".into(),
+        ActorRequest::AddCheck {
+            text: "".into(),
             reply: first
         },
         &name
@@ -356,8 +359,8 @@ async fn a_full_or_closed_mailbox_refuses_without_dropping_the_reply() {
     let (reply, answer) = oneshot::channel();
     assert!(!send_actor(
         &sender,
-        ActorRequest::Close {
-            summary: "".into(),
+        ActorRequest::AddCheck {
+            text: "".into(),
             reply
         },
         &name
@@ -367,11 +370,102 @@ async fn a_full_or_closed_mailbox_refuses_without_dropping_the_reply() {
     let (reply, answer) = oneshot::channel();
     assert!(!send_actor(
         &sender,
-        ActorRequest::Close {
-            summary: "".into(),
+        ActorRequest::AddCheck {
+            text: "".into(),
             reply
         },
         &name
     ));
     assert!(refused(answer.await.unwrap()).contains("closed"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn close_session_is_accepted_when_the_mailbox_is_full() {
+    let mut h = Harness::new(1);
+    let name = h.open(h.worktree("one")).await;
+    h.mark(&name).await;
+    let (reply, call) = oneshot::channel();
+    h.registry
+        .handle(
+            Request::CallTool {
+                session: name.clone(),
+                tool: "slow".into(),
+                arguments: json!({}),
+            },
+            reply,
+            None,
+        )
+        .await;
+    h.controls.started.notified().await;
+    let mut queued = Vec::new();
+    for _ in 0..32 {
+        let (reply, answer) = oneshot::channel();
+        h.registry
+            .handle(
+                Request::CallTool {
+                    session: name.clone(),
+                    tool: "click".into(),
+                    arguments: json!({}),
+                },
+                reply,
+                None,
+            )
+            .await;
+        queued.push(answer);
+    }
+    let (reply, answer) = oneshot::channel();
+    h.registry
+        .handle(
+            Request::CloseSession {
+                session: name,
+                summary: "done".into(),
+            },
+            reply,
+            None,
+        )
+        .await;
+    let start = tokio::time::Instant::now();
+    let finished = h.registry.tasks.join_next().await.unwrap().unwrap();
+    h.registry.finished(finished).await;
+    assert!(matches!(answer.await.unwrap(), Response::Closed(_)));
+    assert!(start.elapsed() < std::time::Duration::from_secs(5));
+    assert!(refused(call.await.unwrap()).contains("closing"));
+    for answer in queued {
+        assert!(refused(answer.await.unwrap()).contains("is closing"));
+    }
+    assert!(
+        !h.calls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(_, tool, _)| tool == "click")
+    );
+}
+
+#[tokio::test]
+async fn a_full_close_channel_refuses_without_dropping_the_reply() {
+    let (sender, _receiver) = mpsc::channel(1);
+    let name = "app_12-00-00".parse().unwrap();
+    let (reply, _answer) = oneshot::channel();
+    assert!(send_close(
+        &sender,
+        CloseRequest {
+            summary: String::new(),
+            reply
+        },
+        &name
+    ));
+    let (reply, answer) = oneshot::channel();
+    assert!(!send_close(
+        &sender,
+        CloseRequest {
+            summary: String::new(),
+            reply
+        },
+        &name
+    ));
+    assert_eq!(
+        refused(answer.await.unwrap()),
+        format!("Agent Session {name} is busy. Try again or open a new Agent Session.")
+    );
 }

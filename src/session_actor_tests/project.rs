@@ -89,8 +89,9 @@ async fn project_prepare_can_outlast_the_desktop_handshake_limit() {
     };
     let (_sender, mailbox) = mpsc::channel(1);
     let (reply, _response) = oneshot::channel();
+    let (_close, closes) = mpsc::channel(1);
     let start = tokio::time::Instant::now();
-    let finished = actor.run(mailbox, reply).await;
+    let finished = actor.run(Inbox::new(mailbox, closes), reply).await;
     assert!(tokio::time::Instant::now() - start >= Duration::from_secs(60));
     assert_eq!(
         finished.response,

@@ -1,4 +1,4 @@
-use crate::checklist::{Checklist, Verdict};
+use crate::checklist::{Checklist, IncompleteReason, Verdict};
 use crate::timeline::{CheckId, CheckOutcome::*, Millis};
 
 #[test]
@@ -89,5 +89,37 @@ fn idle_reasons_use_singular_units_for_one_minute_and_one_second() {
         }
         .short(),
         "No tool call for 1 min"
+    );
+}
+
+#[test]
+fn host_window_reason_reads_in_the_report_and_the_card() {
+    let reason = IncompleteReason::HostWindowOpened;
+    assert_eq!(reason.short(), "Opened another window");
+    assert_eq!(
+        format!("{}, session ended", reason.short()),
+        "Opened another window, session ended"
+    );
+    assert_eq!(
+        reason.sentence(),
+        "keek ended the session because the session opened a window on the developer's desktop other than its Session Window."
+    );
+    assert_eq!(
+        reason.refusal(),
+        "The session opened another window on the developer's desktop, so keek ended the session and filed it as an Incomplete Session. Open a new Agent Session."
+    );
+}
+
+#[test]
+fn recording_not_stopped_reason_reads_in_the_report_and_the_card() {
+    let reason = IncompleteReason::RecordingNotStopped;
+    assert_eq!(reason.short(), "Recording not stopped");
+    assert_eq!(
+        reason.sentence(),
+        "keek could not stop the recording after close_session, so the session has no Verdict."
+    );
+    assert_eq!(
+        reason.refusal(),
+        "keek could not stop the recording, so it ended the session and filed it as an Incomplete Session. Open a new Agent Session."
     );
 }

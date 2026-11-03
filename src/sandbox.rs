@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::process::Command;
 
+pub(crate) const DNS_FORWARDER: &str = "169.254.1.1";
+
 // Console scripts in a shared Project Layer need the same absolute worktree path.
 const SANDBOX_WORKTREE: &str = "/keek/worktree";
 
@@ -142,7 +144,7 @@ impl SandboxSpec {
         )?;
         std::fs::write(
             self.session_dir.join("resolv.conf"),
-            "nameserver 169.254.1.1\n",
+            format!("nameserver {DNS_FORWARDER}\n"),
         )?;
         Ok(())
     }
@@ -208,7 +210,7 @@ impl SandboxSpec {
             "-q",
             "--config-net",
             "--dns-forward",
-            "169.254.1.1",
+            DNS_FORWARDER,
             "--no-map-gw",
             "-t",
             "none",

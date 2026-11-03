@@ -323,3 +323,49 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod window_list_tests {
+    #[test]
+    fn a_client_list_entry_without_a_pid_or_class_is_skipped() {
+        let windows = super::parse_windows(&serde_json::json!([
+            {"pid":7,"address":"0xabc","class":"aquamarine"},
+            {"address":"0xdef","class":"aquamarine"},
+            {"pid":7,"address":"0xdef"},
+            {"pid":7,"class":"aquamarine"},
+            {"pid":"7","address":"0xdef","class":"aquamarine"},
+            {"pid":7,"address":"0x!","class":"aquamarine"},
+            {"pid":7,"address":"0x","class":"aquamarine"}
+        ]));
+        assert_eq!(
+            windows,
+            vec![crate::compositor::HostWindow {
+                address: crate::compositor::WindowAddress("0xabc".into()),
+                pid: 7,
+                class: "aquamarine".into()
+            }]
+        );
+    }
+}
+pub async fn windows() -> Result<Vec<crate::compositor::HostWindow>, ProcessError> {
+    Ok(parse_windows(&json("j/clients").await?))
+}
+fn parse_windows(value: &Value) -> Vec<crate::compositor::HostWindow> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|client| {
+            let pid = client.get("pid")?.as_u64()?.try_into().ok()?;
+            let address = client.get("address")?.as_str()?.strip_prefix("0x")?;
+            if address.is_empty() || !address.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return None;
+            }
+            Some(crate::compositor::HostWindow {
+                address: crate::compositor::WindowAddress(format!("0x{address}")),
+                pid,
+                class: client.get("class")?.as_str()?.into(),
+            })
+        })
+        .collect()
+}

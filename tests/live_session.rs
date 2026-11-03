@@ -1,3 +1,4 @@
+mod common;
 include!("common/live.rs");
 
 #[tokio::test]

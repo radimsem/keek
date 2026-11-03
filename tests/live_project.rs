@@ -2,6 +2,7 @@
     dead_code,
     reason = "The shared desktop fixture also supports recording tests."
 )]
+mod common;
 include!("common/live.rs");
 use std::sync::{
     Arc,
@@ -100,44 +101,7 @@ fn addresses(clients: &Value) -> Vec<&str> {
     addresses
 }
 
-fn setup_script(forwarded: u16, blocked: u16) -> String {
-    format!(
-        r#"#!/bin/bash
-set -e
-case "$1" in
-install)
-    echo 1 >> counter
-    pwd > install-cwd
-    python3 - <<'PY'
-import socket
-with socket.create_connection(('127.0.0.1', {forwarded}), timeout=2) as stream:
-    stream.sendall(b'install\n')
-PY
-    ;;
-start)
-    python3 - <<'PY'
-import json, os, pathlib, socket
-ports = []
-for port in [{forwarded}, {blocked}]:
-    try:
-        with socket.create_connection(('127.0.0.1', port), timeout=2) as stream:
-            stream.sendall(b'probe\n')
-        ports.append(True)
-    except OSError:
-        ports.append(False)
-result = dict(install_cwd=pathlib.Path('install-cwd').read_text().strip(), cwd=os.getcwd(), project=os.environ['KEEK_PROJECT'], counter=len(pathlib.Path('counter').read_text().splitlines()), ignored=pathlib.Path('.env').exists(), untracked=pathlib.Path('untracked').read_text(), source=pathlib.Path('source').read_text(), marker=pathlib.Path('session-marker').exists(), ports=ports)
-pathlib.Path('session-marker').write_text('throwaway')
-folder = pathlib.Path(os.environ['KEEK_SESSION'])
-(folder/'probes.tmp').write_text(json.dumps(result))
-(folder/'probes.tmp').rename(folder/'probes.txt')
-PY
-    python3 -m http.server 8000 --bind 127.0.0.1 &
-    exec chromium --ozone-platform=wayland --kiosk --no-first-run --no-default-browser-check --password-store=basic --user-data-dir="$HOME/chromium" http://127.0.0.1:8000
-    ;;
-esac
-"#
-    )
-}
+include!("common/project.rs");
 
 #[tokio::test]
 #[ignore = "requires real Hyprland, bwrap, pasta, Python, Chromium and pinned Cua Driver"]
@@ -231,6 +195,16 @@ async fn live_project_reuses_layers_and_applies_isolation_settings_and_warnings(
             anyhow::ensure!(
                 probe["ports"] == json!([true, false]),
                 "port forwarding differs: {probe}"
+            );
+            let lan = &probe["lan"];
+            anyhow::ensure!(
+                lan["blocked_routes"].as_array().is_some_and(
+                    |v| v.len() == 7 && v.iter().all(|s| s.as_i64().is_some_and(|n| n != 0))
+                ) && lan["routed"] == json!([0, 0, 0])
+                    && lan["connects"] == json!([true, true, true, true, true, true, true])
+                    && lan["dns"] == true
+                    && lan["delete"].as_i64().is_some_and(|n| n != 0),
+                "LAN isolation differs: {lan}"
             );
             let current = clients().await?;
             let initial = addresses(&windows);
@@ -401,7 +375,10 @@ async fn live_project_reuses_layers_and_applies_isolation_settings_and_warnings(
     let after = host_state().await?;
     let after_config = host_config().await?;
     let after_windows = clients().await?;
-    anyhow::ensure!(before == after, "host focus or workspace changed");
+    anyhow::ensure!(
+        before == after,
+        "host focus or workspace changed: before={before:?}, after={after:?}"
+    );
     anyhow::ensure!(config == after_config, "host config changed");
     anyhow::ensure!(
         addresses(&windows) == addresses(&after_windows),

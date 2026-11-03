@@ -121,7 +121,7 @@ impl ProcessRunner for Runner {
     }
 }
 #[derive(Default)]
-struct Compositor(Mutex<Vec<&'static str>>);
+struct Compositor(Mutex<Vec<&'static str>>, AtomicBool);
 impl crate::compositor::Compositor for Compositor {
     fn window_events(&self) -> crate::compositor::EventsFuture<'_> {
         Box::pin(async { Ok(None) })
@@ -162,7 +162,14 @@ impl crate::compositor::Compositor for Compositor {
     fn remove(&self) -> CompositorFuture<'_> {
         Box::pin(async {
             self.0.lock().unwrap().push("remove");
-            Ok(())
+            if self.1.load(Ordering::SeqCst) {
+                Err(ProcessError::Failed {
+                    program: "fake compositor".into(),
+                    message: "rule removal failed".into(),
+                })
+            } else {
+                Ok(())
+            }
         })
     }
 }
@@ -497,13 +504,16 @@ async fn a_recording_stop_failure_still_releases_the_slot_and_writes_timeline() 
         .fail_stop
         .store(true, std::sync::atomic::Ordering::Relaxed);
     let response = h.finish(name.clone()).await;
-    assert!(refused(response).contains("fixture stop failure"));
-    assert!(h.registry.is_empty());
-    assert!(
-        SessionFolder::new(&h.registry.dependencies.sessions_dir, &name)
-            .timeline()
-            .exists()
+    let Response::Closed(value) = response else {
+        panic!("expected Closed")
+    };
+    assert_eq!(
+        value["incomplete"],
+        crate::checklist::IncompleteReason::RecordingNotStopped.sentence()
     );
+    assert!(value.get("verdict").is_none());
+    assert!(h.registry.is_empty());
+    assert!(Path::new(value["evidence"]["timeline"].as_str().unwrap()).exists());
     assert_eq!(*h.compositor.0.lock().unwrap(), ["install", "remove"]);
 }
 
@@ -590,3 +600,6 @@ mod incomplete;
 
 #[path = "registry_journal_tests.rs"]
 mod journal;
+
+#[path = "registry_daemon_tests.rs"]
+mod daemon;

@@ -62,6 +62,54 @@ What the sandbox needs beyond its plan:
 - Driver variables, from `health_report` with each one removed: `CUA_DRIVER_RS_ENABLE_WAYLAND`, `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR` turn it degraded. Removing `HYPRLAND_INSTANCE_SIGNATURE` or `DBUS_SESSION_BUS_ADDRESS` still reports ok, but `health_report` doesn't test input.
 - `xdg-desktop-portal-hyprland` used 95% of a core inside one early session. It wasn't reproduced or explained.
 
+### Network reach results
+
+Probed on 2026-11-03 in a throwaway pasta namespace, not a keek Agent Session, with pasta `2026_10_02.cba3570`, iproute2 7.3.0 and kernel 7.2.8. The namespace used keek's pasta flags, including `--config-net --dns-forward 169.254.1.1 --no-map-gw -t none -u none -T none -U none`.
+
+- pasta's child was uid 0 in a new user namespace and `/usr/bin/ip` worked there. Host addresses and routes were copied, including a connected `192.168.1.0/24`, a gateway host route and a specific `10.200.0.1` route. A `/16` route would lose to the connected `/24` by longest-prefix matching; a `/16`-only block was not tested.
+- Before the rules, the router at `192.168.1.1:80` and public `1.1.1.1:443` connected, and DNS at `169.254.1.1:53` returned 61 bytes. Host listeners on its own LAN IPv4 and IPv6 link-local addresses were refused; copied namespace addresses shadowed them.
+- With the seven priority-20 unreachable rules and the priority-10 DNS exception, the router, `10.200.0.1:80` and `fe80::1` failed with `ENETUNREACH`. Public `1.1.1.1:443` connected and DNS still replied. Without the exception, DNS failed. A blackhole rule gave `EINVAL`; unreachable gave `ENETUNREACH`.
+- Route probes blocked `172.31.255.255`, `100.64.0.1`, `169.254.9.9`, `fd00::1`, `fc12::1`, `fe80::5` and `febf::1`. They routed `172.32.0.1`, `100.128.0.1`, `169.254.1.1`, `fec0::1` and `2001:db8::1`. `127.0.0.1` and `::1` remained local.
+- Inside another user namespace (`unshare -U -r`), deleting a rule failed with Operation not permitted and the five IPv4 blocks stayed.
+
+Probed live on 2026-11-03 from inside an Agent Session by `live_project`, which passed, with passt 2026_10_02.cba3570-1:
+
+- `ip route get` failed, and a TCP connect failed with `ENETUNREACH` in under 1 s, for `10.200.0.1`, `172.31.255.255`, `192.168.255.254`, `100.64.0.1`, `169.254.9.9`, `fd00::1` and `fe80::5`.
+- `ip route get` succeeded for `172.32.0.1`, `100.128.0.1` and `1.1.1.1`.
+- A DNS query to the `resolv.conf` nameserver got a reply.
+- `ip -4 rule del to 10.0.0.0/8 pref 20` failed from inside the sandbox.
+
+Not run: a listener on a non-template interface such as a VPN or Docker bridge. This host had no such address and creating one required root. These results do not establish behaviour on other pasta versions.
+
+### Host window guard results
+
+Checked on 2026-11-03 with Hyprland 0.56.2 and aquamarine 0.15.1, by `live_a_second_host_window_ends_the_session_as_incomplete`:
+
+- `hyprctl output create wayland` from inside the sandbox opened a second `aquamarine` window on the host, owned by connect-exec's pid.
+- The second window never took focus. The host's active window and workspace ended as they began.
+- The gap from `openwindow` to `closewindow` for the second window was 32.9 ms, 59.3 ms and 46.7 ms in three runs.
+- keek filed the session as an Incomplete Session for a host window, with no Verdict. No sandbox process was left.
+
+### Takeover clipboard results
+
+Read on 2026-11-03 at the aquamarine v0.15.1 and Hyprland v0.56.2 tags, with wl-clipboard 2.3.0 installed. The installed `0.15.1-1` and `0.56.2-4` builds were not compared with those tags.
+
+- Source: aquamarine's Wayland backend binds only `wl_seat` v9, `xdg_wm_base`, `wl_compositor`, `wl_shm` and `zwp_linux_dmabuf_v1` (`src/backend/Wayland.cpp:119-137`), and takes only a keyboard and a pointer from the seat (`:348-366`). It never calls `get_data_device` and binds no primary selection or data-control manager, so a nested Hyprland has no path to the host selection, during a Takeover or outside one.
+- Source: Hyprland 0.56.2 offers a security-context client `wl_data_device_manager` and primary selection (`src/managers/ProtocolManager.cpp:362`, `:387`), but not `zwlr_data_control_manager_v1` or `ext_data_control_manager_v1` (`:202`, `:218`).
+- Source: the sandbox runs with `--clearenv`, a tmpfs over `XDG_RUNTIME_DIR` and its own network namespace, so the host's Wayland and D-Bus sockets are absent. `wl-paste` and `wl-copy` inside it see the nested clipboard only, and Cua Driver's `clipboard_read` and `clipboard_write` act on the nested clipboard too.
+- Not covered: code loaded into the nested Hyprland as a plugin runs in the process that holds the host connection, and could bind `wl_data_device_manager` while the Session Window has focus. ADR 0006 places hostile code out of scope.
+- Live: `live_a_takeover_keeps_the_host_clipboard_apart_from_the_nested_one` ran three times on 2026-11-03 and printed `Clipboard check not run: clipboard formats cannot be restored faithfully.` each time. The host clipboard held a copy from a Chromium-based app, which offers `chromium/x-source-url` and `chromium/x-internal-source-rfh-token` beside its text, and `wl-copy` can't put those back. The test left the clipboard, focus and workspace untouched.
+
+Not run: the live Takeover clipboard check itself. It runs when the host clipboard holds only text or a single type.
+
+### Live test cleanup results
+
+Checked on 2026-11-03 with Hyprland 0.56.2, over every live test file:
+
+- Each live test's daemon exited on SIGTERM within the 5 s grace: 12 daemons, none of which needed SIGKILL.
+- After each file, no keek daemon was left and the host had no `keek-footer` layer, so no Session Footer stayed on the Agents Workspace.
+- The host's focus, workspace and window count ended as they began.
+
 ## Facts this design rests on
 
 Checked on 2026-10-31 in Cua Driver 0.38.0 and `trycua/cua` main `a9902d2`:

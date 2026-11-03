@@ -11,15 +11,13 @@ impl Actor {
         let mut ended = driver.ended();
         let capture = self.capture_hand_back(driver, span);
         tokio::pin!(capture);
-        loop {
-            tokio::select! { biased;
-                () = &mut ended => return Err(IncompleteReason::DesktopStopped),
+        tokio::select! { biased;
+                () = &mut ended => Err(IncompleteReason::DesktopStopped),
                 response = &mut capture => {
                     *deadline = tokio::time::Instant::now() + self.idle_limit;
-                    return Ok(response);
+                    Ok(response)
                 },
-                () = opener_left(opener), if !self.closing.load(Ordering::SeqCst) => { if !self.closing.load(Ordering::SeqCst) { return Err(IncompleteReason::OpenerLeft); } },
-            }
+                () = self.opener_gone(opener) => Err(IncompleteReason::OpenerLeft),
         }
     }
     async fn capture_hand_back(&self, driver: &mut dyn Driver, mut span: gate::Span) -> Response {

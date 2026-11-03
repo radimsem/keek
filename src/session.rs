@@ -148,7 +148,7 @@ pub struct Actor {
     pub catalog: Arc<Catalog>,
     pub events: watch::Sender<SessionSnapshot>,
 }
-pub use crate::session_messages::{ActorRequest, Finished};
+pub use crate::session_messages::{ActorRequest, CloseRequest, Finished};
 fn refusal(error: impl std::fmt::Display) -> Response {
     Response::Refused {
         message: error.to_string(),
@@ -299,3 +299,24 @@ mod hand_back;
 
 #[path = "session_journal_watch.rs"]
 mod journal_watch;
+
+#[path = "session_call.rs"]
+mod call;
+#[path = "session_help.rs"]
+mod help;
+
+impl Actor {
+    async fn opener_gone(&self, opener: &mut Option<watch::Receiver<()>>) {
+        opener_left(opener).await;
+        // A dropped watch sender stays ready while a queued close must finish.
+        if self.closing.load(Ordering::SeqCst) {
+            std::future::pending::<()>().await;
+        }
+    }
+}
+
+#[path = "session_inbox.rs"]
+mod inbox;
+pub use inbox::Inbox;
+#[path = "session_close.rs"]
+mod close;
