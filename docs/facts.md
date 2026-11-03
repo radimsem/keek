@@ -72,7 +72,23 @@ Probed on 2026-11-03 in a throwaway pasta namespace, not a keek Agent Session, w
 - Route probes blocked `172.31.255.255`, `100.64.0.1`, `169.254.9.9`, `fd00::1`, `fc12::1`, `fe80::5` and `febf::1`. They routed `172.32.0.1`, `100.128.0.1`, `169.254.1.1`, `fec0::1` and `2001:db8::1`. `127.0.0.1` and `::1` remained local.
 - Inside another user namespace (`unshare -U -r`), deleting a rule failed with Operation not permitted and the five IPv4 blocks stayed.
 
-Not run: the new live Agent Session probes, including DNS, forwarded ports and rule deletion after bubblewrap. A listener on a non-template interface such as a VPN or Docker bridge was not tested: this host had no such address and creating one required root. These scout results do not establish behaviour on other pasta versions.
+Probed live on 2026-11-03 from inside an Agent Session by `live_project`, which passed, with passt 2026_10_02.cba3570-1:
+
+- `ip route get` failed, and a TCP connect failed with `ENETUNREACH` in under 1 s, for `10.200.0.1`, `172.31.255.255`, `192.168.255.254`, `100.64.0.1`, `169.254.9.9`, `fd00::1` and `fe80::5`.
+- `ip route get` succeeded for `172.32.0.1`, `100.128.0.1` and `1.1.1.1`.
+- A DNS query to the `resolv.conf` nameserver got a reply.
+- `ip -4 rule del to 10.0.0.0/8 pref 20` failed from inside the sandbox.
+
+Not run: a listener on a non-template interface such as a VPN or Docker bridge. This host had no such address and creating one required root. These results do not establish behaviour on other pasta versions.
+
+### Host window guard results
+
+Checked on 2026-11-03 with Hyprland 0.56.2 and aquamarine 0.15.1, by `live_a_second_host_window_ends_the_session_as_incomplete`:
+
+- `hyprctl output create wayland` from inside the sandbox opened a second `aquamarine` window on the host, owned by connect-exec's pid.
+- The second window never took focus. The host's active window and workspace ended as they began.
+- The gap from `openwindow` to `closewindow` for the second window was 32.9 ms, 59.3 ms and 46.7 ms in three runs.
+- keek filed the session as an Incomplete Session for a host window, with no Verdict. No sandbox process was left.
 
 ## Facts this design rests on
 
