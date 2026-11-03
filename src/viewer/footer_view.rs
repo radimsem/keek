@@ -14,14 +14,28 @@ pub enum StateLabel {
     LastAction,
     ViewOnly,
     Closing,
+    NeedsYou,
+    Takeover,
+    HandBack,
 }
 impl StateLabel {
+    pub fn css_class(self) -> Option<&'static str> {
+        match self {
+            Self::NeedsYou => Some("needs-you"),
+            Self::Takeover => Some("takeover"),
+            Self::HandBack => Some("hand-back"),
+            Self::Opening | Self::LastAction | Self::ViewOnly | Self::Closing => None,
+        }
+    }
     pub fn text(self) -> &'static str {
         match self {
             Self::Opening => "Opening",
             Self::LastAction => "Last action",
             Self::ViewOnly => "View only",
             Self::Closing => "Closing",
+            Self::NeedsYou => "Needs you",
+            Self::Takeover => "You are in control",
+            Self::HandBack => "Back to the Verifier",
         }
     }
 }
@@ -74,6 +88,19 @@ pub struct CheckedView {
     pub overflow: usize,
     pub accessible: String,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FooterButton {
+    TakeControl,
+    Done,
+}
+impl FooterButton {
+    pub fn text(self) -> &'static str {
+        match self {
+            Self::TakeControl => "Take control",
+            Self::Done => "Done",
+        }
+    }
+}
 #[derive(Debug, PartialEq, Eq)]
 pub struct FooterView {
     pub project: String,
@@ -84,6 +111,8 @@ pub struct FooterView {
     pub elapsed_label: &'static str,
     pub elapsed: String,
     pub checked: Option<CheckedView>,
+    pub button: Option<FooterButton>,
+    pub keycaps: bool,
 }
 pub fn duration(seconds: u64) -> String {
     if seconds >= 3600 {
@@ -121,7 +150,7 @@ pub fn for_session(
 ) -> FooterView {
     let seconds = frozen
         .unwrap_or_else(|| now.signed_duration_since(info.opened).num_seconds().max(0) as u64);
-    let (label, detail, elapsed_label) = match snapshot.state {
+    let (mut label, mut detail, elapsed_label) = match snapshot.state {
         SessionState::Opening => (
             StateLabel::Opening,
             "Preparing the desktop.".into(),
@@ -148,6 +177,56 @@ pub fn for_session(
             "Elapsed",
         ),
     };
+    let mut button = (snapshot.state == SessionState::Open).then_some(FooterButton::TakeControl);
+    let mut keycaps = false;
+    if snapshot.state == SessionState::Open {
+        match &snapshot.control {
+            crate::ipc::ControlState::Verifier => {}
+            crate::ipc::ControlState::HelpRequest { reason, start_ms } => {
+                label = StateLabel::NeedsYou;
+                detail = format!(
+                    "{reason} · waiting {}",
+                    duration(seconds.saturating_sub(start_ms.0 / 1000))
+                );
+            }
+            crate::ipc::ControlState::Takeover {
+                start_ms,
+                shortcuts,
+            } => {
+                label = StateLabel::Takeover;
+                let shortcuts = match shortcuts {
+                    crate::ipc::HostShortcuts::Captured => {
+                        keycaps = true;
+                        "host shortcuts go to the session"
+                    }
+                    crate::ipc::HostShortcuts::Live => "host shortcuts stay live (no keek submap)",
+                };
+                detail = format!(
+                    "{} · {shortcuts}",
+                    duration(seconds.saturating_sub(start_ms.0 / 1000))
+                );
+                button = Some(FooterButton::Done);
+            }
+            crate::ipc::ControlState::HandBack { end_ms, length } => {
+                if hover == Hover::Over {
+                    label = StateLabel::ViewOnly;
+                    detail = "Use Take control to interact.".into();
+                } else {
+                    label = StateLabel::HandBack;
+                    detail = format!("You were in control for {}", duration(length.0 / 1000));
+                    if let Some(action) = &snapshot.last_action
+                        && action.time_ms > *end_ms
+                    {
+                        detail.push_str(&format!(
+                            " · {} · {} ago",
+                            action_words(&action.tool),
+                            duration(seconds.saturating_sub(action.time_ms.0 / 1000))
+                        ));
+                    }
+                }
+            }
+        }
+    }
     let mut counts = [0; 4];
     let mut ticks = Vec::new();
     for check in &snapshot.checks {
@@ -189,11 +268,27 @@ pub fn for_session(
         elapsed_label,
         elapsed: duration(seconds),
         checked,
+        button,
+        keycaps,
     }
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn control_labels_map_to_their_css_classes() {
+        assert_eq!(StateLabel::NeedsYou.css_class(), Some("needs-you"));
+        assert_eq!(StateLabel::Takeover.css_class(), Some("takeover"));
+        assert_eq!(StateLabel::HandBack.css_class(), Some("hand-back"));
+        for label in [
+            StateLabel::Opening,
+            StateLabel::LastAction,
+            StateLabel::ViewOnly,
+            StateLabel::Closing,
+        ] {
+            assert_eq!(label.css_class(), None);
+        }
+    }
     fn render(snapshot: &SessionSnapshot, seconds: u64, hover: bool) -> FooterView {
         for_session(
             &info(),
@@ -202,6 +297,86 @@ mod tests {
             if hover { Hover::Over } else { Hover::Away },
             None,
         )
+    }
+    #[test]
+    fn a_help_request_shows_its_reason_wait_and_orange_control() {
+        let mut s = snapshot(SessionState::Open);
+        s.control = crate::ipc::ControlState::HelpRequest {
+            reason: "2FA code".into(),
+            start_ms: crate::timeline::Millis(1000),
+        };
+        let view = render(&s, 25, true);
+        assert_eq!(view.label.text(), "Needs you");
+        assert_eq!(view.detail, "2FA code · waiting 0:24");
+        assert_eq!(view.button, Some(FooterButton::TakeControl));
+    }
+    #[test]
+    fn takeover_suppresses_the_hover_hint_and_shows_captured_shortcuts() {
+        let mut s = snapshot(SessionState::Open);
+        s.control = crate::ipc::ControlState::Takeover {
+            start_ms: crate::timeline::Millis(1000),
+            shortcuts: crate::ipc::HostShortcuts::Captured,
+        };
+        let view = render(&s, 19, true);
+        assert_eq!(view.label.text(), "You are in control");
+        assert_eq!(view.detail, "0:18 · host shortcuts go to the session");
+        assert_eq!(view.button, Some(FooterButton::Done));
+        assert!(view.keycaps);
+    }
+    #[test]
+    fn takeover_warns_when_the_submap_is_missing() {
+        let mut s = snapshot(SessionState::Open);
+        s.control = crate::ipc::ControlState::Takeover {
+            start_ms: crate::timeline::Millis(1000),
+            shortcuts: crate::ipc::HostShortcuts::Live,
+        };
+        let view = render(&s, 19, false);
+        assert_eq!(
+            view.detail,
+            "0:18 · host shortcuts stay live (no keek submap)"
+        );
+        assert!(!view.keycaps);
+        assert_eq!(view.label.text(), "You are in control");
+        assert_eq!(view.button, Some(FooterButton::Done));
+    }
+    #[test]
+    fn hand_back_stays_visible_and_adds_only_later_actions() {
+        let mut s = snapshot(SessionState::Open);
+        s.control = crate::ipc::ControlState::HandBack {
+            end_ms: crate::timeline::Millis(43000),
+            length: crate::timeline::Millis(42000),
+        };
+        let view = render(&s, 45, false);
+        assert_eq!(view.label.text(), "Back to the Verifier");
+        assert_eq!(view.detail, "You were in control for 0:42");
+        assert_eq!(view.button, Some(FooterButton::TakeControl));
+        assert_eq!(render(&s, 45, true).label.text(), "View only");
+        for time in [42000, 43000] {
+            s.last_action = Some(crate::ipc::LastAction {
+                tool: "click".into(),
+                time_ms: crate::timeline::Millis(time),
+            });
+            assert_eq!(render(&s, 45, false).detail, "You were in control for 0:42");
+        }
+        s.last_action = Some(crate::ipc::LastAction {
+            tool: "click".into(),
+            time_ms: crate::timeline::Millis(44000),
+        });
+        assert_eq!(
+            render(&s, 45, false).detail,
+            "You were in control for 0:42 · click · 0:01 ago"
+        );
+    }
+    #[test]
+    fn non_open_sessions_never_offer_a_control_button() {
+        for state in [SessionState::Opening, SessionState::Closing] {
+            let mut s = snapshot(state);
+            s.control = crate::ipc::ControlState::Takeover {
+                start_ms: crate::timeline::Millis(0),
+                shortcuts: crate::ipc::HostShortcuts::Live,
+            };
+            assert_eq!(render(&s, 0, false).button, None);
+        }
     }
     #[test]
     fn slot_colours_repeat_after_two_sessions() {
@@ -224,6 +399,7 @@ mod tests {
     }
     fn snapshot(state: SessionState) -> SessionSnapshot {
         SessionSnapshot {
+            control: crate::ipc::ControlState::Verifier,
             state,
             checks: vec![],
             last_action: None,

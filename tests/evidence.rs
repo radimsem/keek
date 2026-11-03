@@ -66,6 +66,7 @@ mod tests {
             Local.with_ymd_and_hms(2026, 10, 30, 14, 3, 22).unwrap(),
             actions,
             &ReportInputs {
+                timeline_events: &[],
                 session: "myapp_14-03-22",
                 goal: "parser works",
                 revision: &revision,
@@ -154,6 +155,7 @@ mod tests {
         };
         let end = SessionEnd::Verdict(Verdict::Pass);
         let input = ReportInputs {
+            timeline_events: &[],
             session: "myapp_14-03-22-2",
             goal: "g",
             revision: &revision,
@@ -295,6 +297,7 @@ mod tests {
             Local::now(),
             evidence::ActionLog::File,
             &ReportInputs {
+                timeline_events: &[],
                 session: "myapp_14-03-22",
                 goal: "g",
                 revision: &revision,
@@ -327,6 +330,7 @@ mod tests {
             Local::now(),
             evidence::ActionLog::File,
             &ReportInputs {
+                timeline_events: &[],
                 session: "myapp_14-03-22",
                 goal: "g",
                 revision: &revision,

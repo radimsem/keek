@@ -9,6 +9,7 @@ impl ActorRequest {
     pub fn into_reply(self) -> oneshot::Sender<Response> {
         match self {
             Self::Call { reply, .. }
+            | Self::RequestHelp { reply, .. }
             | Self::AddCheck { reply, .. }
             | Self::MarkCheck { reply, .. }
             | Self::Close { reply, .. } => reply,
@@ -16,7 +17,13 @@ impl ActorRequest {
     }
 }
 pub enum ActorRequest {
+    RequestHelp {
+        arrival: crate::session::gate::Arrival,
+        reason: String,
+        reply: oneshot::Sender<Response>,
+    },
     Call {
+        arrival: crate::session::gate::Arrival,
         tool: String,
         arguments: Value,
         reply: oneshot::Sender<Response>,

@@ -315,7 +315,7 @@ impl Drop for DaemonClient {
 }
 
 impl DaemonClient {
-    fn new<S>(connection: Connection<S>) -> Self
+    pub(crate) fn new<S>(connection: Connection<S>) -> Self
     where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {

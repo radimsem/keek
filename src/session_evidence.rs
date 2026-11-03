@@ -11,6 +11,7 @@ pub async fn file(
     videos: PathBuf,
     summary: String,
     edited: Result<EditPlan, EditError>,
+    timeline: &crate::timeline::SessionTimeline,
 ) -> Result<Value, String> {
     let edit_error = edited.as_ref().err().map(ToString::to_string);
     let report_error = edit_error.clone();
@@ -34,6 +35,7 @@ pub async fn file(
         })
         .collect();
     let credentials = actor.credentials.clone();
+    let timeline_events = timeline.events().to_vec();
     let (filed, actions_error) = tokio::task::spawn_blocking(move || {
         let identity = IdentityTimeMap;
         let time_map: &dyn VideoTimeMap = match &edited {
@@ -61,6 +63,7 @@ pub async fn file(
             started,
             action_log,
             &ReportInputs {
+                timeline_events: &timeline_events,
                 session: &session,
                 goal: &goal,
                 revision: &revision,

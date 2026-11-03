@@ -13,6 +13,7 @@ use rmcp::{ErrorData, ServerHandler, ServiceExt};
 use serde_json::{Value, json};
 use std::time::Duration;
 const DAEMON_START_TIMEOUT: Duration = Duration::from_secs(2);
+const HELP_REASON_MAX_CHARS: usize = 40;
 pub async fn serve() -> Result<()> {
     let paths = Paths::from_env()?;
     let executable = std::env::current_exe().context("could not find the keek executable")?;
@@ -40,8 +41,23 @@ fn own_tools() -> Vec<Tool> {
         ("open_session","Open an Agent Session for a Verifier once its desktop is ready. Returns credentials as Test Credential names; use ${NAME} in tool arguments.",json!({"type":"object","properties":{"project":{"type":"string"},"worktree":{"type":"string"},"goal":{"type":"string"},"checks":{"type":"array","items":{"type":"string"}}},"required":["project","worktree","goal","checks"]})),
         ("add_check","Add a Check found while verifying.",json!({"type":"object","properties":{"session":{"type":"string"},"text":{"type":"string"}},"required":["session","text"]})),
         ("mark_check","Mark a Check passed, failed or skipped. Failed and skipped need a one-line comment.",json!({"type":"object","properties":{"session":{"type":"string"},"check":{"type":"integer"},"outcome":{"type":"string","enum":["passed","failed","skipped"]},"comment":{"type":"string"}},"required":["session","check","outcome"]})),
+        ("request_help","Raise a Help Request with a reason shown to the developer. This call can block until the developer finishes a Takeover. The result starts with a note and a fresh screenshot to read before acting.",json!({"type":"object","properties":{"session":{"type":"string"},"reason":{"type":"string","minLength":1,"maxLength":HELP_REASON_MAX_CHARS}},"required":["session","reason"]})),
         ("close_session","Derive the Verdict and file Evidence. Refuses with no Checks or unmarked Checks. Returns video_error if the Verification Video could not be produced; the rest of the Evidence is still filed. Returns actions_error if Test Credentials could not be removed; the Action Log is withheld and kept in the session folder.",json!({"type":"object","properties":{"session":{"type":"string"},"summary":{"type":"string"}},"required":["session","summary"]}))
     ].into_iter().map(|(name,description,schema)|Tool::new(name,description,schema.as_object().cloned().unwrap_or_default())).collect()
+}
+fn can_wait(request: &Request) -> bool {
+    match request {
+        Request::RequestHelp { .. } | Request::CallTool { .. } | Request::CloseSession { .. } => {
+            true
+        }
+        Request::Status
+        | Request::ListTools
+        | Request::OpenSession { .. }
+        | Request::AddCheck { .. }
+        | Request::MarkCheck { .. }
+        | Request::WatchSession { .. }
+        | Request::Shutdown => false,
+    }
 }
 fn tool_error(message: impl Into<String>) -> CallToolResult {
     CallToolResult::error(vec![ContentBlock::text(message.into())])
@@ -72,13 +88,14 @@ impl ServerHandler for KeekServer {
     async fn call_tool(
         &self,
         params: CallToolRequestParams,
-        _: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
         let args = Value::Object(params.arguments.unwrap_or_default());
         let request=match params.name.as_ref(){
             "keek_status"=>Ok(Request::Status),
             "open_session"=>parse_open(args),
             "close_session"=>parse_close(args),
+            "request_help"=>parse_help(args),
             "add_check"=>parse_add(args),
             "mark_check"=>parse_mark(args),
             tool=>args.get("session").and_then(Value::as_str).ok_or_else(||"Every forwarded tool requires an Agent Session name in session. Call open_session first.".to_owned()).and_then(|name|name.parse().map_err(|e:crate::session_folder::InvalidSessionName|e.to_string())).map(|session|Request::CallTool{session,tool:tool.into(),arguments:args}),
@@ -87,7 +104,23 @@ impl ServerHandler for KeekServer {
             Ok(request) => request,
             Err(message) => return Ok(tool_error(message).into()),
         };
-        let response = match self.daemon.request(request).await {
+        let can_wait = can_wait(&request);
+        let response = match waiting_with_progress(
+            self.daemon.request(request),
+            if can_wait {
+                context.meta.get_progress_token()
+            } else {
+                None
+            },
+            |notification| {
+                let peer = context.peer.clone();
+                async move {
+                    let _ = peer.notify_progress(notification).await;
+                }
+            },
+        )
+        .await
+        {
             Ok(response) => response,
             Err(error) => return Ok(tool_error(error.to_string()).into()),
         };
@@ -222,4 +255,68 @@ mod check_tests {
             assert!(tools.iter().any(|tool| tool.name == name));
         }
     }
+}
+
+#[cfg(test)]
+#[path = "mcp_progress_tests.rs"]
+mod progress_tests;
+
+async fn waiting_with_progress<F, T, N, NF>(
+    request: F,
+    token: Option<rmcp::model::ProgressToken>,
+    mut notify: N,
+) -> T
+where
+    F: std::future::Future<Output = T>,
+    N: FnMut(rmcp::model::ProgressNotificationParam) -> NF,
+    NF: std::future::Future<Output = ()>,
+{
+    let Some(token) = token else {
+        return request.await;
+    };
+    tokio::pin!(request);
+    let mut progress = 0.0;
+    let mut interval = tokio::time::interval_at(
+        tokio::time::Instant::now() + Duration::from_secs(60),
+        Duration::from_secs(60),
+    );
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        tokio::select! {
+            biased;
+            reply = &mut request => return reply,
+            _ = interval.tick() => {
+                progress += 1.0;
+                let notification = rmcp::model::ProgressNotificationParam::new(token.clone(), progress);
+                tokio::select! {
+                    biased;
+                    reply = &mut request => return reply,
+                    () = notify(notification) => {}
+                }
+            }
+        }
+    }
+}
+#[derive(serde::Deserialize)]
+struct HelpArguments {
+    session: crate::session_folder::SessionName,
+    reason: String,
+}
+fn parse_help(value: Value) -> Result<Request, String> {
+    let args: HelpArguments = serde_json::from_value(value)
+        .map_err(|e| format!("Cannot raise a Help Request: {e}. Pass session and reason."))?;
+    if args.reason.trim().is_empty() {
+        return Err(
+            "Cannot raise a Help Request without a reason. Pass a non-empty reason.".into(),
+        );
+    }
+    if args.reason.chars().count() > HELP_REASON_MAX_CHARS || args.reason.contains(['\n', '\r']) {
+        return Err(format!(
+            "The reason is shown on the Session Card, in a notification and in the Verification Video, so it must be one line of at most {HELP_REASON_MAX_CHARS} characters, such as \"2FA code\". Shorten it and call request_help again."
+        ));
+    }
+    Ok(Request::RequestHelp {
+        session: args.session,
+        reason: args.reason,
+    })
 }

@@ -21,6 +21,9 @@ pub struct SessionInfo {
 }
 pub type ViewerFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>;
 pub trait Viewer: Send + Sync {
+    fn take_commands(&self) -> Option<mpsc::Receiver<ViewerCommand>> {
+        None
+    }
     fn opened(
         &self,
         info: SessionInfo,
@@ -40,13 +43,24 @@ impl Viewer for NoopViewer {
         Box::pin(async {})
     }
 }
+pub enum ViewerCommand {
+    TakeControl(SessionName),
+    Done(SessionName),
+}
 pub enum ViewerMessage {
+    Commands(mpsc::Sender<ViewerCommand>),
     Opened(SessionInfo, watch::Receiver<SessionSnapshot>),
     Closed(SlotId),
     Shutdown,
 }
-struct ChannelViewer(mpsc::Sender<ViewerMessage>);
+struct ChannelViewer(
+    mpsc::Sender<ViewerMessage>,
+    std::sync::Mutex<Option<mpsc::Receiver<ViewerCommand>>>,
+);
 impl Viewer for ChannelViewer {
+    fn take_commands(&self) -> Option<mpsc::Receiver<ViewerCommand>> {
+        self.1.lock().ok().and_then(|mut receiver| receiver.take())
+    }
     fn shutdown(&self) -> ViewerFuture<'_> {
         Box::pin(async {
             let _ = self.0.send(ViewerMessage::Shutdown).await;
@@ -73,5 +87,13 @@ impl Viewer for ChannelViewer {
 }
 pub fn channel() -> (Arc<dyn Viewer>, mpsc::Receiver<ViewerMessage>) {
     let (tx, rx) = mpsc::channel(32);
-    (Arc::new(ChannelViewer(tx)), rx)
+    let (commands, command_receiver) = mpsc::channel(32);
+    let _ = tx.try_send(ViewerMessage::Commands(commands));
+    (
+        Arc::new(ChannelViewer(
+            tx,
+            std::sync::Mutex::new(Some(command_receiver)),
+        )),
+        rx,
+    )
 }

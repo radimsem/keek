@@ -22,6 +22,7 @@ struct Card {
     elapsed_label: gtk::Label,
     elapsed: gtk::Label,
     button: gtk::Button,
+    keycaps: gtk::Box,
     watcher: Option<glib::JoinHandle<()>>,
 }
 impl Card {
@@ -33,8 +34,20 @@ impl Card {
             self.hover,
             self.frozen,
         );
-        self.button.set_label("Take control");
+        self.button.set_visible(view.button.is_some());
+        self.button
+            .set_label(view.button.map_or("", footer_view::FooterButton::text));
+        self.keycaps.set_visible(view.keycaps);
+        let mut classes = vec![
+            "footer",
+            footer_view::SessionColour::for_slot(self.info.slot).css_class(),
+        ];
+        if let Some(class) = view.label.css_class() {
+            classes.push(class);
+        }
+        self.footer.set_css_classes(&classes);
         self.state_label.set_text(view.label.text());
+
         self.detail.set_text(&view.detail);
         self.elapsed_label.set_text(view.elapsed_label);
         self.elapsed.set_text(&view.elapsed);
@@ -44,6 +57,7 @@ impl Card {
             } else {
                 "dim"
             }]);
+        self.state_label.add_css_class("state");
         if view.label == footer_view::StateLabel::ViewOnly {
             self.button.add_css_class("hinted");
         } else {
@@ -93,6 +107,7 @@ struct State {
     cards: HashMap<SlotId, Card>,
     visible: HashSet<String>,
     tick: Option<glib::SourceId>,
+    commands: Option<tokio::sync::mpsc::Sender<super::ViewerCommand>>,
 }
 impl State {
     fn visibility(state: &Rc<RefCell<Self>>) {
@@ -240,7 +255,43 @@ fn create(
     let button = gtk::Button::with_label("Take control");
     button.set_valign(gtk::Align::Center);
     button.set_size_request(-1, 40);
-    row.append(&button);
+    let keycaps = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    keycaps.append(&label("Super", "keycap"));
+    keycaps.append(&label("Esc", "keycap"));
+    let button_group = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    button_group.append(&keycaps);
+    button_group.append(&button);
+    row.append(&button_group);
+    let weak = Rc::downgrade(state);
+    let slot = info.slot;
+    button.connect_clicked(move |_| {
+        if let Some(state) = weak.upgrade() {
+            let data = state.borrow();
+            if let Some(card) = data.cards.get(&slot)
+                && let Some(commands) = &data.commands
+            {
+                let view = footer_view::for_session(
+                    &card.info,
+                    &card.snapshot,
+                    chrono::Utc::now(),
+                    card.hover,
+                    card.frozen,
+                );
+                let command = match view.button {
+                    Some(footer_view::FooterButton::Done) => {
+                        super::ViewerCommand::Done(card.info.name.clone())
+                    }
+                    Some(footer_view::FooterButton::TakeControl) => {
+                        super::ViewerCommand::TakeControl(card.info.name.clone())
+                    }
+                    None => return,
+                };
+                if let Err(error) = commands.try_send(command) {
+                    tracing::warn!(%error,"Session Footer command could not be delivered");
+                }
+            }
+        }
+    });
     footer.set_child(Some(&row));
     let motion = gtk::EventControllerMotion::new();
     let weak = Rc::downgrade(state);
@@ -284,6 +335,7 @@ fn create(
         elapsed_label,
         elapsed,
         button,
+        keycaps,
         watcher: None,
     };
     card.draw();
@@ -293,10 +345,18 @@ fn style() {
     let t = theme::load();
     let provider = gtk::CssProvider::new();
     provider.load_from_data(&format!("window.footer {{ background: {}; color: {}; font-family: 'JetBrains Mono'; font-size: 12px; border: 2px solid {}; border-top: 2px solid {}; border-radius: 0 0 8px 8px; }} window.violet {{border-top-color:{};}} .violet .cursor {{color:{};}} .cyan .cursor {{color:{};}} .dim {{color:{};}} .hint {{color:{};}} .value {{font-weight:700; font-feature-settings: 'tnum';}} button {{background:alpha({},0.10);color:{};border:1px solid {};border-radius:8px;font-weight:700;padding:0 18px;}} button:hover,button.hinted {{background:alpha({},0.22);}} window.hover-surface {{background:transparent;}} .tick {{min-width:10px;min-height:10px;border-radius:2px;}} .passed {{background:{};}} .failed {{background:{};}} .skipped {{border:1px solid {};color:{};}} .unmarked {{border:1px solid {};}}",t.background,t.foreground,t.border,footer_view::SessionColour::Cyan.color(),footer_view::SessionColour::Violet.color(),footer_view::SessionColour::Violet.color(),footer_view::SessionColour::Cyan.color(),t.dim,t.accent,t.accent,t.accent,t.accent,t.accent,t.green,t.red,t.yellow,t.yellow,t.dim));
+    let controls = gtk::CssProvider::new();
+    controls.load_from_data(&format!("window.needs-you {{border-left-color:{0};border-right-color:{0};border-bottom-color:{0};}} .needs-you .state {{color:{0};}} .needs-you button {{background:{0};color:{3};}} window.takeover {{background:{4};border-left-color:{1};border-right-color:{1};border-bottom-color:{1};}} .takeover .state {{color:{5};}} .hand-back .state {{color:{5};}} .takeover button {{background:{6};color:{3};}} .keycap {{border:1px solid {2};border-radius:4px;padding:4px;}}", t.orange, t.active_border, t.border, t.ink, t.control, t.blue_text, t.accent));
+    // GTK breaks ties between equal-priority providers by the order they were added, so `controls` goes last.
     if let Some(display) = gtk::gdk::Display::default() {
         gtk::style_context_add_provider_for_display(
             &display,
             &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+        gtk::style_context_add_provider_for_display(
+            &display,
+            &controls,
             gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
     }
@@ -321,6 +381,7 @@ pub fn run(
         cards: HashMap::new(),
         visible: HashSet::new(),
         tick: None,
+        commands: None,
     }));
     let (workspace_tx, mut workspace_rx) = tokio::sync::mpsc::channel(8);
     let monitor_task = handle.spawn(super::events::watch(workspace_tx));
@@ -336,6 +397,9 @@ pub fn run(
     let message_watcher = glib::spawn_future_local(async move {
         while let Some(message) = receiver.recv().await {
             match message {
+                ViewerMessage::Commands(commands) => {
+                    message_state.borrow_mut().commands = Some(commands);
+                }
                 ViewerMessage::Opened(info, mut snapshots) => {
                     let slot = info.slot;
                     let snapshot = snapshots.borrow_and_update().clone();

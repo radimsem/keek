@@ -166,7 +166,7 @@ pub async fn place(
     pid: Option<WindowPid>,
     placement: Placement,
     events: Option<crate::compositor::WindowEvents>,
-) -> Result<(), ProcessError> {
+) -> Result<crate::compositor::WindowAddress, ProcessError> {
     let mut events = match events {
         Some(events) => events,
         None => hypr::subscribe().await?,
@@ -188,7 +188,7 @@ async fn place_mapped(
     pid: Option<WindowPid>,
     slot: slots::Slot,
     events: &mut crate::compositor::WindowEvents,
-) -> Result<(), ProcessError> {
+) -> Result<crate::compositor::WindowAddress, ProcessError> {
     let mut event = None;
     loop {
         let clients = json("j/clients").await?;
@@ -220,7 +220,7 @@ async fn place_mapped(
             {
                 placed.remove(&address);
             }
-            return result;
+            return result.map(|()| crate::compositor::WindowAddress(format!("0x{address}")));
         }
         loop {
             let line = events

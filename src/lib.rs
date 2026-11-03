@@ -22,6 +22,7 @@ pub mod session;
 pub mod session_factory;
 pub mod session_folder;
 pub mod timeline;
+pub mod title_card;
 pub mod verifier_protocol;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

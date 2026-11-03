@@ -16,6 +16,7 @@ pub struct ReportInputs<'a> {
     pub goal: &'a str,
     pub revision: &'a Revision,
     pub summary: &'a str,
+    pub timeline_events: &'a [crate::timeline::TimelineEvent],
     pub checks: &'a [Check],
     pub end: &'a SessionEnd,
     pub time_map: &'a dyn VideoTimeMap,
@@ -69,6 +70,31 @@ pub fn render(input: &ReportInputs<'_>) -> String {
             one_line(&check.text)
         ));
     }
+    let mut takeovers = String::new();
+    for event in input.timeline_events {
+        match event {
+            crate::timeline::TimelineEvent::Takeover {
+                start_ms,
+                end_ms,
+                reason,
+            } => {
+                let at = input.time_map.video_time(*start_ms).0 / 1000;
+                let length = end_ms.0.saturating_sub(start_ms.0) / 1000;
+                let reason = reason
+                    .as_deref()
+                    .map(|r| format!(": {}", one_line(r)))
+                    .unwrap_or_default();
+                let period = if reason.ends_with('.') { "" } else { "." };
+                takeovers.push_str(&format!("- At {}:{:02} in the video, the developer was in control for {}:{:02}{reason}{period}\n", at / 60, at % 60, length / 60, length % 60));
+            }
+            crate::timeline::TimelineEvent::Call { .. }
+            | crate::timeline::TimelineEvent::CheckMark { .. } => {}
+        }
+    }
+    if !takeovers.is_empty() {
+        text.push_str("\n## Takeovers\n\n");
+        text.push_str(&takeovers);
+    }
     if !input.summary.trim().is_empty() {
         text.push_str(&format!("\n## Verifier summary\n\n{}\n", input.summary));
     }
@@ -80,7 +106,7 @@ pub fn render(input: &ReportInputs<'_>) -> String {
     }
     if let Some(error) = input.video_error {
         text.push_str(&format!(
-            "\n## Verification Video\n\n{}\n\nThe Check times above are positions in the Raw Recording.\n",
+            "\n## Verification Video\n\n{}\n\nThe Check and Takeover times above are positions in the Raw Recording.\n",
             one_line(error)
         ));
     }

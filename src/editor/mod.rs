@@ -20,9 +20,11 @@ pub enum EditError {
     )]
     Duration(String),
     #[error(
-        "Cannot find a font for the Fast-forward label because fc-match returned no path. Install JetBrains Mono and try again."
+        "Cannot find a font for the video labels because fc-match returned no path. Install JetBrains Mono and try again."
     )]
     Font,
+    #[error("Cannot read the Raw Recording size: {0}. Check it with ffprobe and retry.")]
+    Size(String),
     #[error(
         "Cannot prepare or save the Verification Video: {0}. Check the session folder permissions and available space, then try again."
     )]
@@ -98,17 +100,18 @@ pub async fn edit(
         timeline,
         &ffmpeg::parse_freezes(&freezes, duration),
         duration,
-        &[],
+        &takeover_spans(timeline, duration),
         Margins {
             before: ACTION_BEFORE,
             after: ACTION_AFTER,
         },
     );
-    let font = if plan
-        .segments()
-        .iter()
-        .any(|s| matches!(s.kind, SegmentKind::FastForward { .. }))
-    {
+    let font = if plan.segments().iter().any(|s| {
+        matches!(
+            s.kind,
+            SegmentKind::FastForward { .. } | SegmentKind::Takeover { .. }
+        )
+    }) {
         let matched = runner
             .output(
                 "fc-match",
@@ -122,11 +125,27 @@ pub async fn edit(
         }
         // fc-match returns its closest font even when JetBrains Mono is missing.
         if !family.replace(' ', "").contains("JetBrainsMono") {
-            tracing::warn!(family, "Fast-forward labels use a fallback font");
+            tracing::warn!(family, "Video labels use a fallback font");
         }
         file.trim().to_owned()
     } else {
         String::new()
+    };
+    let size = if plan
+        .segments()
+        .iter()
+        .any(|s| matches!(s.kind, SegmentKind::Takeover { .. }))
+    {
+        let args = ffmpeg::size_args(raw);
+        let refs: Vec<_> = args.iter().map(String::as_str).collect();
+        let text = runner.output("ffprobe", &refs, None).await?;
+        text.trim()
+            .split_once('x')
+            .and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?)))
+            .filter(|(w, h)| *w > 0 && *h > 0)
+            .ok_or(EditError::Size(text))?
+    } else {
+        (0, 0)
     };
     let mut name = out.as_os_str().to_owned();
     name.push(".parts");
@@ -135,20 +154,16 @@ pub async fn edit(
     tokio::task::spawn_blocking(move || std::fs::create_dir(directory)).await??;
     let result = async {
         for (i, segment) in plan.segments().iter().enumerate() {
-            job(
-                runner,
-                &ffmpeg::segment_args(
-                    raw,
-                    segment,
-                    segment.frames(),
-                    &font,
-                    &parts.join(format!("{i:04}.mp4")),
-                ),
-                i,
-                plan.segments().len(),
-                on_progress,
-            )
-            .await?;
+            let output = parts.join(format!("{i:04}.mp4"));
+            let args = match &segment.kind {
+                SegmentKind::Takeover { real_ms, reason } => {
+                    crate::title_card::card_args(*real_ms, reason.as_deref(), size, &font, &output)
+                }
+                SegmentKind::RealSpeed | SegmentKind::FastForward { .. } => {
+                    ffmpeg::segment_args(raw, segment, segment.frames(), &font, &output)
+                }
+            };
+            job(runner, &args, i, plan.segments().len(), on_progress).await?;
         }
         let list = parts.join("list.txt");
         let content = (0..plan.segments().len())
@@ -237,5 +252,85 @@ mod tests {
         );
         assert!(out.is_file());
         assert!(!dir.path().join("verification.mp4.parts").exists());
+    }
+}
+
+#[cfg(test)]
+mod takeover_tests {
+    use super::*;
+    use crate::process::ProcessFuture;
+    use std::sync::Mutex;
+    struct Runner(Mutex<Vec<Vec<String>>>);
+    impl ProcessRunner for Runner {
+        fn output<'a>(
+            &'a self,
+            program: &'a str,
+            args: &'a [&'a str],
+            _: Option<&'a Path>,
+        ) -> ProcessFuture<'a> {
+            Box::pin(async move {
+                Ok(if program == "fc-match" {
+                    "JetBrains Mono|/fonts/mono.ttf"
+                } else if args.contains(&"stream=width,height") {
+                    "640x480"
+                } else {
+                    "5"
+                }
+                .into())
+            })
+        }
+        fn stream<'a>(
+            &'a self,
+            _: &'a str,
+            args: &'a [&'a str],
+            _: &'a mut (dyn FnMut(&str) + Send),
+        ) -> ProcessFuture<'a> {
+            Box::pin(async move {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(args.iter().map(|s| (*s).to_owned()).collect());
+                if !args.contains(&"null") {
+                    std::fs::write(args.last().unwrap(), b"video").unwrap();
+                }
+                Ok(String::new())
+            })
+        }
+    }
+    #[tokio::test]
+    async fn editing_a_takeover_uses_the_probed_recording_size_for_the_card() {
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("raw.mp4");
+        std::fs::write(&raw, b"raw").unwrap();
+        let mut timeline = SessionTimeline::new(Millis(0));
+        timeline.push(crate::timeline::TimelineEvent::Takeover {
+            reason: None,
+            start_ms: Millis(1000),
+            end_ms: Millis(4000),
+        });
+        let runner = Runner(Mutex::new(Vec::new()));
+        let plan = edit(
+            &runner,
+            &raw,
+            &timeline,
+            &dir.path().join("verification.mp4"),
+            &mut |_| {},
+        )
+        .await
+        .unwrap();
+        assert_eq!(plan.segments().len(), 3);
+        let calls = runner.0.lock().unwrap();
+        let card = calls
+            .iter()
+            .find(|args| {
+                args.iter()
+                    .any(|arg| arg.contains("color=c=0x193e58:s=640x480:r=30"))
+            })
+            .unwrap();
+        assert!(
+            card.iter()
+                .any(|arg| arg.contains(r"You were in control · 0\\:03")
+                    && !arg.contains(" · 0\\\\:03 · "))
+        );
     }
 }

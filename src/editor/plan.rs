@@ -3,20 +3,21 @@ pub const ACTION_BEFORE: Millis = Millis(300);
 pub const ACTION_AFTER: Millis = Millis(1500);
 pub const MIN_IDLE: Millis = Millis(1000);
 pub const FAST_FORWARD: Millis = Millis(600);
-pub const OUTPUT_FPS: u64 = 30;
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Span {
-    pub start: Millis,
-    pub end: Millis,
-}
+pub use crate::title_card::{OUTPUT_FPS, Span, TAKEOVER_CARD, TAKEOVER_GUARD, takeover_spans};
 pub struct Margins {
     pub before: Millis,
     pub after: Millis,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SegmentKind {
     RealSpeed,
-    FastForward { real_ms: Millis },
+    Takeover {
+        real_ms: Millis,
+        reason: Option<String>,
+    },
+    FastForward {
+        real_ms: Millis,
+    },
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Segment {
@@ -26,12 +27,13 @@ pub struct Segment {
 }
 impl Segment {
     pub fn frames(&self) -> u64 {
-        match self.kind {
+        match &self.kind {
             SegmentKind::RealSpeed => {
                 (((self.end.0 - self.start.0) as u128 * OUTPUT_FPS as u128 + 500) / 1000).max(1)
                     as u64
             }
             SegmentKind::FastForward { .. } => FAST_FORWARD.0 * OUTPUT_FPS / 1000,
+            SegmentKind::Takeover { .. } => TAKEOVER_CARD.0 * OUTPUT_FPS / 1000,
         }
     }
 }
@@ -131,6 +133,40 @@ pub fn plan_edit(
             segments.push(piece);
         }
     }
+    for span in excluded {
+        let takeovers: Vec<_> = timeline
+            .events()
+            .iter()
+            .filter_map(|event| match event {
+                TimelineEvent::Takeover {
+                    reason,
+                    start_ms,
+                    end_ms,
+                } if *start_ms < span.end && *end_ms > span.start => {
+                    Some((reason, start_ms, end_ms))
+                }
+                TimelineEvent::Takeover { .. }
+                | TimelineEvent::Call { .. }
+                | TimelineEvent::CheckMark { .. } => None,
+            })
+            .collect();
+        let mut start = span.start;
+        for (index, (reason, raw_start, raw_end)) in takeovers.iter().enumerate() {
+            let end = takeovers
+                .get(index + 1)
+                .map_or(span.end, |(_, next_start, _)| **next_start);
+            segments.push(Segment {
+                start,
+                end,
+                kind: SegmentKind::Takeover {
+                    real_ms: Millis(raw_end.0.saturating_sub(raw_start.0)),
+                    reason: (*reason).clone(),
+                },
+            });
+            start = end;
+        }
+    }
+    segments.sort_by_key(|segment| segment.start);
     EditPlan { segments }
 }
 impl crate::report::VideoTimeMap for EditPlan {
@@ -157,6 +193,7 @@ impl crate::report::VideoTimeMap for EditPlan {
 mod tests {
     use super::*;
     use crate::report::VideoTimeMap;
+
     use crate::timeline::TimelineEvent;
     fn plan(
         actions: &[(u64, u64, bool)],
@@ -297,5 +334,133 @@ mod tests {
         let p = plan(&[], &[], &[], 1);
         assert_eq!(p.segments()[0].frames(), 1);
         assert_eq!(p.output_length(), Millis(33));
+    }
+
+    #[test]
+    fn takeover_and_guard_never_reach_non_card_segments() {
+        let timeline = SessionTimeline::parse(r#"{"schema_version":1,"video_lead_ms":0,"events":[{"kind":"takeover","reason":"2FA code","start_ms":1000,"end_ms":4000}]}"#).unwrap();
+        let plan = plan_edit(
+            &timeline,
+            &[],
+            Millis(5000),
+            &[Span {
+                start: Millis(850),
+                end: Millis(4150),
+            }],
+            Margins {
+                before: ACTION_BEFORE,
+                after: ACTION_AFTER,
+            },
+        );
+        assert_eq!(plan.segments().len(), 3);
+        assert_eq!(plan.segments()[1].frames(), 60);
+        assert_eq!(plan.segments()[0].end, Millis(850));
+        assert_eq!(plan.segments()[2].start, Millis(4150));
+        assert!(plan.video_time(Millis(2000)) >= Millis(850));
+        assert!(plan.video_time(Millis(2000)) < Millis(2850));
+    }
+
+    #[test]
+    fn takeover_guard_is_removed_from_idle_segments_and_later_check_maps_after_card() {
+        let mut timeline = SessionTimeline::new(Millis(0));
+        timeline.push(TimelineEvent::Takeover {
+            reason: None,
+            start_ms: Millis(3000),
+            end_ms: Millis(5000),
+        });
+        timeline.push(TimelineEvent::CheckMark {
+            check: crate::timeline::CheckId(1),
+            outcome: crate::timeline::CheckOutcome::Passed,
+            at_ms: Millis(9000),
+        });
+        let excluded = takeover_spans(&timeline, Millis(10000));
+        let plan = plan_edit(
+            &timeline,
+            &[Span {
+                start: Millis(0),
+                end: Millis(8000),
+            }],
+            Millis(10000),
+            &excluded,
+            Margins {
+                before: ACTION_BEFORE,
+                after: ACTION_AFTER,
+            },
+        );
+        assert!(
+            plan.segments()
+                .iter()
+                .any(|segment| matches!(segment.kind, SegmentKind::FastForward { .. }))
+        );
+        for segment in plan.segments() {
+            if !matches!(segment.kind, SegmentKind::Takeover { .. }) {
+                assert!(
+                    segment.end <= Millis(2850) || segment.start >= Millis(5150),
+                    "{segment:?}"
+                );
+            }
+        }
+        assert_eq!(plan.video_time(Millis(9000)), Millis(4200));
+    }
+    #[test]
+    fn takeover_guards_clamp_to_recording_and_merge_overlaps() {
+        let mut timeline = SessionTimeline::new(Millis(0));
+        for (start, end) in [(0, 1000), (1200, 2000), (4900, 6000)] {
+            timeline.push(TimelineEvent::Takeover {
+                reason: None,
+                start_ms: Millis(start),
+                end_ms: Millis(end),
+            });
+        }
+        assert_eq!(
+            takeover_spans(&timeline, Millis(5000)),
+            vec![
+                Span {
+                    start: Millis(0),
+                    end: Millis(2150)
+                },
+                Span {
+                    start: Millis(4750),
+                    end: Millis(5000)
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn merged_guards_keep_a_title_card_for_each_takeover() {
+        let mut timeline = SessionTimeline::new(Millis(0));
+        for (start, end, reason) in [(1000, 2000, "first"), (2200, 4200, "second")] {
+            timeline.push(TimelineEvent::Takeover {
+                start_ms: Millis(start),
+                end_ms: Millis(end),
+                reason: Some(reason.into()),
+            });
+        }
+        let plan = plan_edit(
+            &timeline,
+            &[],
+            Millis(5000),
+            &takeover_spans(&timeline, Millis(5000)),
+            Margins {
+                before: ACTION_BEFORE,
+                after: ACTION_AFTER,
+            },
+        );
+        let cards: Vec<_> = plan
+            .segments()
+            .iter()
+            .filter_map(|s| match &s.kind {
+                SegmentKind::Takeover { real_ms, reason } => Some((*real_ms, reason.as_deref())),
+                SegmentKind::RealSpeed | SegmentKind::FastForward { .. } => None,
+            })
+            .collect();
+        assert_eq!(
+            cards,
+            [
+                (Millis(1000), Some("first")),
+                (Millis(2000), Some("second"))
+            ]
+        );
     }
 }

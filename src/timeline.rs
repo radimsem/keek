@@ -38,7 +38,7 @@ pub enum TimelineEvent {
         at_ms: Millis,
     },
     Takeover {
-        reason: String,
+        reason: Option<String>,
         start_ms: Millis,
         end_ms: Millis,
     },
@@ -97,5 +97,11 @@ impl SessionTimeline {
 
     pub fn push(&mut self, event: TimelineEvent) {
         self.events.push(event);
+        self.events.sort_by_key(|event| match event {
+            TimelineEvent::Call { start_ms, .. } | TimelineEvent::Takeover { start_ms, .. } => {
+                *start_ms
+            }
+            TimelineEvent::CheckMark { at_ms, .. } => *at_ms,
+        });
     }
 }

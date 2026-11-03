@@ -6,13 +6,25 @@ use std::sync::Arc;
 pub type CompositorFuture<'a> = Pin<Box<dyn Future<Output = Result<(), ProcessError>> + Send + 'a>>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WindowPid(pub u32);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowAddress(pub String);
+pub type WindowFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<WindowAddress, ProcessError>> + Send + 'a>>;
 pub trait Compositor: Send + Sync {
+    fn takeover_events(&self) -> TakeoverEventsFuture<'_> {
+        Box::pin(async {
+            Ok(self
+                .window_events()
+                .await?
+                .map(|events| Box::new(events) as Box<dyn TakeoverEvents>))
+        })
+    }
     fn place_window(
         &self,
         pid: Option<WindowPid>,
         slot: Placement,
         events: Option<WindowEvents>,
-    ) -> CompositorFuture<'_>;
+    ) -> WindowFuture<'_>;
     fn slot(
         &self,
         index: crate::viewer::SlotId,
@@ -51,7 +63,7 @@ impl Compositor for HostCompositor {
         pid: Option<WindowPid>,
         slot: Placement,
         events: Option<WindowEvents>,
-    ) -> CompositorFuture<'_> {
+    ) -> WindowFuture<'_> {
         Box::pin(crate::window_placement::place(pid, slot, events))
     }
     fn slot(
@@ -93,6 +105,33 @@ fn check_eval(output: String) -> Result<(), ProcessError> {
         Err(ProcessError::Failed {
             program: "hyprctl eval".into(),
             message: output,
+        })
+    }
+}
+
+pub type EventFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<Option<crate::hypr::HyprEvent>, ProcessError>> + Send + 'a>>;
+pub trait TakeoverEvents: Send {
+    fn next(&mut self) -> EventFuture<'_>;
+}
+pub type TakeoverEventsFuture<'a> = Pin<
+    Box<dyn Future<Output = Result<Option<Box<dyn TakeoverEvents>>, ProcessError>> + Send + 'a>,
+>;
+impl TakeoverEvents for WindowEvents {
+    fn next(&mut self) -> EventFuture<'_> {
+        Box::pin(async move {
+            loop {
+                let line = self.next_line().await.map_err(|source| ProcessError::Io {
+                    program: "Hyprland events".into(),
+                    source,
+                })?;
+                let Some(line) = line else {
+                    return Ok(None);
+                };
+                if let Some(event) = crate::hypr::parse(&line) {
+                    return Ok(Some(event));
+                }
+            }
         })
     }
 }

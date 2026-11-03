@@ -33,11 +33,16 @@ async fn project_prepare_can_outlast_the_desktop_handshake_limit() {
     let name = "app_12-00-00".parse().unwrap();
     let folder = SessionFolder::new(root.path(), &name);
     let (events, _) = watch::channel(SessionSnapshot {
+        control: crate::ipc::ControlState::Verifier,
         state: SessionState::Opening,
         checks: vec![],
         last_action: None,
     });
+    let (control, control_commands) = control::Control::new();
     let actor = Actor {
+        control,
+        control_commands: Some(control_commands),
+        compositor: Arc::new(FakeCompositor),
         opened_at: Instant::now(),
         placement: crate::compositor::Placement {
             monitor: "fake".into(),
@@ -62,7 +67,11 @@ async fn project_prepare_can_outlast_the_desktop_handshake_limit() {
         },
         started: chrono::Local::now(),
         checklist: Checklist::new(vec![]),
-        runner: Arc::new(crate::process::HostRunner),
+        runner: Arc::new(takeover::Runner {
+            inner: EvidenceRunner(root.path().join("videos"), Arc::new(AtomicBool::new(false))),
+            calls: Arc::new(Mutex::new(vec![])),
+            fail_no_focus: Arc::new(AtomicBool::new(false)),
+        }),
         closing: Arc::new(AtomicBool::new(false)),
         name,
         folder,

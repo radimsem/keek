@@ -44,6 +44,10 @@ pub enum Request {
         tool: String,
         arguments: Value,
     },
+    RequestHelp {
+        session: SessionName,
+        reason: String,
+    },
     AddCheck {
         session: SessionName,
         text: String,
@@ -105,6 +109,8 @@ pub struct OpenedCheck {
 /// last value whole, so a watcher that misses one still sees every Check's outcome.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionSnapshot {
+    #[serde(default)]
+    pub control: ControlState,
     pub state: SessionState,
     pub checks: Vec<CheckStatus>,
     pub last_action: Option<LastAction>,
@@ -234,6 +240,31 @@ impl<W: AsyncWrite + Unpin> ConnectionWriter<W> {
         self.stream.flush().await?;
         Ok(())
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ControlState {
+    #[default]
+    Verifier,
+    HelpRequest {
+        reason: String,
+        start_ms: Millis,
+    },
+    Takeover {
+        start_ms: Millis,
+        shortcuts: HostShortcuts,
+    },
+    HandBack {
+        end_ms: Millis,
+        length: Millis,
+    },
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HostShortcuts {
+    Captured,
+    Live,
 }
 
 #[cfg(test)]

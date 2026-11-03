@@ -8,6 +8,39 @@ use tokio::sync::Notify;
 
 const ACTION_DURATION_MS: u64 = 200;
 
+struct FakeCompositor;
+impl crate::compositor::Compositor for FakeCompositor {
+    fn window_events(&self) -> crate::compositor::EventsFuture<'_> {
+        Box::pin(async { Ok(None) })
+    }
+    fn place_window(
+        &self,
+        _: Option<crate::compositor::WindowPid>,
+        _: crate::compositor::Placement,
+        _: Option<crate::compositor::WindowEvents>,
+    ) -> crate::compositor::WindowFuture<'_> {
+        Box::pin(async { Ok(crate::compositor::WindowAddress("0xabc".into())) })
+    }
+    fn slot(
+        &self,
+        _: crate::viewer::SlotId,
+        _: usize,
+        _: Option<crate::project::WindowSize>,
+    ) -> crate::compositor::SlotFuture<'_> {
+        Box::pin(async {
+            Err(crate::process::ProcessError::Failed {
+                program: "fake".into(),
+                message: "unused".into(),
+            })
+        })
+    }
+    fn install(&self) -> crate::compositor::CompositorFuture<'_> {
+        Box::pin(async { Ok(()) })
+    }
+    fn remove(&self) -> crate::compositor::CompositorFuture<'_> {
+        Box::pin(async { Ok(()) })
+    }
+}
 struct FakeClock {
     zero: Instant,
     elapsed: AtomicU64,
@@ -17,70 +50,9 @@ impl Clock for FakeClock {
         self.zero + Duration::from_millis(self.elapsed.load(Ordering::SeqCst))
     }
 }
-struct FakeDriver {
-    id: String,
-    clock: Arc<FakeClock>,
-    calls: Arc<Mutex<Vec<(String, Value)>>>,
-    closed: Arc<AtomicBool>,
-    stop_fails: bool,
-    stop_hangs: Arc<AtomicBool>,
-    fail_setup: Option<String>,
-    fail_close: Arc<AtomicBool>,
-    entered: Arc<Notify>,
-    release: Arc<Notify>,
-}
-impl Driver for FakeDriver {
-    fn list_tools(&mut self) -> DriverFuture<'_, Vec<Tool>> {
-        Box::pin(async { Ok(vec![]) })
-    }
-    fn call_tool<'a>(&'a mut self, tool: &'a str, arguments: Value) -> DriverFuture<'a, Value> {
-        Box::pin(async move {
-            self.calls
-                .lock()
-                .unwrap()
-                .push((tool.to_owned(), arguments.clone()));
-            if arguments["echo_error"] == true {
-                return Err(DriverError::Close(arguments.to_string()));
-            }
-            if arguments["echo"] == true {
-                return Ok(
-                    json!({"content":[{"type":"text","text":arguments.to_string()}],"structuredContent":arguments}),
-                );
-            }
-            if tool == "slow"
-                || (tool == "stop_recording" && self.stop_hangs.load(Ordering::SeqCst))
-            {
-                self.entered.notify_one();
-                self.release.notified().await;
-            }
-            let duration = match tool {
-                "set_config" | "set_agent_cursor_motion" => 200,
-                "start_recording" | "read" => 50,
-                "run_steps" => ACTION_DURATION_MS,
-                _ => 0,
-            };
-            self.clock.elapsed.fetch_add(duration, Ordering::SeqCst);
-            if self.fail_setup.as_deref() == Some(tool) {
-                return Ok(json!({"isError":true}));
-            }
-            if tool == "stop_recording" && self.stop_fails {
-                return Ok(
-                    json!({"isError":true,"content":[{"type":"text","text":"fixture recording failure"}]}),
-                );
-            }
-            Ok(json!({"driver":self.id}))
-        })
-    }
-    fn close(&mut self) -> DriverFuture<'_, ()> {
-        Box::pin(async {
-            self.closed.store(true, Ordering::SeqCst);
-            if self.fail_close.load(Ordering::SeqCst) {
-                return Err(DriverError::Close("fixture close failure".into()));
-            }
-            Ok(())
-        })
-    }
-}
+#[path = "session_actor_tests/fake_driver.rs"]
+mod fake_driver;
+use fake_driver::FakeDriver;
 struct FakeFactory(Mutex<Option<FakeDriver>>);
 impl DriverFactory for FakeFactory {
     fn open<'a>(
@@ -97,6 +69,9 @@ impl DriverFactory for FakeFactory {
     }
 }
 struct RunningActor {
+    screenshot: Arc<Mutex<fake_driver::Screenshot>>,
+    ended: watch::Sender<()>,
+    control: control::Control,
     sender: mpsc::Sender<ActorRequest>,
     task: tokio::task::JoinHandle<Finished>,
     folder: SessionFolder,
@@ -107,6 +82,7 @@ struct RunningActor {
     release: Arc<Notify>,
     stop_hangs: Arc<AtomicBool>,
     fail_close: Arc<AtomicBool>,
+    fail_no_focus: Arc<AtomicBool>,
     clock: Arc<FakeClock>,
     render_succeeds: Arc<AtomicBool>,
 }
@@ -143,7 +119,12 @@ async fn start_actor_with_credentials(
     let release = Arc::new(Notify::new());
     let stop_hangs = Arc::new(AtomicBool::new(false));
     let fail_close = Arc::new(AtomicBool::new(false));
+    let fail_no_focus = Arc::new(AtomicBool::new(false));
+    let (ended, end_receiver) = watch::channel(());
+    let screenshot = Arc::new(Mutex::new(fake_driver::Screenshot::Ready));
     let driver = FakeDriver {
+        screenshot: screenshot.clone(),
+        ended: end_receiver,
         id: id.into(),
         clock: clock.clone(),
         calls: calls.clone(),
@@ -168,12 +149,17 @@ async fn start_actor_with_credentials(
         })
         .collect();
     let (events, receiver) = watch::channel(SessionSnapshot {
+        control: crate::ipc::ControlState::Verifier,
         state: SessionState::Opening,
         checks: vec![],
         last_action: None,
     });
     let render_succeeds = Arc::new(AtomicBool::new(false));
+    let (control, control_commands) = control::Control::new();
     let actor = Actor {
+        control: control.clone(),
+        control_commands: Some(control_commands),
+        compositor: Arc::new(FakeCompositor),
         opened_at: clock.zero,
         placement: crate::compositor::Placement {
             monitor: "fake".into(),
@@ -198,7 +184,11 @@ async fn start_actor_with_credentials(
         },
         started: chrono::Local::now(),
         checklist: crate::checklist::Checklist::new(vec!["fixture works".into()]),
-        runner: Arc::new(EvidenceRunner(root.join("videos"), render_succeeds.clone())),
+        runner: Arc::new(takeover::Runner {
+            inner: EvidenceRunner(root.join("videos"), render_succeeds.clone()),
+            calls: calls.clone(),
+            fail_no_focus: fail_no_focus.clone(),
+        }),
         closing: Arc::new(AtomicBool::new(false)),
         name,
         folder: folder.clone(),
@@ -223,6 +213,9 @@ async fn start_actor_with_credentials(
     let response = opened.await.unwrap();
     (
         RunningActor {
+            screenshot,
+            ended,
+            control,
             sender,
             task,
             folder,
@@ -233,6 +226,7 @@ async fn start_actor_with_credentials(
             release,
             stop_hangs,
             fail_close,
+            fail_no_focus,
             clock,
             render_succeeds,
         },
@@ -244,6 +238,7 @@ async fn call(actor: &RunningActor, tool: &str) -> Response {
     actor
         .sender
         .send(ActorRequest::Call {
+            arrival: actor.control.gate.arrival(),
             tool: tool.into(),
             arguments: json!({"session":"keek-name"}),
             reply,
@@ -322,6 +317,7 @@ async fn a_slow_call_does_not_block_another_session() {
     let (reply, waiting) = oneshot::channel();
     slow.sender
         .send(ActorRequest::Call {
+            arrival: slow.control.gate.arrival(),
             tool: "slow".into(),
             arguments: json!({}),
             reply,
@@ -387,6 +383,7 @@ async fn a_stuck_driver_call_times_out_and_is_recorded_as_error() {
     actor
         .sender
         .send(ActorRequest::Call {
+            arrival: actor.control.gate.arrival(),
             tool: "slow".into(),
             arguments: json!({}),
             reply,
@@ -540,3 +537,9 @@ mod project;
 
 #[path = "session_actor_tests/credentials.rs"]
 mod credentials;
+
+#[path = "session_actor_tests/takeover.rs"]
+mod takeover;
+
+#[path = "session_actor_tests/queued_help.rs"]
+mod queued_help;

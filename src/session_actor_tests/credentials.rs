@@ -16,6 +16,7 @@ async fn argument(actor: &RunningActor, args: Value) -> Response {
     actor
         .sender
         .send(ActorRequest::Call {
+            arrival: actor.control.gate.arrival(),
             tool: "run_steps".into(),
             arguments: args,
             reply,
