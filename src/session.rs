@@ -299,3 +299,18 @@ mod hand_back;
 
 #[path = "session_journal_watch.rs"]
 mod journal_watch;
+
+#[path = "session_call.rs"]
+mod call;
+#[path = "session_help.rs"]
+mod help;
+
+impl Actor {
+    async fn opener_gone(&self, opener: &mut Option<watch::Receiver<()>>) {
+        opener_left(opener).await;
+        // A dropped watch sender stays ready while a queued close must finish.
+        if self.closing.load(Ordering::SeqCst) {
+            std::future::pending::<()>().await;
+        }
+    }
+}
