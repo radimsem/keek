@@ -21,6 +21,8 @@ struct Fixture {
     directory: TempDir,
     client: Client,
     sessions: Vec<String>,
+    daemons: Vec<u32>,
+    extra_clients: Vec<Client>,
 }
 
 impl Fixture {
@@ -58,14 +60,60 @@ impl Fixture {
         .await??;
         let command = mcp_command(&root, extra_env)?;
         let client = ().serve(TokioChildProcess::new(command)?).await?;
+        let pid = common::keek_status(&client).await?.pid;
         Ok(Self {
             directory,
             client,
             sessions: Vec::new(),
+            daemons: vec![pid],
+            extra_clients: Vec::new(),
         })
     }
 
+    #[allow(dead_code, reason = "only the incomplete-session tests reconnect")]
+    async fn reconnect(&mut self) -> Result<u32> {
+        let command = mcp_command(self.directory.path(), &[])?;
+        let client = ().serve(TokioChildProcess::new(command)?).await?;
+        let status = common::keek_status(&client).await;
+        self.extra_clients.push(client);
+        let pid = status?.pid;
+        if !self.daemons.contains(&pid) {
+            self.daemons.push(pid);
+        }
+        Ok(pid)
+    }
+
+    async fn stop(self) -> Result<()> {
+        for client in std::iter::once(self.client).chain(self.extra_clients) {
+            // A killed keek mcp has nothing left to cancel.
+            let _ = client.cancel().await;
+        }
+        let mut errors = Vec::new();
+        for pid in self.daemons {
+            if let Err(error) = common::stop_daemon(
+                &self.directory.path().join("run"),
+                pid,
+                Duration::from_secs(5),
+            )
+            .await
+            {
+                errors.push(format!("daemon {pid}: {error:#}"));
+            }
+        }
+        anyhow::ensure!(
+            errors.is_empty(),
+            "{}",
+            errors.join("; ")
+        );
+        Ok(())
+    }
+
     async fn worktree(&self, name: &str) -> Result<PathBuf> {
+        self.worktree_with_start(name, START_COMMAND).await
+    }
+
+    async fn worktree_with_start(&self, name: &str, start: &str) -> Result<PathBuf> {
+        let start = start.to_owned();
         let path = self.directory.path().join(name);
         let create = path.clone();
         tokio::task::spawn_blocking(move || std::fs::create_dir(create)).await??;
@@ -75,7 +123,7 @@ impl Fixture {
             use std::os::unix::fs::PermissionsExt;
             std::fs::create_dir_all(script_root.join(".keek"))?;
             let script=script_root.join(".keek/setup.sh");
-            std::fs::write(&script,format!("#!/bin/bash\ncase \"$1\" in\ninstall) exit 0 ;;\nstart) exec {START_COMMAND} ;;\nesac\n"))?;
+            std::fs::write(&script,format!("#!/bin/bash\ncase \"$1\" in\ninstall) exit 0 ;;\nstart) exec {start} ;;\nesac\n"))?;
             std::fs::set_permissions(script,std::fs::Permissions::from_mode(0o755))?;
             Ok(())
         }).await??;
@@ -179,6 +227,12 @@ impl Fixture {
             json!({"session":session,"summary":"fixture clicks completed"}),
         )
         .await?;
+        self.sessions.retain(|name| name != session);
+        anyhow::ensure!(
+            result.get("incomplete").is_none(),
+            "close_session filed an Incomplete Session: {}",
+            result["incomplete"]
+        );
         let path = |key: &str| -> Result<PathBuf> {
             Ok(PathBuf::from(
                 result["evidence"][key]
@@ -203,7 +257,6 @@ impl Fixture {
             "{session}: closed; Evidence in {}",
             records.report.display()
         );
-        self.sessions.retain(|name| name != session);
         Ok(records)
     }
     async fn finish(mut self) -> Result<()> {
@@ -213,7 +266,9 @@ impl Fixture {
                 errors.push(format!("{session}: {error:#}"));
             }
         }
-        self.client.cancel().await?;
+        if let Err(error) = self.stop().await {
+            errors.push(format!("daemon cleanup: {error:#}"));
+        }
         anyhow::ensure!(
             errors.is_empty(),
             "Agent Session cleanup failed: {}",

@@ -1,4 +1,5 @@
 use super::*;
+use crate::checklist::{IncompleteReason, SessionEnd};
 use crate::driver::DriverFuture;
 use rmcp::model::{Tool, ToolAnnotations};
 use std::path::Path;
@@ -69,14 +70,17 @@ impl DriverFactory for FakeFactory {
     }
 }
 struct RunningActor {
+    cause: Arc<Mutex<Option<IncompleteReason>>>,
     screenshot: Arc<Mutex<fake_driver::Screenshot>>,
     ended: watch::Sender<()>,
     control: control::Control,
     sender: mpsc::Sender<ActorRequest>,
+    close: mpsc::Sender<CloseRequest>,
     task: tokio::task::JoinHandle<Finished>,
     folder: SessionFolder,
     calls: Arc<Mutex<Vec<(String, Value)>>>,
     closed: Arc<AtomicBool>,
+    closing: Arc<AtomicBool>,
     events: watch::Receiver<SessionSnapshot>,
     entered: Arc<Notify>,
     release: Arc<Notify>,
@@ -142,7 +146,9 @@ async fn start_configured(
     let fail_no_focus = Arc::new(AtomicBool::new(false));
     let (ended, end_receiver) = watch::channel(());
     let screenshot = Arc::new(Mutex::new(fake_driver::Screenshot::Ready));
+    let cause = Arc::new(Mutex::new(None));
     let driver = FakeDriver {
+        cause: cause.clone(),
         screenshot: screenshot.clone(),
         ended: end_receiver,
         id: id.into(),
@@ -176,6 +182,7 @@ async fn start_configured(
     });
     let render_succeeds = Arc::new(AtomicBool::new(false));
     let (control, control_commands) = control::Control::new();
+    let closing = Arc::new(AtomicBool::new(false));
     let actor = Actor {
         frames_dir: root.join("frames"),
         journal: None,
@@ -213,7 +220,7 @@ async fn start_configured(
             calls: calls.clone(),
             fail_no_focus: fail_no_focus.clone(),
         }),
-        closing: Arc::new(AtomicBool::new(false)),
+        closing: closing.clone(),
         name,
         folder: folder.clone(),
         factory: Arc::new(FakeFactory(Mutex::new(Some(driver)))),
@@ -221,9 +228,10 @@ async fn start_configured(
         catalog: Arc::new(Catalog::new(tools)),
         events,
     };
-    let (sender, mailbox) = mpsc::channel(8);
+    let (sender, mailbox) = mpsc::channel(32);
+    let (close, close_receiver) = mpsc::channel(1);
     let (reply, opened) = oneshot::channel();
-    let mut task = tokio::spawn(actor.run(mailbox, reply));
+    let mut task = tokio::spawn(actor.run(Inbox::new(mailbox, close_receiver), reply));
     if fail_setup.is_some() {
         let mut finished = task.await.unwrap();
         finished
@@ -237,14 +245,17 @@ async fn start_configured(
     let response = opened.await.unwrap();
     (
         RunningActor {
+            cause,
             screenshot,
             ended,
             control,
             sender,
+            close,
             task,
             folder,
             calls,
             closed,
+            closing,
             events: receiver,
             entered,
             release,
@@ -289,8 +300,8 @@ async fn close(actor: &RunningActor) -> oneshot::Receiver<Response> {
     ));
     let (reply, response) = oneshot::channel();
     actor
-        .sender
-        .send(ActorRequest::Close {
+        .close
+        .send(CloseRequest {
             summary: "checked fixture".into(),
             reply,
         })
@@ -307,31 +318,6 @@ async fn finish(actor: RunningActor) -> Response {
 
 #[path = "session_actor_tests/timeline.rs"]
 mod timeline;
-
-#[tokio::test]
-async fn close_writes_the_timeline_and_closes_the_driver_when_stop_recording_fails() {
-    let root = tempfile::tempdir().unwrap();
-    let actor = start_actor(root.path(), "app_12-00-00", true).await;
-    call(&actor, "click").await;
-    let folder = actor.folder.clone();
-    let closed = actor.closed.clone();
-    let calls = actor.calls.clone();
-    assert!(
-        matches!(finish(actor).await, Response::Refused { message } if message.contains("fixture recording failure"))
-    );
-    assert!(closed.load(Ordering::SeqCst));
-    assert!(
-        calls
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|(tool, _)| tool == "stop_recording")
-    );
-    let timeline =
-        SessionTimeline::parse(&std::fs::read_to_string(folder.timeline()).unwrap()).unwrap();
-    assert_eq!(timeline.events().len(), 2);
-    assert!(!folder.root().join("timeline.json.tmp").exists());
-}
 
 #[tokio::test]
 async fn a_slow_call_does_not_block_another_session() {
@@ -434,21 +420,6 @@ async fn a_stuck_driver_call_times_out_and_is_recorded_as_error() {
     ));
 }
 
-#[tokio::test(start_paused = true)]
-async fn a_stuck_stop_times_out_and_closes_the_driver() {
-    let root = tempfile::tempdir().unwrap();
-    let actor = start_actor(root.path(), "app_12-00-00", false).await;
-    actor.stop_hangs.store(true, Ordering::SeqCst);
-    let response = close(&actor).await;
-    actor.entered.notified().await;
-    tokio::time::advance(Duration::from_secs(31)).await;
-    let finished = tokio::time::timeout(Duration::from_secs(1), actor.task).await;
-    let finished = finished.expect("actor did not finish").unwrap();
-    assert!(actor.closed.load(Ordering::SeqCst));
-    finished.reply.unwrap().send(finished.response).unwrap();
-    assert!(matches!(response.await.unwrap(), Response::Refused { .. }));
-}
-
 #[tokio::test]
 async fn setup_calls_precede_recording_with_the_expected_arguments() {
     let root = tempfile::tempdir().unwrap();
@@ -500,21 +471,6 @@ async fn an_error_from_any_setup_call_refuses_open_and_closes_the_driver() {
         assert!(actor.closed.load(Ordering::SeqCst), "{tool}");
         actor.task.await.unwrap();
     }
-}
-
-#[tokio::test]
-async fn close_reports_both_stop_and_close_failures() {
-    let root = tempfile::tempdir().unwrap();
-    let actor = start_actor(root.path(), "app_12-00-00", true).await;
-    actor.fail_close.store(true, Ordering::SeqCst);
-    let response = finish(actor).await;
-    let Response::Refused { message } = response else {
-        panic!("{response:?}")
-    };
-    assert!(
-        message.contains("fixture recording failure") && message.contains("fixture close failure"),
-        "{message}"
-    );
 }
 
 #[path = "session_actor_tests/editor.rs"]
@@ -570,3 +526,12 @@ mod queued_help;
 
 #[path = "session_actor_tests/incomplete.rs"]
 mod incomplete;
+
+#[path = "session_actor_tests/close.rs"]
+mod close_tests;
+
+#[path = "session_actor_tests/host_window.rs"]
+mod host_window;
+
+#[path = "session_actor_tests/close_failed.rs"]
+mod close_failed;

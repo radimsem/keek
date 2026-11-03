@@ -11,8 +11,7 @@ impl ActorRequest {
             Self::Call { reply, .. }
             | Self::RequestHelp { reply, .. }
             | Self::AddCheck { reply, .. }
-            | Self::MarkCheck { reply, .. }
-            | Self::Close { reply, .. } => reply,
+            | Self::MarkCheck { reply, .. } => reply,
         }
     }
 }
@@ -38,13 +37,14 @@ pub enum ActorRequest {
         comment: String,
         reply: oneshot::Sender<Response>,
     },
-    Close {
-        summary: String,
-        reply: oneshot::Sender<Response>,
-    },
 }
 pub struct Finished {
     pub name: SessionName,
     pub response: Response,
     pub reply: Option<oneshot::Sender<Response>>,
+}
+
+pub struct CloseRequest {
+    pub summary: String,
+    pub reply: oneshot::Sender<Response>,
 }

@@ -1,10 +1,18 @@
 use super::*;
+use crate::timeline::{CheckId, CheckOutcome};
+
+pub(super) struct LoopState {
+    pub(super) driver: Box<dyn Driver>,
+    pub(super) opener: Option<watch::Receiver<()>>,
+    pub(super) deadline: tokio::time::Instant,
+    pub(super) ended: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
+    pub(super) timeline: SessionTimeline,
+    pub(super) last_action: Option<LastAction>,
+    pub(super) zero: Instant,
+}
+
 impl Actor {
-    pub async fn run(
-        self,
-        mailbox: mpsc::Receiver<ActorRequest>,
-        open_reply: oneshot::Sender<Response>,
-    ) -> Finished {
+    pub async fn run(self, inbox: Inbox, open_reply: oneshot::Sender<Response>) -> Finished {
         let journal = self.journal.clone();
         let events = self.events.subscribe();
         let (stop, stopped) = oneshot::channel();
@@ -18,7 +26,7 @@ impl Actor {
                 self.opened_at,
             ));
         }
-        let finished = self.run_open(mailbox, open_reply).await;
+        let finished = self.run_open(inbox, open_reply).await;
         let _ = stop.send(());
         while watchers.join_next().await.is_some() {}
         if let Some(journal) = journal {
@@ -28,7 +36,7 @@ impl Actor {
     }
     async fn run_open(
         mut self,
-        mut mailbox: mpsc::Receiver<ActorRequest>,
+        mut inbox: Inbox,
         open_reply: oneshot::Sender<Response>,
     ) -> Finished {
         let mut opener = self.opener.take();
@@ -131,72 +139,49 @@ impl Actor {
                 })
                 .collect(),
         });
-        let mut timeline = SessionTimeline::new(VIDEO_LEAD);
-        let mut last_action: Option<LastAction> = None;
-        let mut ended = driver.ended();
+        let ended = driver.ended();
+        let mut state = LoopState {
+            driver,
+            opener,
+            deadline: tokio::time::Instant::now() + self.idle_limit,
+            ended,
+            timeline: SessionTimeline::new(VIDEO_LEAD),
+            last_action: None,
+            zero,
+        };
         let mut control_events = self.events.subscribe();
-        let mut deadline = tokio::time::Instant::now() + self.idle_limit;
         let reason = 'requests: loop {
             let paused = control_events.borrow().control.pauses_idle();
             let request = tokio::select! { biased;
-                () = &mut ended => break 'requests Some(crate::checklist::IncompleteReason::DesktopStopped),
-                // Close can be queued after select checks its guards.
-                () = opener_left(&mut opener), if !self.closing.load(Ordering::SeqCst) => { if !self.closing.load(Ordering::SeqCst) { break 'requests Some(crate::checklist::IncompleteReason::OpenerLeft); } continue; },
-                _ = control_events.changed() => {
-                    let now_paused = control_events.borrow().control.pauses_idle();
-                    if paused && !now_paused { deadline = tokio::time::Instant::now() + self.idle_limit; }
+                () = &mut state.ended => break 'requests Some(crate::checklist::IncompleteReason::DesktopStopped),
+                () = self.opener_gone(&mut state.opener) => break 'requests Some(crate::checklist::IncompleteReason::OpenerLeft),
+                close = Inbox::next_close(&mut inbox.close) => {
+                    if let Some(close) = close
+                        && let Some((close, ready)) = self.close_when_idle(&mut state, &mut inbox, close).await {
+                            return self.finish_close(&mut state, &mut inbox, &mut controller_task, close, ready).await;
+                    }
                     continue;
                 }
-                () = tokio::time::sleep_until(deadline), if !paused && !self.closing.load(Ordering::SeqCst) => { if !self.closing.load(Ordering::SeqCst) { break 'requests Some(crate::checklist::IncompleteReason::Idle { limit: self.idle_limit }); } continue; },
-                request = mailbox.recv() => { let Some(request) = request else { break 'requests None; }; request }
+                _ = control_events.changed() => {
+                    let now_paused = control_events.borrow().control.pauses_idle();
+                    if paused && !now_paused { state.deadline = tokio::time::Instant::now() + self.idle_limit; }
+                    continue;
+                }
+                () = tokio::time::sleep_until(state.deadline), if !paused && !self.closing.load(Ordering::SeqCst) => { if !self.closing.load(Ordering::SeqCst) { break 'requests Some(crate::checklist::IncompleteReason::Idle { limit: self.idle_limit }); } continue; },
+                request = Inbox::next_request(&mut inbox.requests, &mut inbox.deferred) => { let Some(request) = request else { break 'requests None; }; request }
             };
-            deadline = tokio::time::Instant::now() + self.idle_limit;
+            state.deadline = tokio::time::Instant::now() + self.idle_limit;
             match request {
                 ActorRequest::RequestHelp {
                     arrival,
                     reason,
                     reply,
                 } => {
-                    let reason = self.credentials.mask(&reason);
-                    if reason.trim().is_empty() {
-                        let _ = reply.send(refusal(
-                            "A Help Request needs a reason. Describe what you need.",
-                        ));
-                        continue;
-                    }
-                    let (help_reply, mut waiting) = oneshot::channel();
-                    let _ = self
-                        .control
-                        .commands
-                        .send(control::Command::Help {
-                            arrival,
-                            reason,
-                            reply: help_reply,
-                        })
-                        .await;
-                    let span = loop {
-                        tokio::select! {
-                            span = &mut waiting => match span {
-                                Ok(span) => break span,
-                                Err(_) => { let _ = reply.send(refusal("The Agent Session ended while the Help Request waited. Open a new Agent Session.")); break 'requests Some(crate::checklist::IncompleteReason::DesktopStopped); }
-                            },
-                            () = opener_left(&mut opener), if !self.closing.load(Ordering::SeqCst) => {
-                                if !self.closing.load(Ordering::SeqCst) { let _ = reply.send(refusal("The coding agent disconnected. Open a new Agent Session.")); break 'requests Some(crate::checklist::IncompleteReason::OpenerLeft); }
-                            }
-                            () = &mut ended => { let _ = reply.send(refusal("The Agent Session ended while the Help Request waited. Open a new Agent Session.")); break 'requests Some(crate::checklist::IncompleteReason::DesktopStopped); }
-                        }
-                    };
-                    let result = match self
-                        .hand_back(driver.as_mut(), span, &mut opener, &mut deadline)
-                        .await
+                    if let Some(reason) =
+                        self.help_request(&mut state, arrival, reason, reply).await
                     {
-                        Ok(response) => response,
-                        Err(reason) => {
-                            let _ = reply.send(refusal(reason.refusal()));
-                            break 'requests Some(reason);
-                        }
-                    };
-                    let _ = reply.send(self.mask_reply(result));
+                        break 'requests Some(reason);
+                    }
                 }
                 ActorRequest::Call {
                     arrival,
@@ -204,117 +189,28 @@ impl Actor {
                     arguments,
                     reply,
                 } => {
-                    let entry = tokio::select! {
-                        entry = self.control.gate.enter_for(arrival) => entry,
-                        () = opener_left(&mut opener), if !self.closing.load(Ordering::SeqCst) => { if !self.closing.load(Ordering::SeqCst) { break 'requests Some(crate::checklist::IncompleteReason::OpenerLeft); } continue; },
-                    };
-                    let _permit = match entry {
-                        gate::Entry::Run(permit) => permit,
-                        gate::Entry::HandBack(span) => {
-                            let result = match self
-                                .hand_back(driver.as_mut(), span, &mut opener, &mut deadline)
-                                .await
-                            {
-                                Ok(response) => response,
-                                Err(reason) => {
-                                    let _ = reply.send(refusal(reason.refusal()));
-                                    break 'requests Some(reason);
-                                }
-                            };
-                            let _ = reply.send(self.mask_reply(result));
-                            continue;
+                    match self
+                        .forward_call(&mut state, &mut inbox, arrival, tool, arguments, reply)
+                        .await
+                    {
+                        call::CallEnd::Replied => {}
+                        call::CallEnd::Close(close, ready) => {
+                            return self
+                                .finish_close(
+                                    &mut state,
+                                    &mut inbox,
+                                    &mut controller_task,
+                                    close,
+                                    ready,
+                                )
+                                .await;
                         }
-                    };
-                    let (mut arguments, action) =
-                        match self.catalog.prepare_call(&tool, &self.name, arguments) {
-                            Ok(args) => args,
-                            Err(e) => {
-                                let _ = reply.send(self.mask_reply(refusal(e)));
-                                continue;
-                            }
-                        };
-                    if let Err(error) = self.credentials.substitute(&mut arguments) {
-                        let _ = reply.send(self.mask_reply(refusal(error)));
-                        continue;
-                    }
-                    let start = self.clock.now();
-                    let action_ms = Millis(
-                        start
-                            .saturating_duration_since(self.opened_at)
-                            .as_millis()
-                            .try_into()
-                            .unwrap_or(u64::MAX),
-                    );
-                    let start_ms = timeline_time(zero, start);
-                    let interrupt = |reason: crate::checklist::IncompleteReason| {
-                        (
-                            Err(DriverError::Call {
-                                tool: tool.clone(),
-                                reason: reason.sentence(),
-                            }),
-                            Some(reason),
-                        )
-                    };
-                    let (result, interrupted) = {
-                        let calling = call_driver(
-                            driver.as_mut(),
-                            &tool,
-                            arguments,
-                            Duration::from_secs(150),
-                        );
-                        tokio::pin!(calling);
-                        loop {
-                            tokio::select! { biased;
-                                () = &mut ended => break interrupt(crate::checklist::IncompleteReason::DesktopStopped),
-                                result = &mut calling => break (result, None),
-                                () = opener_left(&mut opener), if !self.closing.load(Ordering::SeqCst) => {
-                                    if !self.closing.load(Ordering::SeqCst) { break interrupt(crate::checklist::IncompleteReason::OpenerLeft); }
-                                }
-                            }
-                        }
-                    };
-                    let end_ms = timeline_time(zero, self.clock.now());
-                    let is_error = result.as_ref().map_or(true, |v| {
-                        v.get("isError").and_then(Value::as_bool).unwrap_or(false)
-                    });
-                    timeline.push(TimelineEvent::Call {
-                        tool: tool.clone(),
-                        action,
-                        start_ms,
-                        end_ms,
-                        is_error,
-                    });
-                    if action {
-                        last_action = Some(LastAction {
-                            tool,
-                            time_ms: action_ms,
-                        });
-                        self.publish(SessionState::Open, &last_action);
-                    }
-                    self.persist(&timeline).await;
-                    deadline = tokio::time::Instant::now() + self.idle_limit;
-                    let _ = reply.send(self.mask_reply(if let Some(reason) = interrupted {
-                        refusal(reason.refusal())
-                    } else {
-                        match result {
-                            Ok(value) => Response::ToolResult(value),
-                            Err(error) => refusal(error),
-                        }
-                    }));
-                    if let Some(reason) = interrupted {
-                        break 'requests Some(reason);
+                        call::CallEnd::End(reason) => break 'requests Some(reason),
                     }
                 }
                 ActorRequest::AddCheck { text, reply } => {
-                    let response = match self.checklist.add(self.credentials.mask(&text)) {
-                        Ok(check) => {
-                            self.publish(SessionState::Open, &last_action);
-                            Response::CheckAdded { check }
-                        }
-                        Err(e) => refusal(e),
-                    };
-                    self.persist(&timeline).await;
-                    let _ = reply.send(self.mask_reply(response));
+                    self.add_check(&state.last_action, &state.timeline, text, reply)
+                        .await;
                 }
                 ActorRequest::MarkCheck {
                     check,
@@ -322,71 +218,16 @@ impl Actor {
                     comment,
                     reply,
                 } => {
-                    let time_ms = timeline_time(zero, self.clock.now());
-                    let response = match self.checklist.mark(
+                    self.mark_check(
+                        &state.last_action,
+                        &mut state.timeline,
+                        state.zero,
                         check,
                         outcome,
-                        self.credentials.mask(&comment),
-                        time_ms,
-                    ) {
-                        Ok(()) => {
-                            timeline.push(TimelineEvent::CheckMark {
-                                check,
-                                outcome,
-                                at_ms: time_ms,
-                            });
-                            self.publish(SessionState::Open, &last_action);
-                            Response::CheckMarked { check }
-                        }
-                        Err(e) => refusal(e),
-                    };
-                    self.persist(&timeline).await;
-                    let _ = reply.send(self.mask_reply(response));
-                }
-                ActorRequest::Close { summary, reply } => {
-                    let _permit = loop {
-                        match self.control.gate.enter().await {
-                            gate::Entry::Run(permit) => break permit,
-                            gate::Entry::HandBack(_) => {}
-                        }
-                    };
-
-                    let summary = self.credentials.mask(&summary);
-                    // Everything that can refuse runs before the session stops, so the Verifier can fix it and retry.
-                    let ready = match self.checklist.verdict() {
-                        Ok(verdict) => crate::evidence::writable_videos_dir(self.runner.as_ref())
-                            .await
-                            .map(|videos| (verdict, videos))
-                            .map_err(|e| e.to_string()),
-                        Err(e) => Err(e.to_string()),
-                    };
-                    let (verdict, videos) = match ready {
-                        Ok(ready) => ready,
-                        Err(message) => {
-                            self.closing.store(false, Ordering::SeqCst);
-                            let _ = reply.send(self.mask_reply(refusal(message)));
-                            continue;
-                        }
-                    };
-                    drop(_permit);
-                    let response = self
-                        .end_session(
-                            driver.as_mut(),
-                            &mut mailbox,
-                            &mut controller_task,
-                            &mut timeline,
-                            zero,
-                            &last_action,
-                            Some(crate::checklist::SessionEnd::Verdict(verdict)),
-                            Ok(videos),
-                            summary,
-                        )
-                        .await;
-                    return Finished {
-                        response: self.mask_reply(response),
-                        name: self.name,
-                        reply: Some(reply),
-                    };
+                        comment,
+                        reply,
+                    )
+                    .await;
                 }
             }
         };
@@ -398,12 +239,12 @@ impl Actor {
         };
         let response = self
             .end_session(
-                driver.as_mut(),
-                &mut mailbox,
+                state.driver.as_mut(),
+                &mut inbox,
                 &mut controller_task,
-                &mut timeline,
-                zero,
-                &last_action,
+                &mut state.timeline,
+                state.zero,
+                &state.last_action,
                 reason.map(crate::checklist::SessionEnd::Incomplete),
                 videos,
                 String::new(),
@@ -414,6 +255,54 @@ impl Actor {
             response,
             reply: None,
         }
+    }
+    pub(super) async fn add_check(
+        &mut self,
+        last_action: &Option<LastAction>,
+        timeline: &SessionTimeline,
+        text: String,
+        reply: oneshot::Sender<Response>,
+    ) {
+        let response = match self.checklist.add(self.credentials.mask(&text)) {
+            Ok(check) => {
+                self.publish(SessionState::Open, last_action);
+                Response::CheckAdded { check }
+            }
+            Err(e) => refusal(e),
+        };
+        self.persist(timeline).await;
+        let _ = reply.send(self.mask_reply(response));
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn mark_check(
+        &mut self,
+        last_action: &Option<LastAction>,
+        timeline: &mut SessionTimeline,
+        zero: Instant,
+        check: CheckId,
+        outcome: CheckOutcome,
+        comment: String,
+        reply: oneshot::Sender<Response>,
+    ) {
+        let time_ms = timeline_time(zero, self.clock.now());
+        let response =
+            match self
+                .checklist
+                .mark(check, outcome, self.credentials.mask(&comment), time_ms)
+            {
+                Ok(()) => {
+                    timeline.push(TimelineEvent::CheckMark {
+                        check,
+                        outcome,
+                        at_ms: time_ms,
+                    });
+                    self.publish(SessionState::Open, last_action);
+                    Response::CheckMarked { check }
+                }
+                Err(e) => refusal(e),
+            };
+        self.persist(timeline).await;
+        let _ = reply.send(self.mask_reply(response));
     }
     pub(super) async fn record_takeovers(&self, timeline: &mut SessionTimeline, zero: Instant) {
         for span in self.control.drain().await {

@@ -80,11 +80,13 @@ impl DriverFactory for SandboxFactory {
                 driver,
                 child,
                 window: None,
+                guard: None,
             };
             if let Err(error) = check_plugin(folder, self.runner.as_ref()).await {
                 let _ = sandbox.close().await;
                 return Err(error);
             }
+            let mut window_pid = None;
             let placement_result = async {
                 let pid = sandbox.child.id().ok_or_else(|| SessionError::Refused("The sandbox stopped before the Session Window appeared. Check sandbox.err and open again.".into()))?;
                 let pid = match connection_pid(pid).await {
@@ -94,6 +96,7 @@ impl DriverFactory for SandboxFactory {
                         None
                     }
                 };
+                window_pid = pid;
                 self.compositor.place_window(pid, placement, events).await.map_err(|e| SessionError::Refused(e.to_string()))
             }.await;
             match placement_result {
@@ -102,6 +105,24 @@ impl DriverFactory for SandboxFactory {
                     let _ = sandbox.close().await;
                     return Err(error);
                 }
+            }
+            if let (Some(pid), Some(address), Some(sandbox_pid)) =
+                (window_pid, sandbox.window.as_ref(), sandbox.child.id())
+            {
+                let events = self.compositor.takeover_events().await.unwrap_or_else(|error| {
+                    tracing::warn!(%error, "Cannot subscribe to host windows; the guard will poll");
+                    None
+                });
+                sandbox.guard = Some(crate::window_guard::Guard::spawn(
+                    self.compositor.clone(),
+                    self.runner.clone(),
+                    events,
+                    pid,
+                    address.clone(),
+                    sandbox_pid,
+                ));
+            } else if window_pid.is_none() {
+                tracing::warn!("Session Window pid is unknown; the host window guard is off");
             }
             Ok(Box::new(sandbox) as Box<dyn Driver>)
         })
@@ -178,11 +199,17 @@ async fn check_plugin(
     )))
 }
 struct SandboxDriver {
+    guard: Option<crate::window_guard::Guard>,
     window: Option<crate::compositor::WindowAddress>,
     driver: CuaDriver,
     child: tokio::process::Child,
 }
 impl Driver for SandboxDriver {
+    fn end_cause(&self) -> Option<crate::checklist::IncompleteReason> {
+        self.guard
+            .as_ref()
+            .and_then(crate::window_guard::Guard::cause)
+    }
     fn ended(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
         self.driver.ended()
     }
@@ -196,6 +223,7 @@ impl Driver for SandboxDriver {
         self.driver.call_tool(name, args)
     }
     fn close(&mut self) -> DriverFuture<'_, ()> {
+        self.guard.take();
         Box::pin(async move {
             match tokio::time::timeout(Duration::from_secs(30), async {
                 let close = self.driver.close().await;
@@ -351,3 +379,7 @@ mod tests {
         assert!(error.len() < 2000, "refusal exposed oversized content");
     }
 }
+
+#[cfg(test)]
+#[path = "session_factory_guard_tests.rs"]
+mod guard_tests;

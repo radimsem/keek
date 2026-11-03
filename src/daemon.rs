@@ -34,6 +34,7 @@ const REQUEST_QUEUE: usize = 32;
 pub enum Exit {
     Idle,
     ShutDown,
+    Terminated,
     /// Another daemon holds the lock, so this one never served.
     AlreadyRunning,
 }
@@ -52,6 +53,8 @@ pub enum DaemonError {
     Lock(#[source] io::Error),
     #[error("could not bind the daemon socket")]
     Bind(#[source] io::Error),
+    #[error("could not listen for SIGTERM")]
+    Signal(#[source] io::Error),
     #[error("could not accept a client")]
     Accept(#[source] io::Error),
     #[error("could not remove the daemon socket")]
@@ -86,7 +89,10 @@ pub(crate) async fn serve(
     listener: UnixListener,
     mut idle: IdleWatch<impl Clock>,
     mut registry: crate::registry::Registry,
+    terminated: impl std::future::Future<Output = ()>,
 ) -> Result<Exit, DaemonError> {
+    registry.remove_host_rule().await;
+    tokio::pin!(terminated);
     let (request_sender, mut requests) = mpsc::channel::<PendingRequest>(REQUEST_QUEUE);
     let mut connections: JoinSet<ConnectionEnd> = JoinSet::new();
     let mut commands = registry
@@ -100,6 +106,10 @@ pub(crate) async fn serve(
         let remaining = idle.remaining();
 
         tokio::select! {
+            () = &mut terminated => {
+                registry.remove_host_rule().await;
+                return Ok(Exit::Terminated);
+            }
             Some(command) = commands.recv() => registry.control(command).await,
             accepted = listener.accept() => {
                 match accepted {
