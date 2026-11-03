@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+mod common;
 include!("common/live.rs");
 include!("common/live_evidence.rs");
 

@@ -2,6 +2,7 @@
     dead_code,
     reason = "The shared desktop fixture also supports recording tests."
 )]
+mod common;
 include!("common/live.rs");
 use std::sync::{
     Arc,
@@ -374,7 +375,10 @@ async fn live_project_reuses_layers_and_applies_isolation_settings_and_warnings(
     let after = host_state().await?;
     let after_config = host_config().await?;
     let after_windows = clients().await?;
-    anyhow::ensure!(before == after, "host focus or workspace changed");
+    anyhow::ensure!(
+        before == after,
+        "host focus or workspace changed: before={before:?}, after={after:?}"
+    );
     anyhow::ensure!(config == after_config, "host config changed");
     anyhow::ensure!(
         addresses(&windows) == addresses(&after_windows),

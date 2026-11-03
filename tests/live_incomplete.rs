@@ -17,9 +17,7 @@ async fn live_killing_keek_mcp_files_incomplete_evidence_and_leaves_no_sandbox()
     let _desktop = LIVE_DESKTOP.lock().await;
     let before = host_state().await?;
     let mut fixture = Fixture::start().await?;
-    let mut daemons = Vec::new();
     let result = async {
-        daemons.push(common::keek_status(&fixture.client).await?.pid);
         let worktree = fixture.worktree("vanished-agent").await?;
         let session = fixture.open("vanished-agent", &worktree).await?;
         fixture.click(&session, 1).await?;
@@ -31,7 +29,7 @@ async fn live_killing_keek_mcp_files_incomplete_evidence_and_leaves_no_sandbox()
         assert_host_unchanged(&before).await
     }
     .await;
-    conclude(fixture, Vec::new(), &daemons, result).await
+    conclude(fixture, result).await
 }
 
 #[tokio::test]
@@ -40,11 +38,8 @@ async fn live_killing_the_daemon_leaves_a_session_the_next_daemon_files() -> Res
     let _desktop = LIVE_DESKTOP.lock().await;
     let before = host_state().await?;
     let mut fixture = Fixture::start().await?;
-    let mut daemons = Vec::new();
-    let mut later_clients = Vec::new();
     let result = async {
-        let first = common::keek_status(&fixture.client).await?.pid;
-        daemons.push(first);
+        let first = fixture.daemons[0];
         let worktree = fixture.worktree("fallen-daemon").await?;
         let session = fixture.open("fallen-daemon", &worktree).await?;
         fixture.click(&session, 1).await?;
@@ -54,10 +49,7 @@ async fn live_killing_the_daemon_leaves_a_session_the_next_daemon_files() -> Res
         assert_processes_gone(&folder).await?;
         println!("daemon {first} was killed and took the sandbox with it");
 
-        let transport = TokioChildProcess::new(mcp_command(fixture.directory.path(), &[])?)?;
-        later_clients.push(().serve(transport).await?);
-        let second = common::keek_status(&later_clients[0]).await?.pid;
-        daemons.push(second);
+        let second = fixture.reconnect().await?;
         anyhow::ensure!(
             second != first,
             "the new keek mcp reached the killed daemon"
@@ -69,7 +61,7 @@ async fn live_killing_the_daemon_leaves_a_session_the_next_daemon_files() -> Res
         assert_host_unchanged(&before).await
     }
     .await;
-    conclude(fixture, later_clients, &daemons, result).await
+    conclude(fixture, result).await
 }
 
 #[tokio::test]
@@ -78,9 +70,7 @@ async fn live_an_idle_session_ends_as_incomplete() -> Result<()> {
     let _desktop = LIVE_DESKTOP.lock().await;
     let before = host_state().await?;
     let mut fixture = Fixture::start_with(&[("KEEK_SESSION_IDLE_MS", "5000")]).await?;
-    let mut daemons = Vec::new();
     let result = async {
-        daemons.push(common::keek_status(&fixture.client).await?.pid);
         let worktree = fixture.worktree("idle-agent").await?;
         let session = fixture.open("idle-agent", &worktree).await?;
         let opened = Instant::now();
@@ -100,7 +90,7 @@ async fn live_an_idle_session_ends_as_incomplete() -> Result<()> {
         assert_host_unchanged(&before).await
     }
     .await;
-    conclude(fixture, Vec::new(), &daemons, result).await
+    conclude(fixture, result).await
 }
 
 #[tokio::test]
@@ -108,9 +98,7 @@ async fn live_an_idle_session_ends_as_incomplete() -> Result<()> {
 async fn live_killing_keek_mcp_during_a_slow_install_leaves_no_sandbox_or_build() -> Result<()> {
     let _desktop = LIVE_DESKTOP.lock().await;
     let fixture = Fixture::start().await?;
-    let mut daemons = Vec::new();
     let result = async {
-        daemons.push(common::keek_status(&fixture.client).await?.pid);
         let worktree = fixture.worktree("slow-install").await?;
         let script = worktree.join(".keek/setup.sh");
         tokio::task::spawn_blocking(move || {
@@ -158,7 +146,7 @@ async fn live_killing_keek_mcp_during_a_slow_install_leaves_no_sandbox_or_build(
         })
         .await
         .with_context(|| format!("{} remains after the cancelled install", build.display()))?;
-        let daemon = daemons[0];
+        let daemon = fixture.daemons[0];
         wait_for("the daemon to exit", CANCEL_WAIT, move || {
             common::process_is_gone(daemon).then_some(())
         })
@@ -171,7 +159,7 @@ async fn live_killing_keek_mcp_during_a_slow_install_leaves_no_sandbox_or_build(
         Ok(())
     }
     .await;
-    conclude(fixture, Vec::new(), &daemons, result).await
+    conclude(fixture, result).await
 }
 
 async fn wait_processes_gone(folder: &Path, limit: Duration) -> Result<()> {
@@ -250,33 +238,13 @@ async fn diagnostics(root: &Path) -> String {
     .unwrap_or_default()
 }
 
-/// Prints the daemon log after a failure, then stops the daemons so none outlives the temp root.
-async fn conclude(
-    fixture: Fixture,
-    later_clients: Vec<Client>,
-    daemons: &[u32],
-    result: Result<()>,
-) -> Result<()> {
+async fn conclude(fixture: Fixture, result: Result<()>) -> Result<()> {
     if result.is_err() {
         println!("{}", diagnostics(fixture.directory.path()).await);
     }
-    let Fixture {
-        directory, client, ..
-    } = fixture;
-    for client in std::iter::once(client).chain(later_clients) {
-        // A killed keek mcp has nothing left to cancel.
-        let _ = client.cancel().await;
+    let stopped = fixture.stop().await;
+    if let Err(error) = &stopped {
+        println!("daemon cleanup failed: {error:#}");
     }
-    for &daemon in daemons {
-        // A daemon that ended a session keeps its End Card until the developer
-        // dismisses it, so it does not exit on its own.
-        let exit = wait_for("the daemon to exit", Duration::from_secs(5), move || {
-            common::process_is_gone(daemon).then_some(())
-        });
-        if exit.await.is_err() {
-            run("kill", &["-KILL", &daemon.to_string()], None).await?;
-        }
-    }
-    drop(directory);
-    result
+    result.and(stopped)
 }

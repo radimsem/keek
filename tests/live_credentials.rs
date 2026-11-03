@@ -2,6 +2,7 @@
     dead_code,
     reason = "The shared desktop fixture supports other live tests."
 )]
+mod common;
 include!("common/live.rs");
 
 #[tokio::test]
