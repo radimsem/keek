@@ -39,6 +39,7 @@ The viewer fails, even if it works, if:
 - Long-running host code reacts to events instead of polling, following Omarchy's rule for background work. Hyprland's event socket reports windows and workspaces.
 - Every nested Hyprland window has class `aquamarine` and title `aquamarine - WAYLAND-1`, and neither can be set. Its output takes the window's size on every resize.
 - `hyprctl setprop address:<addr> no_focus 1` makes Hyprland refuse focus to a window and skip it in pointer hit tests. Setting it does not take focus away from a window that already has it.
+- A Hyprland window rule matches a window's identity and state (class, title, tag, workspace among others), never a pid; only a dispatcher selector takes `pid:...`. A rule therefore cannot tell two nested Hyprlands apart.
 
 ## Decisions
 
@@ -60,6 +61,8 @@ Two slots sit side by side on monitors at least 1920 logical pixels wide (960 pi
 The nested Hyprland's own window. It shows the agent's desktop live, with Cua's agent cursor, its action marks and a ripple on each click in the picture.
 
 keek sets `no_focus` on it from the moment it maps until a Take control. The developer's clicks, scrolls and keys never reach the agent's desktop by accident, and the window can't be dragged or resized out of its slot.
+
+keek's host rule matches class alone, so a nested Hyprland the developer starts themselves while a session is open is caught by it too: it opens floated on the `keek` workspace with `no_focus`, and keek never lifts either, so focus and clicks return only once every session closes. keek places each Session Window by its client pid, so that window normally stays where the rule left it; only when the pid cannot be resolved does keek take the first new `aquamarine` window, which can be the developer's. Moving `no_focus` and the placement to per-window props once the pid matches would leave a mapped window focusable and off `keek` for a moment, and the Takeover boundary needs `no_focus` from map time (ADR 0007), so the class rule stays.
 
 ### Session Footer
 
@@ -123,5 +126,4 @@ When the session closes (normally or as an Incomplete Session), the sandbox stop
 
 ## Left to the builder
 
-- Matching a nested window to its session. Candidates are the client's pid and the first window that maps on the connection keek created.
 - The Session Footer's layout, styling and copy follow [`DESIGN.md`](DESIGN.md).
