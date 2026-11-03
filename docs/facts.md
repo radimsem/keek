@@ -89,6 +89,10 @@ Checked on 2026-10-30:
 - Cua's cursor is a plain arrow in the session's colour that floats while resting. Action marks, click ripple, glow, squish and rotation are settings that default to off.
 - Claude Code passes an MCP server no caller identity. It aborts a local MCP call after 30 minutes with no response or progress (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`).
 
+Checked on 2026-11-03 against the Hyprland wiki:
+
+- A Hyprland 0.56.2 window rule matches class, title, tag, workspace and window state, never a pid. A dispatcher selector takes `pid:...`.
+
 ## Project Layer spike results
 
 Checked on 2026-11-01 with bubblewrap 0.13.1, pasta 2026_10_02, Hyprland 0.56.2 and btrfs. The following checks ran on that host:

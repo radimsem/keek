@@ -76,6 +76,7 @@ impl Compositor for HostCompositor {
     }
     fn install(&self) -> CompositorFuture<'_> {
         Box::pin(async move {
+            // Hyprland rules cannot match a pid, so this class rule also covers a nested Hyprland the developer starts; see docs/viewer.md.
             let output = self.runner.output("hyprctl", &["eval", "if keek_session_rule then keek_session_rule:set_enabled(false) end; keek_session_rule = hl.window_rule({ name = 'keek-session-window', match = { class = '^aquamarine$' }, float = true, size = { 1280, 800 }, workspace = 'name:keek silent', no_initial_focus = true, no_focus = true, render_unfocused = true }); keek_session_rule:set_enabled(true)"], None).await?;
             check_eval(output)
         })
