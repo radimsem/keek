@@ -48,6 +48,7 @@ pub enum IncompleteReason {
     Idle { limit: std::time::Duration },
     OpenerLeft,
     DesktopStopped,
+    HostWindowOpened,
     DaemonStopped,
 }
 fn idle_duration(limit: std::time::Duration) -> (String, &'static str, &'static str) {
@@ -77,6 +78,9 @@ impl IncompleteReason {
             Self::Idle { .. } => "The session was idle",
             Self::OpenerLeft => "The coding agent disconnected",
             Self::DesktopStopped => "The session's desktop stopped",
+            Self::HostWindowOpened => {
+                "The session opened another window on the developer's desktop"
+            }
             Self::DaemonStopped => "The keek daemon stopped",
         };
         format!(
@@ -96,6 +100,7 @@ impl IncompleteReason {
                 "The keek daemon stopped during the session, and the next daemon filed it.".into()
             }
             Self::DesktopStopped => "The session's desktop stopped before close_session.".into(),
+            Self::HostWindowOpened => "keek ended the session because the session opened a window on the developer's desktop other than its Session Window.".into(),
         }
     }
     pub fn short(&self) -> String {
@@ -106,6 +111,7 @@ impl IncompleteReason {
             }
             Self::OpenerLeft => "Coding agent disconnected".into(),
             Self::DesktopStopped => "Desktop stopped".into(),
+            Self::HostWindowOpened => "Opened another window".into(),
             Self::DaemonStopped => "Daemon stopped".into(),
         }
     }

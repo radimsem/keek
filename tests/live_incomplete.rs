@@ -3,6 +3,7 @@
     reason = "The shared desktop fixture supports other live tests."
 )]
 include!("common/live.rs");
+include!("common/live_evidence.rs");
 mod common;
 
 use std::time::Instant;
@@ -23,7 +24,7 @@ async fn live_killing_keek_mcp_files_incomplete_evidence_and_leaves_no_sandbox()
         let session = fixture.open("vanished-agent", &worktree).await?;
         fixture.click(&session, 1).await?;
         kill_keek_mcp().await?;
-        let (report, text) = incomplete_report(&fixture, "vanished-agent").await?;
+        let (report, text) = incomplete_report(&fixture, "vanished-agent", EVIDENCE_WAIT).await?;
         println!("{}:\n{text}", report.display());
         assert_incomplete(&text, "keek mcp disconnected")?;
         assert_processes_gone(&session_folder(&fixture, &session)).await?;
@@ -61,7 +62,7 @@ async fn live_killing_the_daemon_leaves_a_session_the_next_daemon_files() -> Res
             second != first,
             "the new keek mcp reached the killed daemon"
         );
-        let (report, text) = incomplete_report(&fixture, "fallen-daemon").await?;
+        let (report, text) = incomplete_report(&fixture, "fallen-daemon", EVIDENCE_WAIT).await?;
         println!("{}:\n{text}", report.display());
         assert_incomplete(&text, "daemon stopped")?;
         assert_processes_gone(&folder).await?;
@@ -83,7 +84,7 @@ async fn live_an_idle_session_ends_as_incomplete() -> Result<()> {
         let worktree = fixture.worktree("idle-agent").await?;
         let session = fixture.open("idle-agent", &worktree).await?;
         let opened = Instant::now();
-        let (report, text) = incomplete_report(&fixture, "idle-agent").await?;
+        let (report, text) = incomplete_report(&fixture, "idle-agent", EVIDENCE_WAIT).await?;
         println!(
             "{} was filed {:?} after open_session returned:\n{text}",
             report.display(),
@@ -173,25 +174,6 @@ async fn live_killing_keek_mcp_during_a_slow_install_leaves_no_sandbox_or_build(
     conclude(fixture, Vec::new(), &daemons, result).await
 }
 
-async fn wait_for<T: Send + 'static>(
-    what: &str,
-    limit: Duration,
-    probe: impl Fn() -> Option<T> + Clone + Send + 'static,
-) -> Result<T> {
-    let deadline = Instant::now() + limit;
-    loop {
-        let probe = probe.clone();
-        if let Some(found) = tokio::task::spawn_blocking(probe).await? {
-            return Ok(found);
-        }
-        anyhow::ensure!(
-            Instant::now() < deadline,
-            "timed out after {limit:?} waiting for {what}"
-        );
-        tokio::time::sleep(Duration::from_millis(200)).await;
-    }
-}
-
 async fn wait_processes_gone(folder: &Path, limit: Duration) -> Result<()> {
     let deadline = Instant::now() + limit;
     loop {
@@ -200,52 +182,6 @@ async fn wait_processes_gone(folder: &Path, limit: Duration) -> Result<()> {
             result => return result,
         }
     }
-}
-
-fn children(path: &Path) -> Vec<PathBuf> {
-    std::fs::read_dir(path)
-        .map(|entries| {
-            entries
-                .filter_map(Result::ok)
-                .map(|entry| entry.path())
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Every filed file under `<videos>/keek/<project>/`, including the date folders' contents.
-fn evidence_files(videos: &Path) -> Vec<PathBuf> {
-    children(&videos.join("keek"))
-        .iter()
-        .flat_map(|project| children(project))
-        .flat_map(|entry| {
-            if entry.is_dir() {
-                children(&entry)
-            } else {
-                vec![entry]
-            }
-        })
-        .collect()
-}
-
-async fn incomplete_report(fixture: &Fixture, project: &str) -> Result<(PathBuf, String)> {
-    let videos = fixture.directory.path().join("videos");
-    let prefix = format!("{project}_");
-    wait_for(
-        "the Incomplete Session's report",
-        EVIDENCE_WAIT,
-        move || {
-            let report = evidence_files(&videos).into_iter().find(|path| {
-                let name = path.file_name().unwrap_or_default().to_string_lossy();
-                name.starts_with(&prefix) && name.ends_with("_incomplete_report.md")
-            })?;
-            // The report is created before it is written.
-            let text = std::fs::read_to_string(&report).ok()?;
-            text.contains("## Incomplete Session")
-                .then_some((report, text))
-        },
-    )
-    .await
 }
 
 fn assert_incomplete(text: &str, reason: &str) -> Result<()> {

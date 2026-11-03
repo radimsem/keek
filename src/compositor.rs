@@ -10,7 +10,19 @@ pub struct WindowPid(pub u32);
 pub struct WindowAddress(pub String);
 pub type WindowFuture<'a> =
     Pin<Box<dyn Future<Output = Result<WindowAddress, ProcessError>> + Send + 'a>>;
+pub const SESSION_WINDOW_CLASS: &str = "aquamarine";
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostWindow {
+    pub address: WindowAddress,
+    pub pid: u32,
+    pub class: String,
+}
+pub type WindowsFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<Vec<HostWindow>, ProcessError>> + Send + 'a>>;
 pub trait Compositor: Send + Sync {
+    fn windows(&self) -> WindowsFuture<'_> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
     fn takeover_events(&self) -> TakeoverEventsFuture<'_> {
         Box::pin(async {
             Ok(self
@@ -55,6 +67,9 @@ impl HostCompositor {
     }
 }
 impl Compositor for HostCompositor {
+    fn windows(&self) -> WindowsFuture<'_> {
+        Box::pin(crate::window_placement::windows())
+    }
     fn window_events(&self) -> EventsFuture<'_> {
         Box::pin(async { crate::hypr::subscribe().await.map(Some) })
     }

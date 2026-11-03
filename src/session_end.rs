@@ -47,6 +47,7 @@ impl Actor {
         videos: Result<PathBuf, String>,
         summary: String,
     ) -> Response {
+        let end = end.map(|end| end_with_cause(end, driver.end_cause()));
         self.closing.store(true, Ordering::SeqCst);
         self.control.stop().await;
         if let Some(task) = controller_task.take() {
@@ -214,5 +215,42 @@ impl Actor {
         }
         self.publish(SessionState::Ended(Box::new(card)), last_action);
         self.mask_reply(response)
+    }
+}
+
+fn end_with_cause(
+    end: SessionEnd,
+    cause: Option<crate::checklist::IncompleteReason>,
+) -> SessionEnd {
+    if end == SessionEnd::Incomplete(crate::checklist::IncompleteReason::DesktopStopped)
+        && let Some(cause) = cause
+    {
+        SessionEnd::Incomplete(cause)
+    } else {
+        end
+    }
+}
+#[cfg(test)]
+mod cause_tests {
+    use super::*;
+    use crate::checklist::{IncompleteReason::*, Verdict};
+    #[test]
+    fn other_incomplete_reasons_and_verdicts_are_not_rewritten() {
+        for end in [
+            SessionEnd::Incomplete(Idle {
+                limit: Duration::from_secs(300),
+            }),
+            SessionEnd::Incomplete(OpenerLeft),
+            SessionEnd::Incomplete(DaemonStopped),
+            SessionEnd::Verdict(Verdict::Pass),
+            SessionEnd::Verdict(Verdict::NeedsFixes),
+            SessionEnd::Verdict(Verdict::PartlyVerified),
+        ] {
+            assert_eq!(end_with_cause(end.clone(), Some(HostWindowOpened)), end);
+        }
+        assert_eq!(
+            end_with_cause(SessionEnd::Incomplete(DesktopStopped), None),
+            SessionEnd::Incomplete(DesktopStopped)
+        );
     }
 }

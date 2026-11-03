@@ -77,6 +77,11 @@ fn reports_match_the_reviewed_markdown() {
             }),
         ),
         (
+            "host-window",
+            CheckOutcome::Passed,
+            SessionEnd::Incomplete(keek::checklist::IncompleteReason::HostWindowOpened),
+        ),
+        (
             "desktop-stopped",
             CheckOutcome::Passed,
             SessionEnd::Incomplete(keek::checklist::IncompleteReason::DesktopStopped),
@@ -119,6 +124,12 @@ fn reports_match_the_reviewed_markdown() {
             "idle-fractional-seconds" => (
                 "incomplete",
                 Some("keek ended the session after 1.5 seconds without a tool call."),
+            ),
+            "host-window" => (
+                "incomplete",
+                Some(
+                    "keek ended the session because the session opened a window on the developer's desktop other than its Session Window.",
+                ),
             ),
             "desktop-stopped" => (
                 "incomplete",

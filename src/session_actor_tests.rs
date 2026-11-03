@@ -1,4 +1,5 @@
 use super::*;
+use crate::checklist::{IncompleteReason, SessionEnd};
 use crate::driver::DriverFuture;
 use rmcp::model::{Tool, ToolAnnotations};
 use std::path::Path;
@@ -69,6 +70,7 @@ impl DriverFactory for FakeFactory {
     }
 }
 struct RunningActor {
+    cause: Arc<Mutex<Option<IncompleteReason>>>,
     screenshot: Arc<Mutex<fake_driver::Screenshot>>,
     ended: watch::Sender<()>,
     control: control::Control,
@@ -144,7 +146,9 @@ async fn start_configured(
     let fail_no_focus = Arc::new(AtomicBool::new(false));
     let (ended, end_receiver) = watch::channel(());
     let screenshot = Arc::new(Mutex::new(fake_driver::Screenshot::Ready));
+    let cause = Arc::new(Mutex::new(None));
     let driver = FakeDriver {
+        cause: cause.clone(),
         screenshot: screenshot.clone(),
         ended: end_receiver,
         id: id.into(),
@@ -241,6 +245,7 @@ async fn start_configured(
     let response = opened.await.unwrap();
     (
         RunningActor {
+            cause,
             screenshot,
             ended,
             control,
@@ -579,3 +584,6 @@ mod incomplete;
 
 #[path = "session_actor_tests/close.rs"]
 mod close_tests;
+
+#[path = "session_actor_tests/host_window.rs"]
+mod host_window;

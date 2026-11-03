@@ -66,6 +66,11 @@ impl Fixture {
     }
 
     async fn worktree(&self, name: &str) -> Result<PathBuf> {
+        self.worktree_with_start(name, START_COMMAND).await
+    }
+
+    async fn worktree_with_start(&self, name: &str, start: &str) -> Result<PathBuf> {
+        let start = start.to_owned();
         let path = self.directory.path().join(name);
         let create = path.clone();
         tokio::task::spawn_blocking(move || std::fs::create_dir(create)).await??;
@@ -75,7 +80,7 @@ impl Fixture {
             use std::os::unix::fs::PermissionsExt;
             std::fs::create_dir_all(script_root.join(".keek"))?;
             let script=script_root.join(".keek/setup.sh");
-            std::fs::write(&script,format!("#!/bin/bash\ncase \"$1\" in\ninstall) exit 0 ;;\nstart) exec {START_COMMAND} ;;\nesac\n"))?;
+            std::fs::write(&script,format!("#!/bin/bash\ncase \"$1\" in\ninstall) exit 0 ;;\nstart) exec {start} ;;\nesac\n"))?;
             std::fs::set_permissions(script,std::fs::Permissions::from_mode(0o755))?;
             Ok(())
         }).await??;

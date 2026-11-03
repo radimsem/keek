@@ -44,3 +44,5 @@ mod session_journal;
 
 pub mod attempts;
 pub mod session_frame;
+
+mod window_guard;
