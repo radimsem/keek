@@ -17,14 +17,22 @@ use tokio::task::JoinSet;
 
 pub struct Registry {
     sessions: HashMap<SessionName, Entry>,
+    cards: HashMap<SessionName, EndedCard>,
     pub tasks: JoinSet<Finished>,
     pub background: JoinSet<()>,
+    pub recovery: JoinSet<()>,
     pub preparing: JoinSet<Prepared>,
     pub catalog: watch::Receiver<Option<Result<Arc<Catalog>, String>>>,
     pub dependencies: Dependencies,
     lifecycle: Lifecycle,
 }
+struct EndedCard {
+    slot: crate::viewer::SlotId,
+    frame: Option<PathBuf>,
+    ended: std::time::Instant,
+}
 struct Entry {
+    card: CardDisposition,
     control: crate::session::control::Control,
     slot: crate::viewer::SlotId,
     closing: Arc<AtomicBool>,
@@ -32,12 +40,20 @@ struct Entry {
     mailbox: mpsc::Sender<ActorRequest>,
     events: watch::Receiver<SessionSnapshot>,
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CardDisposition {
+    Keep,
+    Dismiss,
+}
 #[derive(Clone, Copy)]
 enum Lifecycle {
     Running,
     ShuttingDown,
 }
 pub struct Dependencies {
+    pub frames_dir: PathBuf,
+    pub journals_dir: PathBuf,
+    pub session_idle_limit: std::time::Duration,
     pub viewer: Arc<dyn crate::viewer::Viewer>,
     pub sessions_dir: PathBuf,
     pub projects_config: PathBuf,
@@ -51,6 +67,7 @@ pub struct Dependencies {
     pub factory: Arc<dyn DriverFactory>,
 }
 pub struct Prepared {
+    opener: Option<watch::Receiver<()>>,
     result: Result<Opening, SessionError>,
     reply: oneshot::Sender<Response>,
 }
@@ -72,16 +89,29 @@ impl Registry {
     ) -> Self {
         Self {
             sessions: HashMap::new(),
+            cards: HashMap::new(),
             tasks: JoinSet::new(),
             background: JoinSet::new(),
+            recovery: JoinSet::new(),
             preparing: JoinSet::new(),
             catalog,
             dependencies,
             lifecycle: Lifecycle::Running,
         }
     }
-    pub fn control(&self, command: crate::viewer::ViewerCommand) {
+    pub async fn control(&mut self, command: crate::viewer::ViewerCommand) {
         let (session, command) = match command {
+            crate::viewer::ViewerCommand::Dismiss(session) => {
+                if let Some(card) = self.cards.remove(&session) {
+                    self.dependencies.viewer.closed(card.slot).await;
+                    remove_frame(card.frame).await;
+                } else if let Some(entry) = self.sessions.get_mut(&session)
+                    && matches!(entry.events.borrow().state, SessionState::Ended(_))
+                {
+                    entry.card = CardDisposition::Dismiss;
+                }
+                return;
+            }
             crate::viewer::ViewerCommand::TakeControl(session) => {
                 (session, crate::session::control::Command::TakeControl)
             }
@@ -99,24 +129,48 @@ impl Registry {
         self.sessions.len() + self.preparing.len()
     }
     pub fn keeps_daemon_alive(&self) -> bool {
-        !self.is_empty()
+        !self.is_empty() || !self.cards.is_empty() || !self.recovery.is_empty()
     }
     pub fn is_empty(&self) -> bool {
         self.sessions.is_empty() && self.preparing.is_empty()
     }
     pub fn shutdown(&mut self) -> Response {
-        if self.is_empty() {
+        if self.is_empty() && self.recovery.is_empty() {
             self.lifecycle = Lifecycle::ShuttingDown;
             Response::ShuttingDown
         } else {
             Response::ShutdownRefused {
-                open_sessions: self.len(),
+                open_sessions: self.len() + self.recovery.len(),
             }
         }
     }
     pub async fn finished(&mut self, finished: Finished) {
         if let Some(entry) = self.sessions.remove(&finished.name) {
-            self.dependencies.viewer.closed(entry.slot).await;
+            let ended = match &entry.events.borrow().state {
+                SessionState::Ended(ended) => Some(ended.frame.clone()),
+                SessionState::Opening
+                | SessionState::Open
+                | SessionState::Closing
+                | SessionState::Rendering { .. } => None,
+            };
+            if let Some(frame) = ended {
+                if self.dependencies.viewer.supports_cards() && entry.card == CardDisposition::Keep
+                {
+                    self.cards.insert(
+                        finished.name.clone(),
+                        EndedCard {
+                            slot: entry.slot,
+                            frame,
+                            ended: self.dependencies.clock.now(),
+                        },
+                    );
+                } else {
+                    self.dependencies.viewer.closed(entry.slot).await;
+                    remove_frame(frame).await;
+                }
+            } else {
+                self.dependencies.viewer.closed(entry.slot).await;
+            }
         }
         let tree = crate::session_project::tree_path(&self.dependencies.trees, &finished.name);
         let cleanup = tokio::task::spawn_blocking(move || match std::fs::remove_dir_all(tree) {
@@ -145,6 +199,15 @@ impl Registry {
         reply: oneshot::Sender<Response>,
         events: Option<mpsc::Sender<Event>>,
     ) {
+        self.handle_connection(None, request, reply, events).await;
+    }
+    pub async fn handle_connection(
+        &mut self,
+        opener: Option<watch::Receiver<()>>,
+        request: Request,
+        reply: oneshot::Sender<Response>,
+        events: Option<mpsc::Sender<Event>>,
+    ) {
         match request {
             Request::OpenSession {
                 project,
@@ -152,7 +215,7 @@ impl Registry {
                 goal,
                 checks,
             } => {
-                self.begin_open(project, worktree, goal, checks, reply);
+                self.begin_open(project, worktree, goal, checks, reply, opener);
             }
             Request::CallTool {
                 session,
@@ -298,9 +361,13 @@ impl Registry {
         }
     }
     pub async fn prepared(&mut self, prepared: Prepared) {
-        let Prepared { result, reply } = prepared;
+        let Prepared {
+            result,
+            reply,
+            opener,
+        } = prepared;
         let opened = match result {
-            Ok(opening) => self.claim(opening).await,
+            Ok(opening) => self.claim(opening, opener).await,
             Err(error) => Err(error),
         };
         match opened {
@@ -350,3 +417,18 @@ mod tests;
 
 #[path = "registry_open.rs"]
 mod opening;
+
+#[path = "session_recovery.rs"]
+mod recovery;
+
+async fn remove_frame(frame: Option<PathBuf>) {
+    if let Some(frame) = frame {
+        let result = tokio::task::spawn_blocking(move || std::fs::remove_file(frame)).await;
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Ok(Err(error)) => tracing::warn!(%error, "could not remove Session Card frame"),
+            Err(error) => tracing::warn!(%error, "could not finish removing Session Card frame"),
+        }
+    }
+}

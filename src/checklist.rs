@@ -19,7 +19,7 @@ pub enum Mark {
         at: Millis,
     },
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Verdict {
     Pass,
     NeedsFixes,
@@ -43,21 +43,89 @@ impl fmt::Display for Verdict {
         })
     }
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum IncompleteReason {
+    Idle { limit: std::time::Duration },
+    OpenerLeft,
+    DesktopStopped,
+    DaemonStopped,
+}
+fn idle_duration(limit: std::time::Duration) -> (String, &'static str, &'static str) {
+    let seconds = limit.as_secs();
+    if seconds > 0 && seconds.is_multiple_of(60) && limit.subsec_nanos() == 0 {
+        let minutes = seconds / 60;
+        (
+            minutes.to_string(),
+            if minutes == 1 { "minute" } else { "minutes" },
+            "min",
+        )
+    } else {
+        (
+            limit.as_secs_f64().to_string(),
+            if limit == std::time::Duration::from_secs(1) {
+                "second"
+            } else {
+                "seconds"
+            },
+            "s",
+        )
+    }
+}
+impl IncompleteReason {
+    pub fn refusal(&self) -> String {
+        let cause = match self {
+            Self::Idle { .. } => "The session was idle",
+            Self::OpenerLeft => "The coding agent disconnected",
+            Self::DesktopStopped => "The session's desktop stopped",
+            Self::DaemonStopped => "The keek daemon stopped",
+        };
+        format!(
+            "{cause}, so keek ended the session and filed it as an Incomplete Session. Open a new Agent Session."
+        )
+    }
+    pub fn sentence(&self) -> String {
+        match self {
+            Self::Idle { limit } => {
+                let (amount, unit, _) = idle_duration(*limit);
+                format!("keek ended the session after {amount} {unit} without a tool call.")
+            }
+            Self::OpenerLeft => {
+                "keek ended the session because the coding agent's keek mcp disconnected.".into()
+            }
+            Self::DaemonStopped => {
+                "The keek daemon stopped during the session, and the next daemon filed it.".into()
+            }
+            Self::DesktopStopped => "The session's desktop stopped before close_session.".into(),
+        }
+    }
+    pub fn short(&self) -> String {
+        match self {
+            Self::Idle { limit } => {
+                let (amount, _, unit) = idle_duration(*limit);
+                format!("No tool call for {amount} {unit}")
+            }
+            Self::OpenerLeft => "Coding agent disconnected".into(),
+            Self::DesktopStopped => "Desktop stopped".into(),
+            Self::DaemonStopped => "Daemon stopped".into(),
+        }
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SessionEnd {
     Verdict(Verdict),
-    Incomplete { reason: String },
+    Incomplete(IncompleteReason),
 }
 impl SessionEnd {
     pub fn filename_word(&self) -> &'static str {
         match self {
             Self::Verdict(v) => v.filename_word(),
-            Self::Incomplete { .. } => "incomplete",
+            Self::Incomplete(_) => "incomplete",
         }
     }
     pub fn label(&self) -> String {
         match self {
             Self::Verdict(v) => v.to_string(),
-            Self::Incomplete { .. } => "Incomplete".into(),
+            Self::Incomplete(_) => "Incomplete".into(),
         }
     }
 }

@@ -1,4 +1,4 @@
-use super::{SessionInfo, SlotId, ViewerMessage, footer_view, theme};
+use super::{SessionInfo, SlotId, ViewerMessage, end_card, footer_view};
 use crate::ipc::{SessionSnapshot, SessionState};
 use gtk4::{self as gtk, glib, prelude::*};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
@@ -21,9 +21,9 @@ struct Card {
     checked: gtk::Box,
     elapsed_label: gtk::Label,
     elapsed: gtk::Label,
-    button: gtk::Button,
-    keycaps: gtk::Box,
+    actions: end_card::FooterActions,
     watcher: Option<glib::JoinHandle<()>>,
+    end_card: Option<end_card::EndCard>,
 }
 impl Card {
     fn draw(&self) {
@@ -34,10 +34,7 @@ impl Card {
             self.hover,
             self.frozen,
         );
-        self.button.set_visible(view.button.is_some());
-        self.button
-            .set_label(view.button.map_or("", footer_view::FooterButton::text));
-        self.keycaps.set_visible(view.keycaps);
+        self.actions.draw(&view);
         let mut classes = vec![
             "footer",
             footer_view::SessionColour::for_slot(self.info.slot).css_class(),
@@ -55,14 +52,9 @@ impl Card {
             .set_css_classes(&[if view.label == footer_view::StateLabel::ViewOnly {
                 "hint"
             } else {
-                "dim"
+                view.label.css_class().unwrap_or("dim")
             }]);
         self.state_label.add_css_class("state");
-        if view.label == footer_view::StateLabel::ViewOnly {
-            self.button.add_css_class("hinted");
-        } else {
-            self.button.remove_css_class("hinted");
-        }
         while let Some(child) = self.checked.first_child() {
             self.checked.remove(&child);
         }
@@ -105,6 +97,7 @@ impl Card {
 }
 struct State {
     cards: HashMap<SlotId, Card>,
+    missing: HashMap<SlotId, glib::JoinHandle<()>>,
     visible: HashSet<String>,
     tick: Option<glib::SourceId>,
     commands: Option<tokio::sync::mpsc::Sender<super::ViewerCommand>>,
@@ -125,7 +118,7 @@ impl State {
         let ticking = data
             .cards
             .values()
-            .any(|card| visible.contains(&card.info.monitor));
+            .any(|card| visible.contains(&card.info.monitor) && card.snapshot.state.ticks());
         if ticking && data.tick.is_none() {
             let weak = Rc::downgrade(state);
             data.tick = Some(glib::timeout_add_local(Duration::from_secs(1), move || {
@@ -136,7 +129,7 @@ impl State {
                     .borrow()
                     .cards
                     .values()
-                    .filter(|card| card.footer.is_visible())
+                    .filter(|card| card.footer.is_visible() && card.snapshot.state.ticks())
                 {
                     card.draw();
                 }
@@ -252,46 +245,46 @@ fn create(
     row.append(&checked);
     let (clock, elapsed_label, elapsed) = column("Elapsed", "0:00", 96);
     row.append(&clock);
-    let button = gtk::Button::with_label("Take control");
-    button.set_valign(gtk::Align::Center);
-    button.set_size_request(-1, 40);
-    let keycaps = gtk::Box::new(gtk::Orientation::Horizontal, 4);
-    keycaps.append(&label("Super", "keycap"));
-    keycaps.append(&label("Esc", "keycap"));
-    let button_group = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    button_group.append(&keycaps);
-    button_group.append(&button);
-    row.append(&button_group);
     let weak = Rc::downgrade(state);
     let slot = info.slot;
-    button.connect_clicked(move |_| {
+    let actions = end_card::FooterActions::new(move |action| {
         if let Some(state) = weak.upgrade() {
             let data = state.borrow();
-            if let Some(card) = data.cards.get(&slot)
-                && let Some(commands) = &data.commands
-            {
-                let view = footer_view::for_session(
-                    &card.info,
-                    &card.snapshot,
-                    chrono::Utc::now(),
-                    card.hover,
-                    card.frozen,
-                );
-                let command = match view.button {
-                    Some(footer_view::FooterButton::Done) => {
+            if let Some(card) = data.cards.get(&slot) {
+                let command = match action {
+                    footer_view::FooterButton::Done => {
                         super::ViewerCommand::Done(card.info.name.clone())
                     }
-                    Some(footer_view::FooterButton::TakeControl) => {
+                    footer_view::FooterButton::TakeControl => {
                         super::ViewerCommand::TakeControl(card.info.name.clone())
                     }
-                    None => return,
+                    footer_view::FooterButton::Dismiss => {
+                        super::ViewerCommand::Dismiss(card.info.name.clone())
+                    }
+                    footer_view::FooterButton::OpenVideo
+                    | footer_view::FooterButton::OpenFolder => {
+                        if let SessionState::Ended(end) = &card.snapshot.state {
+                            let path = if action == footer_view::FooterButton::OpenVideo {
+                                &end.verification
+                            } else {
+                                &end.folder
+                            };
+                            if let Some(path) = path {
+                                end_card::open(path, &card.footer);
+                            }
+                        }
+                        return;
+                    }
                 };
-                if let Err(error) = commands.try_send(command) {
-                    tracing::warn!(%error,"Session Footer command could not be delivered");
+                if let Some(commands) = &data.commands
+                    && let Err(error) = commands.try_send(command)
+                {
+                    tracing::warn!(%error, "Session Footer command could not be delivered");
                 }
             }
         }
     });
+    row.append(&actions.container);
     footer.set_child(Some(&row));
     let motion = gtk::EventControllerMotion::new();
     let weak = Rc::downgrade(state);
@@ -301,6 +294,9 @@ fn create(
             && let Ok(mut data) = state.try_borrow_mut()
             && let Some(card) = data.cards.get_mut(&slot)
         {
+            if card.snapshot.state != SessionState::Open {
+                return;
+            }
             card.hover = footer_view::Hover::Over;
             card.draw();
         }
@@ -322,6 +318,7 @@ fn create(
             .num_seconds()
             .max(0) as u64
     });
+    let end_card = end_card::EndCard::new(&snapshot, info.placement.width);
     let card = Card {
         info,
         snapshot,
@@ -334,32 +331,14 @@ fn create(
         checked,
         elapsed_label,
         elapsed,
-        button,
-        keycaps,
+        actions,
         watcher: None,
+        end_card,
     };
+    card.surface
+        .set_child(card.end_card.as_ref().map(|end| &end.overlay));
     card.draw();
     Some(card)
-}
-fn style() {
-    let t = theme::load();
-    let provider = gtk::CssProvider::new();
-    provider.load_from_data(&format!("window.footer {{ background: {}; color: {}; font-family: 'JetBrains Mono'; font-size: 12px; border: 2px solid {}; border-top: 2px solid {}; border-radius: 0 0 8px 8px; }} window.violet {{border-top-color:{};}} .violet .cursor {{color:{};}} .cyan .cursor {{color:{};}} .dim {{color:{};}} .hint {{color:{};}} .value {{font-weight:700; font-feature-settings: 'tnum';}} button {{background:alpha({},0.10);color:{};border:1px solid {};border-radius:8px;font-weight:700;padding:0 18px;}} button:hover,button.hinted {{background:alpha({},0.22);}} window.hover-surface {{background:transparent;}} .tick {{min-width:10px;min-height:10px;border-radius:2px;}} .passed {{background:{};}} .failed {{background:{};}} .skipped {{border:1px solid {};color:{};}} .unmarked {{border:1px solid {};}}",t.background,t.foreground,t.border,footer_view::SessionColour::Cyan.color(),footer_view::SessionColour::Violet.color(),footer_view::SessionColour::Violet.color(),footer_view::SessionColour::Cyan.color(),t.dim,t.accent,t.accent,t.accent,t.accent,t.accent,t.green,t.red,t.yellow,t.yellow,t.dim));
-    let controls = gtk::CssProvider::new();
-    controls.load_from_data(&format!("window.needs-you {{border-left-color:{0};border-right-color:{0};border-bottom-color:{0};}} .needs-you .state {{color:{0};}} .needs-you button {{background:{0};color:{3};}} window.takeover {{background:{4};border-left-color:{1};border-right-color:{1};border-bottom-color:{1};}} .takeover .state {{color:{5};}} .hand-back .state {{color:{5};}} .takeover button {{background:{6};color:{3};}} .keycap {{border:1px solid {2};border-radius:4px;padding:4px;}}", t.orange, t.active_border, t.border, t.ink, t.control, t.blue_text, t.accent));
-    // GTK breaks ties between equal-priority providers by the order they were added, so `controls` goes last.
-    if let Some(display) = gtk::gdk::Display::default() {
-        gtk::style_context_add_provider_for_display(
-            &display,
-            &provider,
-            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
-        gtk::style_context_add_provider_for_display(
-            &display,
-            &controls,
-            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
-    }
 }
 
 pub fn init() -> Result<(), glib::BoolError> {
@@ -375,10 +354,11 @@ pub fn run(
     mut receiver: tokio::sync::mpsc::Receiver<ViewerMessage>,
     handle: tokio::runtime::Handle,
 ) {
-    style();
+    end_card::install_style();
     let main_loop = glib::MainLoop::new(None, false);
     let state = Rc::new(RefCell::new(State {
         cards: HashMap::new(),
+        missing: HashMap::new(),
         visible: HashSet::new(),
         tick: None,
         commands: None,
@@ -402,11 +382,20 @@ pub fn run(
                 }
                 ViewerMessage::Opened(info, mut snapshots) => {
                     let slot = info.slot;
+                    let name = info.name.clone();
                     let snapshot = snapshots.borrow_and_update().clone();
+                    if let Some(old) = message_state.borrow_mut().missing.remove(&slot) {
+                        old.abort();
+                    }
                     if let Some(old) = message_state.borrow_mut().cards.remove(&slot) {
                         old.close();
                     }
                     let Some(card) = create(info, snapshot, &message_state) else {
+                        let commands = message_state.borrow().commands.clone();
+                        if let Some(commands) = commands {
+                            let task = super::missing_card::watch(snapshots, name, commands);
+                            message_state.borrow_mut().missing.insert(slot, task);
+                        }
                         continue;
                     };
                     message_state.borrow_mut().cards.insert(slot, card);
@@ -427,9 +416,16 @@ pub fn run(
                                             .max(0) as u64,
                                     );
                                 }
+                                end_card::update_slot(
+                                    &mut card.end_card,
+                                    &card.surface,
+                                    &snapshot,
+                                    card.info.placement.width,
+                                );
                                 card.snapshot = snapshot;
                                 card.draw();
                             }
+                            State::visibility(&state);
                         }
                     });
                     if let Some(card) = message_state.borrow_mut().cards.get_mut(&slot) {
@@ -438,6 +434,9 @@ pub fn run(
                     State::visibility(&message_state);
                 }
                 ViewerMessage::Closed(slot) => {
+                    if let Some(task) = message_state.borrow_mut().missing.remove(&slot) {
+                        task.abort();
+                    }
                     if let Some(card) = message_state.borrow_mut().cards.remove(&slot) {
                         card.close();
                     }
@@ -458,5 +457,8 @@ pub fn run(
     }
     for (_, card) in state.cards.drain() {
         card.close();
+    }
+    for (_, task) in state.missing.drain() {
+        task.abort();
     }
 }

@@ -74,6 +74,7 @@ mod tests {
                 checks: Checklist::new(vec![]).checks(),
                 end: &end,
                 time_map: &IdentityTimeMap,
+                actions_error: None,
                 video_error: None,
             },
         )
@@ -163,6 +164,7 @@ mod tests {
             checks: &[],
             end: &end,
             time_map: &IdentityTimeMap,
+            actions_error: None,
             video_error: None,
         };
         for expected in [
@@ -305,6 +307,7 @@ mod tests {
                 checks: &[],
                 end: &SessionEnd::Verdict(Verdict::Pass),
                 time_map: &IdentityTimeMap,
+                actions_error: None,
                 video_error: None,
             },
         )
@@ -338,6 +341,7 @@ mod tests {
                 checks: &[],
                 end: &SessionEnd::Verdict(Verdict::Pass),
                 time_map: &IdentityTimeMap,
+                actions_error: None,
                 video_error: None,
             },
         )

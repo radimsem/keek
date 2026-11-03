@@ -8,6 +8,34 @@ pub type InstallFuture<'a> =
 pub trait Installer: Send + Sync {
     fn install<'a>(&'a self, upper: &'a Path, work: &'a Path, log: &'a Path) -> InstallFuture<'a>;
 }
+enum BuildState {
+    Active,
+    Finished,
+}
+struct BuildGuard {
+    lock: Option<std::fs::File>,
+    build: PathBuf,
+    cleanup: fn(&Path) -> std::io::Result<()>,
+    runtime: tokio::runtime::Handle,
+    state: BuildState,
+}
+impl Drop for BuildGuard {
+    fn drop(&mut self) {
+        if matches!(self.state, BuildState::Active)
+            && let Some(lock) = self.lock.take()
+        {
+            let build = self.build.clone();
+            let cleanup = self.cleanup;
+            // Cleanup must finish before the lock is released.
+            self.runtime.spawn_blocking(move || {
+                if let Err(error) = cleanup(&build) {
+                    tracing::error!(?build, %error, "could not clean the cancelled Project Layer build");
+                }
+                drop(lock);
+            });
+        }
+    }
+}
 pub async fn ensure_layer(
     layers: &Path,
     key: &ProjectKey,
@@ -27,7 +55,10 @@ async fn ensure_layer_with_cleanup(
     let lock_folder = layers.clone();
     let destination = layers.join(&key.0);
     let check_destination = destination.clone();
-    let (lock, exists) = tokio::task::spawn_blocking(move || {
+    let build = layers.join(".build");
+    let guard_build = build.clone();
+    let runtime = tokio::runtime::Handle::current();
+    let (guard, exists) = tokio::task::spawn_blocking(move || {
         std::fs::create_dir_all(&lock_folder)?;
         let lock = std::fs::OpenOptions::new()
             .create(true)
@@ -35,18 +66,32 @@ async fn ensure_layer_with_cleanup(
             .write(true)
             .open(lock_folder.join(".lock"))?;
         lock.lock()?;
-        Ok::<_, std::io::Error>((lock, check_destination.is_dir()))
+        let exists = check_destination.is_dir();
+        Ok::<_, std::io::Error>((
+            BuildGuard {
+                lock: Some(lock),
+                build: guard_build,
+                cleanup,
+                runtime,
+                state: if exists {
+                    BuildState::Finished
+                } else {
+                    BuildState::Active
+                },
+            },
+            exists,
+        ))
     })
     .await??;
     if exists {
         return Ok(destination);
     }
-    let build = layers.join(".build");
     let prep = build.clone();
-    tokio::task::spawn_blocking(move || {
+    let guard = tokio::task::spawn_blocking(move || {
         cleanup(&prep)?;
         std::fs::create_dir_all(prep.join("upper"))?;
-        std::fs::create_dir_all(prep.join("work"))
+        std::fs::create_dir_all(prep.join("work"))?;
+        Ok::<_, std::io::Error>(guard)
     })
     .await??;
     let result = tokio::time::timeout(
@@ -66,11 +111,13 @@ async fn ensure_layer_with_cleanup(
         )),
     };
     let log = log.to_owned();
-    let result = tokio::task::spawn_blocking(move || {
+    tokio::task::spawn_blocking(move || {
+        let mut guard = guard;
         if let Err(mut reason) = outcome {
             if let Err(error) = cleanup(&build) {
                 reason.push_str(&format!(". Build cleanup failed: {error}"));
             }
+            guard.state = BuildState::Finished;
             let tail = (|| -> std::io::Result<String> {
                 let mut file = std::fs::File::open(&log)?;
                 let len = file.metadata()?.len();
@@ -89,13 +136,12 @@ async fn ensure_layer_with_cleanup(
         if let Err(error) = cleanup(&build) {
             tracing::warn!(path = ?build, %error, "could not clean the Project Layer build");
         }
+        guard.state = BuildState::Finished;
         Ok(destination)
     })
-    .await?;
-    drop(lock);
-    result
+    .await?
 }
-fn remove_build(path: &Path) -> std::io::Result<()> {
+pub(crate) fn remove_build(path: &Path) -> std::io::Result<()> {
     if !path.exists() {
         return Ok(());
     }
@@ -117,6 +163,51 @@ mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    #[tokio::test]
+    async fn cancelled_install_removes_the_build_before_releasing_the_lock() {
+        struct Never(tokio::sync::Notify);
+        impl Installer for Never {
+            fn install<'a>(
+                &'a self,
+                _: &'a Path,
+                work: &'a Path,
+                _: &'a Path,
+            ) -> InstallFuture<'a> {
+                Box::pin(async move {
+                    let nested = work.join("work");
+                    std::fs::create_dir(&nested)?;
+                    std::fs::set_permissions(nested, std::fs::Permissions::from_mode(0o000))?;
+                    self.0.notify_one();
+                    std::future::pending().await
+                })
+            }
+        }
+        let root = tempfile::tempdir().unwrap();
+        let installer = Never(tokio::sync::Notify::new());
+        let key = ProjectKey("key".into());
+        let log = root.path().join("install.log");
+        let mut install = Box::pin(ensure_layer(root.path(), &key, &installer, &log));
+        tokio::select! {
+            () = installer.0.notified() => {},
+            result = &mut install => panic!("unexpected result: {result:?}"),
+        }
+        drop(install);
+        let path = root.path().to_owned();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            tokio::task::spawn_blocking(move || {
+                let lock = std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(path.join(".lock"))
+                    .unwrap();
+                lock.lock().unwrap();
+                assert!(!path.join(".build").exists());
+            }),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    }
     struct Fake {
         calls: AtomicUsize,
         status: i32,

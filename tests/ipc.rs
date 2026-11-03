@@ -122,6 +122,7 @@ fn every_message() -> Result<Vec<Message>> {
                 state: SessionState::Open,
                 checks: vec![
                     keek::ipc::CheckStatus {
+                        added: false,
                         id: keek::timeline::CheckId(1),
                         text: "criterion".into(),
                         mark: keek::checklist::Mark::Outcome {
@@ -131,6 +132,7 @@ fn every_message() -> Result<Vec<Message>> {
                         },
                     },
                     keek::ipc::CheckStatus {
+                        added: true,
                         id: keek::timeline::CheckId(2),
                         text: "another criterion".into(),
                         mark: keek::checklist::Mark::Unmarked,
@@ -140,6 +142,44 @@ fn every_message() -> Result<Vec<Message>> {
                     tool: "click".into(),
                     time_ms: keek::timeline::Millis(12),
                 }),
+            }),
+        },
+        Message::Event {
+            id,
+            event: Event::Snapshot(keek::ipc::SessionSnapshot {
+                control: Default::default(),
+                state: SessionState::Rendering {
+                    percent: keek::ipc::Percent(64),
+                    frame: Some("/tmp/frame.png".into()),
+                    elapsed: keek::timeline::Millis(1234),
+                },
+                checks: vec![],
+                last_action: None,
+            }),
+        },
+        Message::Event {
+            id,
+            event: Event::Snapshot(keek::ipc::SessionSnapshot {
+                control: Default::default(),
+                state: SessionState::Ended(Box::new(keek::ipc::EndedSession {
+                    end: keek::checklist::SessionEnd::Incomplete(
+                        keek::checklist::IncompleteReason::DesktopStopped,
+                    ),
+                    revision: keek::revision::Revision {
+                        branch: None,
+                        commit: "fixture".into(),
+                        dirty: false,
+                    },
+                    attempt: None,
+                    verification: None,
+                    folder: None,
+                    video_length: keek::timeline::Millis(0),
+                    actions: 0,
+                    frame: Some("/tmp/frame.png".into()),
+                    elapsed: keek::timeline::Millis(1234),
+                })),
+                checks: vec![],
+                last_action: None,
             }),
         },
         Message::Request {

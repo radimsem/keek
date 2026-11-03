@@ -36,6 +36,22 @@ async fn opened_carries_only_credential_names() {
     finish(actor).await;
 }
 #[tokio::test]
+async fn mailbox_closure_scrubs_the_retained_action_log() {
+    let root = tempfile::tempdir().unwrap();
+    let (actor, _) = start(root.path()).await;
+    let turn = actor.folder.root().join("turn-1");
+    std::fs::create_dir(&turn).unwrap();
+    std::fs::write(turn.join("action.json"), VALUE).unwrap();
+    drop(actor.sender);
+    assert!(matches!(
+        actor.task.await.unwrap().response,
+        Response::WatchEnded
+    ));
+    let text = std::fs::read_to_string(turn.join("action.json")).unwrap();
+    assert!(!text.contains(VALUE));
+    assert!(text.contains("[masked]"));
+}
+#[tokio::test]
 async fn driver_receives_substituted_nested_arguments_and_replies_are_masked() {
     let root = tempfile::tempdir().unwrap();
     let (actor, _) = start(root.path()).await;
@@ -202,4 +218,33 @@ async fn failed_credential_removal_withholds_actions_and_retains_cache() {
     );
     assert!(v["evidence"]["actions"].is_null());
     assert!(folder.exists());
+}
+
+#[tokio::test(start_paused = true)]
+async fn idle_files_incomplete_evidence_with_a_scrubbed_action_log() {
+    let root = tempfile::tempdir().unwrap();
+    let (actor, _) = start(root.path()).await;
+    let turn = actor.folder.root().join("turn-00001");
+    std::fs::create_dir(&turn).unwrap();
+    std::fs::write(
+        turn.join("action.json"),
+        format!("{{\"text\":\"{VALUE}\"}}"),
+    )
+    .unwrap();
+    tokio::time::advance(Duration::from_secs(300)).await;
+    let Response::Closed(value) = actor.task.await.unwrap().response else {
+        panic!("no Evidence")
+    };
+    let report = value["evidence"]["report"].as_str().unwrap();
+    assert!(report.contains("incomplete"));
+    assert!(
+        !std::fs::read_to_string(report)
+            .unwrap()
+            .contains("## Verdict")
+    );
+    let actions = Path::new(value["evidence"]["actions"].as_str().unwrap());
+    assert_eq!(
+        std::fs::read_to_string(actions.join("turn-00001/action.json")).unwrap(),
+        "{\"text\":\"[masked]\"}"
+    );
 }

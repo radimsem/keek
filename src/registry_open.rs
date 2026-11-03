@@ -7,6 +7,7 @@ impl Registry {
         goal: String,
         checks: Vec<String>,
         reply: oneshot::Sender<Response>,
+        mut opener: Option<watch::Receiver<()>>,
     ) {
         let refusal = match self.lifecycle {
             Lifecycle::ShuttingDown => {
@@ -28,7 +29,7 @@ impl Registry {
         let projects_config = self.dependencies.projects_config.clone();
         let mut catalog = self.catalog.clone();
         self.preparing.spawn(async move {
-            let result = async {
+            let preparing = async {
                 host.validate()?;
                 project
                     .parse::<SessionName>()
@@ -80,14 +81,18 @@ impl Registry {
                     revision,
                     settings, warnings,
                 })
-            }
-            .await;
-            Prepared { result, reply }
+            };
+            let result = tokio::select! { biased;
+                () = async { match &mut opener { Some(receiver) => { let _ = receiver.changed().await; }, None => std::future::pending().await } } => Err(SessionError::Refused("The coding agent disconnected during setup. Open a new Agent Session.".into())),
+                result = preparing => result,
+            };
+            Prepared { result, reply, opener }
         });
     }
     pub(super) async fn claim(
         &mut self,
         opening: Opening,
+        opener: Option<watch::Receiver<()>>,
     ) -> Result<(Actor, mpsc::Receiver<ActorRequest>), SessionError> {
         let Opening {
             credentials,
@@ -118,15 +123,24 @@ impl Registry {
                 worktree.display()
             )));
         }
-        let slot = crate::viewer::SlotId(
-            (0..self.dependencies.cap)
-                .find(|index| !self.sessions.values().any(|entry| entry.slot.0 == *index))
-                .ok_or_else(|| {
-                    SessionError::Refused(
-                        "No free Session Card slot. Close an Agent Session first.".into(),
-                    )
-                })?,
-        );
+        let free = (0..self.dependencies.cap).find(|index| {
+            !self.sessions.values().any(|entry| entry.slot.0 == *index)
+                && !self.cards.values().any(|card| card.slot.0 == *index)
+        });
+        let (slot, victim) = if let Some(index) = free {
+            (crate::viewer::SlotId(index), None)
+        } else if let Some((oldest, slot)) = self
+            .cards
+            .iter()
+            .min_by_key(|(_, card)| (card.ended, card.slot.0))
+            .map(|(name, card)| (name.clone(), card.slot))
+        {
+            (slot, Some(oldest))
+        } else {
+            return Err(SessionError::Refused(
+                "No free Session Card slot. Close an Agent Session first.".into(),
+            ));
+        };
         let placement = self
             .dependencies
             .compositor
@@ -138,7 +152,12 @@ impl Registry {
         let time = started.format("%H-%M-%S").to_string();
         let naming_project = project.clone();
         let sessions = self.dependencies.sessions_dir.clone();
-        let used: Vec<_> = self.sessions.keys().map(ToString::to_string).collect();
+        let used: Vec<_> = self
+            .sessions
+            .keys()
+            .chain(self.cards.keys())
+            .map(ToString::to_string)
+            .collect();
         let name = tokio::task::spawn_blocking(move || {
             choose_name(&naming_project, &time, |name| {
                 used.iter().any(|used| used == name) || sessions.join(name).exists()
@@ -146,10 +165,27 @@ impl Registry {
         })
         .await
         .map_err(|e| SessionError::Refused(e.to_string()))??;
+        let journal = crate::session_journal::Handle::create(
+            &self.dependencies.journals_dir,
+            crate::session_journal::Journal {
+                project: project.clone(),
+                name: name.clone(),
+                started: started.to_rfc3339(),
+                revision: revision.clone(),
+                goal: goal.clone(),
+                checks: crate::checklist::Checklist::new(checks.clone())
+                    .checks()
+                    .to_vec(),
+                timeline: crate::timeline::SessionTimeline::new(crate::session::VIDEO_LEAD),
+                takeovers: vec![],
+                credentials_hash: credentials.fingerprint(),
+            },
+        )
+        .await?;
         let folder = SessionFolder::new(&self.dependencies.sessions_dir, &name);
         let root = folder.root().to_owned();
         let record = serde_json::json!({"goal":goal,"checks":checks,"revision":revision,"worktree":worktree});
-        tokio::task::spawn_blocking(move || -> Result<(), std::io::Error> {
+        let folder_result = tokio::task::spawn_blocking(move || -> Result<(), std::io::Error> {
             use std::os::unix::fs::DirBuilderExt;
             std::fs::DirBuilder::new()
                 .recursive(true)
@@ -161,13 +197,17 @@ impl Registry {
             )
         })
         .await
-        .map_err(|e| SessionError::Refused(e.to_string()))??;
-        if self.sessions.is_empty() {
-            self.dependencies
-                .compositor
-                .install()
-                .await
-                .map_err(|e| SessionError::Refused(e.to_string()))?;
+        .map_err(|e| SessionError::Refused(e.to_string()))
+        .and_then(|result| result.map_err(Into::into));
+        if let Err(error) = folder_result {
+            journal.remove().await;
+            return Err(error);
+        }
+        if self.sessions.is_empty()
+            && let Err(error) = self.dependencies.compositor.install().await
+        {
+            journal.remove().await;
+            return Err(SessionError::Refused(error.to_string()));
         }
         let (sender, receiver) = mpsc::channel(32);
         let (events, event_receiver) = watch::channel(SessionSnapshot {
@@ -178,6 +218,11 @@ impl Registry {
         });
         // Set when a close is queued, before the actor can report it, and cleared if the actor refuses it.
         let closing = Arc::new(AtomicBool::new(false));
+        if let Some(victim) = victim {
+            let frame = self.cards.remove(&victim).and_then(|card| card.frame);
+            self.dependencies.viewer.closed(slot).await;
+            remove_frame(frame).await;
+        }
         self.dependencies
             .viewer
             .opened(
@@ -198,6 +243,7 @@ impl Registry {
         self.sessions.insert(
             name.clone(),
             Entry {
+                card: CardDisposition::Keep,
                 control: control.clone(),
                 slot,
                 closing: Arc::clone(&closing),
@@ -208,6 +254,10 @@ impl Registry {
         );
         Ok((
             Actor {
+                frames_dir: self.dependencies.frames_dir.clone(),
+                journal: Some(journal),
+                idle_limit: self.dependencies.session_idle_limit,
+                opener,
                 control,
                 control_commands: Some(control_commands),
                 compositor: self.dependencies.compositor.clone(),

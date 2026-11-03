@@ -65,3 +65,29 @@ fn marks_validate_and_replace_and_close_names_unmarked_checks() {
     list.mark(CheckId(1), Passed, "".into(), Millis(2)).unwrap();
     assert_eq!(list.verdict().unwrap(), Verdict::Pass);
 }
+#[test]
+fn idle_reasons_use_singular_units_for_one_minute_and_one_second() {
+    use super::IncompleteReason;
+    use std::time::Duration;
+    assert_eq!(
+        IncompleteReason::Idle {
+            limit: Duration::from_secs(60)
+        }
+        .sentence(),
+        "keek ended the session after 1 minute without a tool call."
+    );
+    assert_eq!(
+        IncompleteReason::Idle {
+            limit: Duration::from_secs(1)
+        }
+        .sentence(),
+        "keek ended the session after 1 second without a tool call."
+    );
+    assert_eq!(
+        IncompleteReason::Idle {
+            limit: Duration::from_secs(60)
+        }
+        .short(),
+        "No tool call for 1 min"
+    );
+}

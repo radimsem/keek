@@ -16,7 +16,7 @@ use std::time::Duration;
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot, watch};
 
-const VIDEO_LEAD: Millis = Millis(116);
+pub(crate) const VIDEO_LEAD: Millis = Millis(116);
 fn timeline_time(zero: Instant, time: Instant) -> Millis {
     Millis((time.saturating_duration_since(zero).as_millis() as u64).saturating_sub(VIDEO_LEAD.0))
 }
@@ -121,6 +121,10 @@ pub trait DriverFactory: Send + Sync {
     ) -> OpenDriverFuture<'a>;
 }
 pub struct Actor {
+    pub frames_dir: PathBuf,
+    pub journal: Option<crate::session_journal::Handle>,
+    pub idle_limit: Duration,
+    pub opener: Option<watch::Receiver<()>>,
     pub control: control::Control,
     pub control_commands: Option<mpsc::Receiver<control::Command>>,
     pub compositor: Arc<dyn crate::compositor::Compositor>,
@@ -177,6 +181,7 @@ impl Actor {
                 .checks()
                 .iter()
                 .map(|c| CheckStatus {
+                    added: c.added,
                     id: c.id,
                     text: c.text.clone(),
                     mark: c.mark.clone(),
@@ -277,3 +282,20 @@ pub mod control;
 
 #[path = "session_run.rs"]
 mod run;
+
+#[path = "session_end.rs"]
+mod end;
+async fn opener_left(opener: &mut Option<watch::Receiver<()>>) {
+    match opener {
+        Some(receiver) => {
+            let _ = receiver.changed().await;
+        }
+        None => std::future::pending().await,
+    }
+}
+
+#[path = "session_hand_back.rs"]
+mod hand_back;
+
+#[path = "session_journal_watch.rs"]
+mod journal_watch;

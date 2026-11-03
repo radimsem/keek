@@ -120,6 +120,8 @@ pub struct CheckStatus {
     pub id: CheckId,
     pub text: String,
     pub mark: Mark,
+    #[serde(default)]
+    pub added: bool,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LastAction {
@@ -137,12 +139,27 @@ pub enum Event {
     Snapshot(SessionSnapshot),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionState {
     Opening,
     Open,
     Closing,
+    Rendering {
+        percent: Percent,
+        frame: Option<PathBuf>,
+        elapsed: Millis,
+    },
+    Ended(Box<EndedSession>),
+}
+
+impl SessionState {
+    pub(crate) fn ticks(&self) -> bool {
+        match self {
+            Self::Opening | Self::Open | Self::Closing => true,
+            Self::Rendering { .. } | Self::Ended(_) => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -260,6 +277,14 @@ pub enum ControlState {
         length: Millis,
     },
 }
+impl ControlState {
+    pub(crate) fn pauses_idle(&self) -> bool {
+        match self {
+            Self::HelpRequest { .. } | Self::Takeover { .. } => true,
+            Self::Verifier | Self::HandBack { .. } => false,
+        }
+    }
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HostShortcuts {
@@ -285,4 +310,20 @@ mod tests {
         ));
         assert!(error.to_string().contains("fixture broken pipe"));
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Percent(pub u8);
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EndedSession {
+    pub end: crate::checklist::SessionEnd,
+    pub revision: crate::revision::Revision,
+    pub attempt: Option<crate::attempts::Attempt>,
+    pub verification: Option<PathBuf>,
+    pub folder: Option<PathBuf>,
+    pub video_length: Millis,
+    pub actions: usize,
+    pub frame: Option<PathBuf>,
+    pub elapsed: Millis,
 }

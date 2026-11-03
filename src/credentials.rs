@@ -32,6 +32,7 @@ pub enum CredentialsError {
 }
 #[derive(Clone, Default)]
 pub struct Credentials {
+    fingerprint: Option<String>,
     pairs: BTreeMap<String, String>,
     forms: Vec<String>,
 }
@@ -128,7 +129,17 @@ impl Credentials {
         forms.sort();
         forms.dedup();
         forms.sort_by_key(|s| std::cmp::Reverse(s.len()));
-        Ok(Self { pairs, forms })
+        Ok(Self {
+            pairs,
+            forms,
+            fingerprint: Some({
+                use sha2::{Digest, Sha256};
+                Sha256::digest(text.as_bytes())
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect()
+            }),
+        })
     }
     pub fn read(path: &Path) -> Result<(Self, Option<String>), CredentialsError> {
         let read_error = |source| CredentialsError::Read {
@@ -148,6 +159,9 @@ impl Credentials {
         let credentials = Self::parse(path, &text)?;
         let warning = (mode & 0o044 != 0).then(|| format!("Test Credentials {} has mode {mode:03o}, allowing other users to read it. Run chmod 600 {}.", path.display(), path.display()));
         Ok((credentials, warning))
+    }
+    pub fn fingerprint(&self) -> Option<String> {
+        self.fingerprint.clone()
     }
     pub fn names(&self) -> Vec<String> {
         self.pairs.keys().cloned().collect()

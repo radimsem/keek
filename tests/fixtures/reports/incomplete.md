@@ -15,6 +15,6 @@ Checked both inputs.
 
 ## Incomplete Session
 
-Verifier disconnected.
+keek ended the session because the coding agent's keek mcp disconnected.
 
 Times come from the Session Timeline, not from actions/.

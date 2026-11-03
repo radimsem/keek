@@ -1,10 +1,13 @@
 use crate::{ipc::SessionSnapshot, session_folder::SessionName};
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
+mod end_card;
 mod events;
 pub mod footer_view;
+mod missing_card;
 pub mod theme;
 mod ui;
+pub mod verdict_view;
 pub use ui::{init, run};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SlotId(pub usize);
@@ -21,6 +24,9 @@ pub struct SessionInfo {
 }
 pub type ViewerFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>;
 pub trait Viewer: Send + Sync {
+    fn supports_cards(&self) -> bool {
+        true
+    }
     fn take_commands(&self) -> Option<mpsc::Receiver<ViewerCommand>> {
         None
     }
@@ -36,6 +42,9 @@ pub trait Viewer: Send + Sync {
 }
 pub struct NoopViewer;
 impl Viewer for NoopViewer {
+    fn supports_cards(&self) -> bool {
+        false
+    }
     fn opened(&self, _: SessionInfo, _: watch::Receiver<SessionSnapshot>) -> ViewerFuture<'_> {
         Box::pin(async {})
     }
@@ -46,6 +55,7 @@ impl Viewer for NoopViewer {
 pub enum ViewerCommand {
     TakeControl(SessionName),
     Done(SessionName),
+    Dismiss(SessionName),
 }
 pub enum ViewerMessage {
     Commands(mpsc::Sender<ViewerCommand>),

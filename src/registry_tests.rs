@@ -198,6 +198,9 @@ impl Harness {
         let (_, catalog) = watch::channel(Some(Ok(Arc::new(Catalog::new(tools)))));
         let registry = Registry::new(
             Dependencies {
+                frames_dir: directory.path().join("frames"),
+                journals_dir: directory.path().join("state/sessions"),
+                session_idle_limit: std::time::Duration::from_secs(300),
                 sessions_dir: directory.path().join("sessions"),
                 projects_config: directory.path().join("config"),
                 projects_cache: directory.path().join("projects"),
@@ -581,3 +584,9 @@ mod project;
 
 #[path = "registry_viewer_tests.rs"]
 mod viewer;
+
+#[path = "registry_incomplete_tests.rs"]
+mod incomplete;
+
+#[path = "registry_journal_tests.rs"]
+mod journal;

@@ -39,3 +39,8 @@ mod session_messages;
 pub mod slots;
 pub mod viewer;
 mod window_placement;
+
+mod session_journal;
+
+pub mod attempts;
+pub mod session_frame;

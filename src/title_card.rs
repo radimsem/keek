@@ -97,6 +97,9 @@ pub fn card_args(
         text.push_str(" · ");
         text.push_str(&reason.replace(['\r', '\n'], " "));
     }
+    text_card_args(&text, size, font, out)
+}
+pub fn text_card_args(text: &str, size: (u32, u32), font: &str, out: &Path) -> Vec<String> {
     let fontsize =
         (size.1 as f64 / 28.0).min(size.0 as f64 * 0.9 / (0.6 * text.chars().count() as f64));
     let mut args = ffmpeg_prefix();
@@ -110,7 +113,7 @@ pub fn card_args(
         format!(
             "drawtext=fontfile={}:text={}:expansion=none:fontcolor=0xeee2cc:fontsize={fontsize}:x=(w-text_w)/2:y=(h-text_h)/2,format=yuv420p",
             escape_font(font),
-            escape_font(&text)
+            escape_font(text)
         ),
     ]);
     args.extend(encode_args(TAKEOVER_CARD.0 * OUTPUT_FPS / 1000, out));
