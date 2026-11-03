@@ -290,7 +290,7 @@ fn install_and_session_mount_worktrees_at_the_same_fixed_path() {
     assert!(!session.iter().chain(&install).any(|a| a == "/worktree"));
 }
 #[test]
-fn credentials_follow_clearenv_and_precede_required_variables_only_in_sessions() {
+fn credential_values_reach_the_sandbox_on_an_arguments_file_not_the_command_line() {
     let mut spec = spec();
     spec.credentials = crate::credentials::Credentials::parse(
         Path::new("fixture.env"),
@@ -298,24 +298,69 @@ fn credentials_follow_clearenv_and_precede_required_variables_only_in_sessions()
     )
     .unwrap();
     let args = spec.args();
+    assert!(
+        !args
+            .iter()
+            .any(|a| a == "made-up-value" || a == "made-up-home"),
+        "a Test Credential value reached the command line"
+    );
     let clear = args.iter().position(|a| a == "--clearenv").unwrap();
-    let password = args
-        .windows(3)
-        .position(|a| a == ["--setenv", "PASSWORD", "made-up-value"])
-        .unwrap();
+    let file = args.iter().position(|a| a == "--args").unwrap();
+    assert_eq!(
+        args[file + 1],
+        OsString::from(crate::connect_exec::SANDBOX_ARGS_FD.to_string())
+    );
     let home = args
         .windows(3)
         .position(|a| a == ["--setenv", "HOME", "/home/test"])
         .unwrap();
-    assert!(clear < password && password < home);
-    let install = spec.args_for(SandboxMode::Install {
-        upper: Path::new("/upper"),
-        work: Path::new("/work"),
-        log: Path::new("/log"),
-    });
+    assert!(clear < file && file < home);
+}
+#[test]
+fn the_sandbox_command_carries_the_credential_values_for_connect_exec() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut sandbox = spec();
+    sandbox.session_dir = directory.path().join("session");
+    std::fs::create_dir_all(&sandbox.session_dir).unwrap();
+    sandbox.credentials = crate::credentials::Credentials::parse(
+        Path::new("fixture.env"),
+        "PASSWORD=made-up-value\nOTHER=long enough",
+    )
+    .unwrap();
+    let command = format!("{:?}", sandbox.command().unwrap());
     assert!(
-        !install
-            .iter()
-            .any(|a| a == "made-up-value" || a == "made-up-home")
+        command.contains(crate::credentials::SANDBOX_ENV),
+        "{command}"
+    );
+    assert!(
+        command.contains("OTHER=long enough") && command.contains("PASSWORD=made-up-value"),
+        "the sandbox command carries no Test Credential values"
+    );
+}
+#[test]
+fn install_carries_no_credential_value_in_arguments_or_environment() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut sandbox = spec();
+    sandbox.session_dir = directory.path().join("session");
+    std::fs::create_dir_all(&sandbox.session_dir).unwrap();
+    sandbox.credentials =
+        crate::credentials::Credentials::parse(Path::new("fixture.env"), "PASSWORD=made-up-value")
+            .unwrap();
+    let install = sandbox
+        .install_command(
+            Path::new("/upper"),
+            Path::new("/work"),
+            &directory.path().join("install.log"),
+        )
+        .unwrap();
+    let shown = format!("{install:?}");
+    assert!(!shown.contains("made-up-value"), "install carries a value");
+    assert!(
+        !shown.contains("--args"),
+        "install asks for an arguments file"
+    );
+    assert!(
+        !shown.contains(crate::credentials::SANDBOX_ENV),
+        "install carries Test Credentials"
     );
 }

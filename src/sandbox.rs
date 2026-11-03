@@ -170,6 +170,11 @@ impl SandboxSpec {
                 command.env(name, value);
             }
         }
+        if matches!(mode, SandboxMode::Session)
+            && let Some(values) = self.credentials.sandbox_env()
+        {
+            command.env(crate::credentials::SANDBOX_ENV, values);
+        }
         command
             .args(self.args_for(mode))
             .stdin(Stdio::piped())
@@ -244,10 +249,11 @@ impl SandboxSpec {
             .map(OsString::from),
         );
         if matches!(mode, SandboxMode::Session) {
-            // keek's required variables win over clashing credential names.
-            for (name, value) in self.credentials.pairs() {
-                args.extend([OsString::from("--setenv"), name.into(), value.into()]);
-            }
+            // The file parses where this option stands, so the required variables below still win a clashing name.
+            args.extend([
+                OsString::from("--args"),
+                crate::connect_exec::SANDBOX_ARGS_FD.to_string().into(),
+            ]);
         }
         for (key, value) in [
             ("HOME", self.home.as_os_str()),

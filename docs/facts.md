@@ -141,6 +141,12 @@ Checked on 2026-11-03 against the Hyprland wiki:
 
 - A Hyprland 0.56.2 window rule matches class, title, tag, workspace and window state, never a pid. A dispatcher selector takes `pid:...`.
 
+Checked on 2026-11-03 with bubblewrap 0.13.1 and pasta 2026_10_02.cba3570:
+
+- bwrap's `--args FD` accepts `--setenv`. It reads NUL-separated arguments from `FD` and parses them where the option stands, so an earlier `--clearenv` still wins and a later `--setenv` still overrides. Values keep spaces, tabs, quotes and `=`, and an empty file adds no arguments. bwrap reads from the descriptor's current offset and reports no error when that offset is already at the end, so a writer must rewind first. bwrap closes `FD` after reading, refuses a nested `--args`, and counts the expanded arguments toward its 9000 limit (`parse_args_recurse`, `bubblewrap.c`).
+- pasta passes its own environment to the command it starts, so a value can reach that command without appearing in any argument list.
+- bwrap's `--disable-userns` can't be used with a Chromium App Under Test. It sets `user.max_user_namespaces=1` and enters a nested user namespace, so a nested `bwrap` or `unshare -U` inside fails with ENOSPC, which also takes away Chromium's own sandbox; its SUID fallback then aborts, because `chrome-sandbox` is not root-owned in a sandbox mapping only one uid. `list_windows` never finds the window. Chromium runs if it is started with `--no-sandbox`, which keek can't ask of a Project's Setup Script. Checked on 2026-11-03 with bubblewrap 0.13.1 and Chromium from Omarchy.
+
 ## Project Layer spike results
 
 Checked on 2026-11-01 with bubblewrap 0.13.1, pasta 2026_10_02, Hyprland 0.56.2 and btrfs. The following checks ran on that host:

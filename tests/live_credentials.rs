@@ -25,6 +25,7 @@ async fn live_credentials_reach_the_app_and_leave_no_text_evidence() -> Result<(
 case "$1" in
 install) exit 0 ;;
 start)
+tr '\0' ' ' < /proc/1/cmdline > "$KEEK_SESSION/init-cmdline"
 printf '%s' "$KEEK_TEST_PASSWORD" > "$KEEK_SESSION/app-env"
 exec chromium --enable-logging=stderr --ozone-platform=wayland --kiosk --no-first-run --no-default-browser-check --password-store=basic --user-data-dir="$HOME/chromium" file:///keek/worktree/index.html
 ;;
@@ -50,6 +51,13 @@ esac
         }
         anyhow::ensure!(arrived,"page did not log the substituted input");
         println!("type_text: page received the value and tool result is masked");
+        let readable=command_lines(&cache.to_string_lossy());
+        anyhow::ensure!(!readable.is_empty(),"no readable host cmdline names the session folder, so the scan proves nothing");
+        anyhow::ensure!(command_lines(value).is_empty(),"a Test Credential value sits on a host command line");
+        println!("host cmdlines: every readable one checked, {} name the session folder, none carries the value",readable.len());
+        let init=std::fs::read_to_string(cache.join("init-cmdline"))?;
+        anyhow::ensure!(init.contains("--args")&&!init.contains(value),"sandbox pid 1 lacks the arguments file or carries the value: {init}");
+        println!("sandbox /proc/1/cmdline: carries --args, not the value");
         let records=fixture.close(&session).await?;
         let evidence=records.report.parent().and_then(Path::parent).context("Project Evidence folder missing")?;
         let status=Command::new("rg").args(["--no-ignore","--hidden","-F","--"]).arg(value).arg(evidence).stdout(Stdio::null()).stderr(Stdio::null()).status().await?;
@@ -64,4 +72,23 @@ esac
     }.await;
     let cleanup = fixture.finish().await;
     result.and(cleanup)
+}
+
+fn command_lines(needle: &str) -> Vec<String> {
+    std::fs::read_dir("/proc")
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.is_empty() || !name.bytes().all(|byte| byte.is_ascii_digit()) {
+                return None;
+            }
+            let bytes = std::fs::read(format!("/proc/{name}/cmdline")).ok()?;
+            bytes
+                .windows(needle.len())
+                .any(|window| window == needle.as_bytes())
+                .then_some(name)
+        })
+        .collect()
 }
