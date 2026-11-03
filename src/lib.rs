@@ -32,4 +32,9 @@ mod session_project;
 
 pub mod credential_scrub;
 pub mod credentials;
+pub mod hypr;
 pub mod revision;
+mod session_messages;
+pub mod slots;
+pub mod viewer;
+mod window_placement;

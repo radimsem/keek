@@ -6,6 +6,8 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::sync::Notify;
 
+const ACTION_DURATION_MS: u64 = 200;
+
 struct FakeClock {
     zero: Instant,
     elapsed: AtomicU64,
@@ -54,7 +56,7 @@ impl Driver for FakeDriver {
             let duration = match tool {
                 "set_config" | "set_agent_cursor_motion" => 200,
                 "start_recording" | "read" => 50,
-                "run_steps" => 200,
+                "run_steps" => ACTION_DURATION_MS,
                 _ => 0,
             };
             self.clock.elapsed.fetch_add(duration, Ordering::SeqCst);
@@ -172,6 +174,17 @@ async fn start_actor_with_credentials(
     });
     let render_succeeds = Arc::new(AtomicBool::new(false));
     let actor = Actor {
+        opened_at: clock.zero,
+        placement: crate::compositor::Placement {
+            monitor: "fake".into(),
+            origin: (0, 0),
+            slot: crate::slots::Slot {
+                x: 24,
+                y: 50,
+                width: 1280,
+                height: 800,
+            },
+        },
         credentials,
         project: "app".into(),
         worktree: root.to_owned(),
@@ -273,68 +286,8 @@ async fn finish(actor: RunningActor) -> Response {
     response.await.unwrap()
 }
 
-#[tokio::test]
-async fn the_timeline_records_each_call_once_and_excludes_setup() {
-    let root = tempfile::tempdir().unwrap();
-    let actor = start_actor(root.path(), "app_12-00-00", false).await;
-    call(&actor, "read").await;
-    call(&actor, "run_steps").await;
-    assert_eq!(
-        actor.events.borrow().last_action,
-        Some(LastAction {
-            tool: "run_steps".into(),
-            time_ms: Millis(0)
-        })
-    );
-    let folder = actor.folder.clone();
-    let calls = actor.calls.clone();
-    let Response::Closed(value) = finish(actor).await else {
-        panic!("close refused");
-    };
-    let timeline = SessionTimeline::parse(
-        &std::fs::read_to_string(value["evidence"]["timeline"].as_str().unwrap()).unwrap(),
-    )
-    .unwrap();
-    assert_eq!(
-        timeline.events(),
-        [
-            TimelineEvent::Call {
-                tool: "read".into(),
-                action: false,
-                start_ms: Millis(0),
-                end_ms: Millis(0),
-                is_error: false
-            },
-            TimelineEvent::Call {
-                tool: "run_steps".into(),
-                action: true,
-                start_ms: Millis(0),
-                end_ms: Millis(184),
-                is_error: false
-            },
-            TimelineEvent::CheckMark {
-                check: crate::timeline::CheckId(1),
-                outcome: crate::timeline::CheckOutcome::Passed,
-                at_ms: Millis(184),
-            },
-        ]
-    );
-    let calls = calls.lock().unwrap();
-    let recording = calls
-        .iter()
-        .find(|(tool, _)| tool == "start_recording")
-        .unwrap();
-    assert_eq!(
-        recording.1,
-        json!({"output_dir":folder.root(),"record_video":true})
-    );
-    assert!(
-        calls
-            .iter()
-            .filter(|(tool, _)| tool == "read" || tool == "run_steps")
-            .all(|(_, args)| args.get("session").is_none())
-    );
-}
+#[path = "session_actor_tests/timeline.rs"]
+mod timeline;
 
 #[tokio::test]
 async fn close_writes_the_timeline_and_closes_the_driver_when_stop_recording_fails() {

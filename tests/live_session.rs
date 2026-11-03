@@ -135,3 +135,124 @@ async fn assert_verification_video(path: &Path) -> Result<()> {
     anyhow::ensure!(duration > 0.0, "Verification Video duration is zero");
     Ok(())
 }
+
+#[tokio::test]
+#[ignore = "requires Hyprland, pinned Cua Driver and Chromium; start on another workspace"]
+async fn live_viewer_open_session_preserves_host_focus_and_workspace() -> Result<()> {
+    let _desktop = LIVE_DESKTOP.lock().await;
+    let before = host_state().await?;
+    anyhow::ensure!(
+        before["workspace_name"] != "keek",
+        "Start this test from another workspace"
+    );
+    let mut fixture = Fixture::start().await?;
+    let result = async {
+        let worktree = fixture.worktree("viewer").await?;
+        let session = fixture.open("viewer", &worktree).await?;
+        let after = host_state().await?;
+        anyhow::ensure!(
+            before == after,
+            "open_session changed host focus or workspace"
+        );
+        let folder = fixture
+            .directory
+            .path()
+            .join("cache/keek/sessions")
+            .join(&session);
+        let clients: Value =
+            serde_json::from_str(&run("hyprctl", &["clients", "-j"], None).await?)?;
+        let client = clients
+            .as_array()
+            .context("clients is not an array")?
+            .iter()
+            .find(|client| {
+                if client["class"] != "aquamarine" {
+                    return false;
+                }
+                let Some(pid) = client["pid"].as_u64() else {
+                    return false;
+                };
+                std::fs::read(format!("/proc/{pid}/cmdline"))
+                    .ok()
+                    .is_some_and(|cmdline| {
+                        cmdline
+                            .split(|byte| *byte == 0)
+                            .any(|arg| arg == folder.as_os_str().as_encoded_bytes())
+                    })
+            })
+            .context("the session's aquamarine window was not found")?;
+        let pid = client["pid"].as_u64().context("window has no pid")?;
+        use keek::compositor::Compositor;
+        let compositor =
+            keek::compositor::HostCompositor::new(std::sync::Arc::new(keek::process::HostRunner));
+        let placement = compositor.slot(keek::viewer::SlotId(0), 2, None).await?;
+        let slot = placement.slot;
+        anyhow::ensure!(
+            client["workspace"]["name"] == "keek" && client["floating"] == true,
+            "Session Window is not floating on keek: workspace {}, floating {}",
+            client["workspace"]["name"],
+            client["floating"]
+        );
+        anyhow::ensure!(
+            client["at"] == json!([slot.x + placement.origin.0, slot.y + placement.origin.1]),
+            "Session Window is at {} but its slot is at [{}, {}]",
+            client["at"],
+            slot.x + placement.origin.0,
+            slot.y + placement.origin.1
+        );
+        anyhow::ensure!(
+            client["size"] == json!([slot.width, slot.height]),
+            "Session Window is {} but its slot is [{}, {}]",
+            client["size"],
+            slot.width,
+            slot.height
+        );
+        let mut pending = vec![pid];
+        let mut nested = None;
+        while let Some(parent) = pending.pop() {
+            if std::fs::read_to_string(format!("/proc/{parent}/comm"))
+                .is_ok_and(|name| name.trim() == "Hyprland")
+            {
+                nested = Some(parent);
+                break;
+            }
+            if let Ok(children) =
+                std::fs::read_to_string(format!("/proc/{parent}/task/{parent}/children"))
+            {
+                pending.extend(
+                    children
+                        .split_whitespace()
+                        .filter_map(|child| child.parse::<u64>().ok()),
+                );
+            }
+        }
+        let nested = nested.context("nested Hyprland process not found")?;
+        let uid = unsafe { libc::getuid() };
+        let runtime = format!("/proc/{nested}/root/run/user/{uid}/hypr");
+        let socket = std::fs::read_dir(runtime)?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join(".socket.sock"))
+            .find(|path| path.exists())
+            .context("nested Hyprland socket not found")?;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        // A socket address is capped at 108 bytes, and the /proc path is longer.
+        let link = fixture.directory.path().join("nested.sock");
+        std::os::unix::fs::symlink(&socket, &link)?;
+        let mut stream = tokio::net::UnixStream::connect(link).await?;
+        stream.write_all(b"j/monitors").await?;
+        let mut reply = String::new();
+        stream.read_to_string(&mut reply).await?;
+        let monitors: Value = serde_json::from_str(&reply)?;
+        anyhow::ensure!(
+            monitors.as_array().is_some_and(|monitors| monitors
+                .iter()
+                .any(|monitor| monitor["width"] == slot.width && monitor["height"] == slot.height)),
+            "nested output size differs from its slot"
+        );
+        Ok::<(), anyhow::Error>(())
+    }
+    .await;
+    let cleanup = fixture.finish().await;
+    result?;
+    cleanup
+}

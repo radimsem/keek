@@ -21,13 +21,16 @@ concurrency:
 
 jobs:
   gates:
-    runs-on: ubuntu-latest
+    # Ubuntu packages gtk4-layer-shell from 25.04, so 24.04 can't build the viewer.
+    runs-on: ubuntu-26.04
     # A hung daemon test would otherwise bill until the 6-hour default.
     timeout-minutes: 10
     env:
       CARGO_PROFILE_DEV_DEBUG: 0
     steps:
       - uses: actions/checkout@v7
+      - name: Install GTK
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgtk-4-dev libgtk4-layer-shell-dev
       # Before the cache, whose key includes the rustc version.
       - name: Install the pinned toolchain
         run: rustup toolchain install

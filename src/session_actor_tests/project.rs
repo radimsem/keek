@@ -38,6 +38,17 @@ async fn project_prepare_can_outlast_the_desktop_handshake_limit() {
         last_action: None,
     });
     let actor = Actor {
+        opened_at: Instant::now(),
+        placement: crate::compositor::Placement {
+            monitor: "fake".into(),
+            origin: (0, 0),
+            slot: crate::slots::Slot {
+                x: 24,
+                y: 50,
+                width: 1280,
+                height: 800,
+            },
+        },
         credentials: Default::default(),
         project: "app".into(),
         worktree: root.path().to_owned(),

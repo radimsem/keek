@@ -58,9 +58,40 @@ fn main() -> Result<std::process::ExitCode> {
                 .block_on(keek::mcp::serve())
                 .map(|()| std::process::ExitCode::SUCCESS)
         }
-        Command::Daemon => tokio::runtime::Runtime::new()?
-            .block_on(run_daemon())
-            .map(|()| std::process::ExitCode::SUCCESS),
+        Command::Daemon => {
+            let paths = daemon_logging()?;
+            let runtime = tokio::runtime::Runtime::new()?;
+            let handle = runtime.handle().clone();
+            let receiver_and_viewer = match keek::viewer::init() {
+                Ok(()) => Some(keek::viewer::channel()),
+                Err(error) => {
+                    tracing::warn!(%error, "GTK could not initialise; Agent Sessions will run without Session Footers");
+                    None
+                }
+            };
+            let (viewer, receiver) = match receiver_and_viewer {
+                Some((viewer, receiver)) => (viewer, Some(receiver)),
+                None => (
+                    std::sync::Arc::new(keek::viewer::NoopViewer)
+                        as std::sync::Arc<dyn keek::viewer::Viewer>,
+                    None,
+                ),
+            };
+            let worker = std::thread::spawn(move || {
+                runtime.block_on(async move {
+                    let result = run_daemon(paths, viewer.clone()).await;
+                    viewer.shutdown().await;
+                    result
+                })
+            });
+            if let Some(receiver) = receiver {
+                keek::viewer::run(receiver, handle);
+            }
+            worker
+                .join()
+                .map_err(|_| anyhow::anyhow!("Daemon worker failed"))??;
+            Ok(std::process::ExitCode::SUCCESS)
+        }
     }
 }
 
@@ -107,7 +138,7 @@ async fn run_edit(raw: PathBuf, timeline: PathBuf, out: PathBuf) -> Result<()> {
     Ok(())
 }
 
-async fn run_daemon() -> Result<()> {
+fn daemon_logging() -> Result<Paths> {
     let paths = Paths::from_env()?;
     fs::create_dir_all(paths.state_dir()).context("could not create the state folder")?;
     let log = File::options()
@@ -121,12 +152,15 @@ async fn run_daemon() -> Result<()> {
         .with_writer(log)
         .init();
 
+    Ok(paths)
+}
+async fn run_daemon(paths: Paths, viewer: std::sync::Arc<dyn keek::viewer::Viewer>) -> Result<()> {
     tracing::info!(
         version = keek::VERSION,
         pid = std::process::id(),
         "keek daemon starting"
     );
-    match serve_daemon(&paths).await {
+    match serve_daemon(&paths, viewer).await {
         Ok(exit) => {
             tracing::info!(?exit, "keek daemon exiting");
             Ok(())
@@ -139,8 +173,11 @@ async fn run_daemon() -> Result<()> {
     }
 }
 
-async fn serve_daemon(paths: &Paths) -> Result<Exit> {
+async fn serve_daemon(
+    paths: &Paths,
+    viewer: std::sync::Arc<dyn keek::viewer::Viewer>,
+) -> Result<Exit> {
     let idle_limit_value = std::env::var(IDLE_LIMIT_ENV).ok();
     let idle_limit = daemon::idle_limit(idle_limit_value.as_deref())?;
-    Ok(daemon::run(paths, idle_limit, MonotonicClock).await?)
+    Ok(daemon::run_with_viewer(paths, idle_limit, MonotonicClock, viewer).await?)
 }

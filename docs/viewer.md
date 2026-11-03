@@ -49,6 +49,12 @@ The viewer fails, even if it works, if:
 - A Session Window opens there silently: it never takes focus or switches the developer's workspace. It closes when its session ends. Its window rule includes `render_unfocused`, so the session keeps rendering and recording while the workspace is hidden.
 - keek ships no keybinding to reach the workspace. Its docs suggest one for the user's Hyprland config. *(my call)*
 
+### Viewer process and narrow monitors
+
+GTK runs on the daemon process main thread; the Tokio daemon runs on a worker thread. A bounded channel carries Session Footer lifecycle messages, and each footer awaits its snapshot watch channel on GLib. If GTK cannot initialise, the daemon continues without a viewer. Hyprland workspace events control visibility, and the elapsed timer exists only while at least one footer is visible.
+
+Two slots sit side by side on monitors at least 1920 logical pixels wide (960 pixels per half before gaps). Narrower monitors stack the two cards vertically, splitting the usable height. The Session Window keeps its opening size throughout the session.
+
 ### Session Window
 
 The nested Hyprland's own window. It shows the agent's desktop live, with Cua's agent cursor, its action marks and a ripple on each click in the picture.
@@ -110,6 +116,4 @@ When the session closes (normally or as an Incomplete Session), the sandbox stop
 ## Left to the builder
 
 - Matching a nested window to its session. Candidates are the client's pid and the first window that maps on the connection keek created.
-- Slot geometry and gaps, and what happens on a monitor too narrow for two slots.
 - The Session Footer's layout, styling and copy follow [`DESIGN.md`](DESIGN.md).
-- Whether the keek daemon draws the Session Footers in its own process or a child per slot.
