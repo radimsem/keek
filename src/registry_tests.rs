@@ -612,3 +612,6 @@ mod journal;
 
 #[path = "registry_daemon_tests.rs"]
 mod daemon;
+
+#[path = "registry_profile_tests.rs"]
+mod profile;

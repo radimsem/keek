@@ -54,6 +54,11 @@ pub enum ProfileError {
     },
     #[error("Invalid Project Profile at {path}: {reason}. Fix it with set_project_profile, then try again.", path = .path.display())]
     Invalid { path: PathBuf, reason: String },
+    #[error("Cannot write the Project Profile at {path}: {source}. Check the folder's permissions and try again.", path = .path.display())]
+    Write {
+        path: PathBuf,
+        source: std::io::Error,
+    },
 }
 
 // keek sets these itself, so a profile value would break the sandbox or the desktop.
@@ -70,14 +75,6 @@ const RESERVED: &[&str] = &[
 ];
 const RESERVED_PREFIXES: &[&str] = &["KEEK_", "XDG_", "WAYLAND_", "CUA_DRIVER_"];
 
-pub(crate) fn valid_name(name: &str) -> bool {
-    let mut bytes = name.bytes();
-    bytes
-        .next()
-        .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
-        && bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_')
-}
-
 impl Profile {
     /// The first rule the profile breaks, as a sentence fragment.
     pub fn problem(&self) -> Option<String> {
@@ -90,7 +87,7 @@ impl Profile {
             }
         }
         for (name, value) in &self.env {
-            if !valid_name(name) {
+            if !crate::credentials::valid_name(name) {
                 return Some(format!(
                     "env name {name:?} is not valid. Use letters, digits and _, not starting with a digit"
                 ));

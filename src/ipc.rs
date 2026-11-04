@@ -80,6 +80,11 @@ pub enum Request {
     WatchSession {
         session: SessionName,
     },
+    SetProjectProfile {
+        project: String,
+        profile: Value,
+        credentials: Option<CredentialSource>,
+    },
     /// Asks the daemon to exit. It refuses while an Agent Session is open.
     Shutdown,
 }
@@ -112,6 +117,18 @@ pub enum Response {
     ShutdownRefused {
         open_sessions: usize,
     },
+    ProfileWritten {
+        path: PathBuf,
+        profile: String,
+        credentials: Option<crate::project::CopiedCredentials>,
+    },
+}
+
+/// The Test Credentials a profile write copies, and the host file holding their values.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CredentialSource {
+    pub source: PathBuf,
+    pub names: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

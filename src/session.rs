@@ -169,6 +169,7 @@ impl Actor {
             | Response::Tools(_)
             | Response::CheckAdded { .. }
             | Response::CheckMarked { .. }
+            | Response::ProfileWritten { .. }
             | Response::WatchEnded
             | Response::ShuttingDown
             | Response::ShutdownRefused { .. } => response,

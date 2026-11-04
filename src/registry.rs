@@ -350,6 +350,11 @@ impl Registry {
                     open_sessions: self.len(),
                 }));
             }
+            Request::SetProjectProfile {
+                project,
+                profile,
+                credentials,
+            } => self.set_project_profile(project, profile, credentials, reply),
             Request::Shutdown => {
                 let response = self.shutdown();
                 let _ = reply.send(response);
@@ -465,6 +470,9 @@ mod opening;
 
 #[path = "session_recovery.rs"]
 mod recovery;
+
+#[path = "registry_project.rs"]
+mod project;
 
 async fn remove_frame(frame: Option<PathBuf>) {
     if let Some(frame) = frame {

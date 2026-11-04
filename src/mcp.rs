@@ -44,8 +44,10 @@ fn own_tools() -> Vec<Tool> {
         ("mark_check","Mark a Check passed, failed or skipped. Failed and skipped need a one-line comment.",json!({"type":"object","properties":{"session":{"type":"string"},"check":{"type":"integer"},"outcome":{"type":"string","enum":["passed","failed","skipped"]},"comment":{"type":"string"}},"required":["session","check","outcome"]})),
         ("request_help","Raise a Help Request with a reason shown to the developer. This call can block until the developer finishes a Takeover. The result starts with a note and a fresh screenshot to read before acting.",json!({"type":"object","properties":{"session":{"type":"string"},"reason":{"type":"string","minLength":1,"maxLength":HELP_REASON_MAX_CHARS}},"required":["session","reason"]})),
         ("close_session","Derive the Verdict and file Evidence. Returns incomplete in place of the Verdict when keek cannot stop the recording or the session opened a window on the developer's desktop. Refuses with no Checks or unmarked Checks. Returns video_error if the Verification Video could not be produced; the rest of the Evidence is still filed. Returns actions_error if Test Credentials could not be removed; the Action Log is withheld and kept in the session folder.",json!({"type":"object","properties":{"session":{"type":"string"},"summary":{"type":"string"}},"required":["session","summary"]}))
-    ].into_iter().map(|(name,description,schema)|Tool::new(name,description,schema.as_object().cloned().unwrap_or_default())).collect()
+    ].into_iter().map(|(name,description,schema)|Tool::new(name,description,schema.as_object().cloned().unwrap_or_default())).chain(project::project_tools()).collect()
 }
+#[path = "mcp_project.rs"]
+mod project;
 fn can_wait(request: &Request) -> bool {
     match request {
         Request::OpenSession { .. }
@@ -57,6 +59,7 @@ fn can_wait(request: &Request) -> bool {
         | Request::AddCheck { .. }
         | Request::MarkCheck { .. }
         | Request::WatchSession { .. }
+        | Request::SetProjectProfile { .. }
         | Request::Shutdown => false,
     }
 }
@@ -99,6 +102,7 @@ impl ServerHandler for KeekServer {
             "request_help"=>parse_help(args),
             "add_check"=>parse_add(args),
             "mark_check"=>parse_mark(args),
+            "set_project_profile"=>project::parse_set_profile(args),
             tool=>args.get("session").and_then(Value::as_str).ok_or_else(||"Every forwarded tool requires an Agent Session name in session. Call open_session first.".to_owned()).and_then(|name|name.parse().map_err(|e:crate::session_folder::InvalidSessionName|e.to_string())).map(|session|Request::CallTool{session,tool:tool.into(),arguments:args}),
         };
         let request = match request {
@@ -152,6 +156,13 @@ impl ServerHandler for KeekServer {
                 CallToolResult::structured(json!({"check":check}))
             }
             Response::Closed(value) => CallToolResult::structured(value),
+            Response::ProfileWritten {
+                path,
+                profile,
+                credentials,
+            } => CallToolResult::structured(
+                json!({"path":path,"profile":profile,"credentials":credentials}),
+            ),
             Response::Status(status) => CallToolResult::structured(
                 serde_json::to_value(status)
                     .map_err(|e| ErrorData::internal_error(e.to_string(), None))?,
