@@ -456,6 +456,7 @@ async fn close_files_the_timeline_and_revision_in_the_report() {
     assert!(report.contains("# goal"));
     assert!(report.contains("Verified feature at fake-co + uncommitted changes"));
     assert!(report.contains("1. check: Passed"));
+    assert!(report.contains("- Start: `true`"), "{report}");
 
     assert!(
         h.calls

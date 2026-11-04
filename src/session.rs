@@ -146,6 +146,7 @@ pub struct Actor {
     pub project: String,
     pub worktree: PathBuf,
     pub profile: crate::project::Profile,
+    pub toolchains: crate::toolchain::Toolchains,
     pub goal: String,
     pub warnings: Vec<String>,
     pub revision: Revision,

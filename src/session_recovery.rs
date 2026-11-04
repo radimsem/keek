@@ -144,6 +144,7 @@ async fn recover_one(
                 started,
                 goal: journal.goal,
                 revision: journal.revision,
+                profile: journal.profile,
                 checks: journal.checks,
                 credentials,
                 action_log,

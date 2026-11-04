@@ -12,6 +12,7 @@ pub struct Inputs {
     pub started: chrono::DateTime<chrono::Local>,
     pub goal: String,
     pub revision: crate::revision::Revision,
+    pub profile: crate::report::ProfileSummary,
     pub checks: Vec<crate::checklist::Check>,
     pub credentials: crate::credentials::Credentials,
     pub action_log: crate::evidence::ActionLog,
@@ -26,6 +27,8 @@ impl From<&Actor> for Inputs {
             started: actor.started,
             goal: actor.goal.clone(),
             revision: actor.revision.clone(),
+            profile: crate::report::ProfileSummary::new(&actor.profile, &actor.toolchains)
+                .masked(&actor.credentials),
             checks: actor.checklist.checks().to_vec(),
             credentials: actor.credentials.clone(),
             action_log: crate::evidence::ActionLog::File,
@@ -60,6 +63,7 @@ pub async fn file(
         started,
         goal,
         revision,
+        profile,
         checks,
         credentials,
         action_log,
@@ -116,6 +120,7 @@ pub async fn file(
                 time_map,
                 video_error: report_error.as_deref(),
                 actions_error: actions_error.as_deref(),
+                profile: &profile,
             },
         ).map(|filed| (filed, actions_error)).map_err(|e| e.to_string())
     })

@@ -76,6 +76,7 @@ mod tests {
                 time_map: &IdentityTimeMap,
                 actions_error: None,
                 video_error: None,
+                profile: &Default::default(),
             },
         )
         .unwrap()
@@ -166,6 +167,7 @@ mod tests {
             time_map: &IdentityTimeMap,
             actions_error: None,
             video_error: None,
+            profile: &Default::default(),
         };
         for expected in [
             "myapp_14-03-22-2_pass_report.md",
@@ -309,6 +311,7 @@ mod tests {
                 time_map: &IdentityTimeMap,
                 actions_error: None,
                 video_error: None,
+                profile: &Default::default(),
             },
         )
         .unwrap_err();
@@ -343,6 +346,7 @@ mod tests {
                 time_map: &IdentityTimeMap,
                 actions_error: None,
                 video_error: None,
+                profile: &Default::default(),
             },
         )
         .unwrap_err();

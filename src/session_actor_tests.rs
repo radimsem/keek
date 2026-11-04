@@ -206,6 +206,7 @@ async fn start_configured(
         project: "app".into(),
         worktree: root.to_owned(),
         profile: Default::default(),
+        toolchains: Default::default(),
         warnings: vec![],
         goal: "fixture".into(),
         revision: Revision {

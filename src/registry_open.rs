@@ -161,6 +161,11 @@ impl Registry {
                 timeline: crate::timeline::SessionTimeline::new(crate::session::VIDEO_LEAD),
                 takeovers: vec![],
                 credentials_hash: credentials.fingerprint(),
+                profile: crate::report::ProfileSummary::new(
+                    &profile,
+                    &crate::toolchain::Toolchains::default(),
+                )
+                .masked(&credentials),
             },
         )
         .await?;
@@ -251,6 +256,7 @@ impl Registry {
                 project,
                 worktree,
                 profile,
+                toolchains: Default::default(),
                 warnings,
                 goal,
                 revision,

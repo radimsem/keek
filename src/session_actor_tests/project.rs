@@ -62,6 +62,7 @@ async fn project_prepare_can_outlast_the_desktop_handshake_limit() {
         project: "app".into(),
         worktree: root.path().to_owned(),
         profile: Default::default(),
+        toolchains: Default::default(),
         warnings: vec![],
         goal: "fixture".into(),
         revision: Revision {
