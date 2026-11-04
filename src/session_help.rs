@@ -36,7 +36,16 @@ impl Actor {
                 },
                 () = reply.closed() => {
                     drop(waiting);
-                    let _ = self.control.commands.send(control::Command::Withdraw).await;
+                    let (acknowledged, restored) = oneshot::channel();
+                    if self
+                        .control
+                        .commands
+                        .send(control::Command::Withdraw(acknowledged))
+                        .await
+                        .is_ok()
+                    {
+                        let _ = restored.await;
+                    }
                     state.deadline = tokio::time::Instant::now() + self.idle_limit;
                     return None;
                 }

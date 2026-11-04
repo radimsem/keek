@@ -221,3 +221,45 @@ async fn a_help_request_cancelled_after_take_control_leaves_the_takeover_running
     drop(actor.sender);
     actor.task.await.unwrap();
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_withdrawn_help_request_restarts_the_idle_limit() {
+    let root = tempfile::tempdir().unwrap();
+    let actor = start_actor(root.path(), "withdraw-idle", false).await;
+    let mut events = actor.events.clone();
+    let answer = raise_help(&actor).await;
+    wait_for(&mut events, |c| {
+        matches!(c, crate::ipc::ControlState::HelpRequest { .. })
+    })
+    .await;
+    tokio::time::advance(Duration::from_secs(600)).await;
+    drop(answer);
+    wait_for(&mut events, |c| {
+        matches!(c, crate::ipc::ControlState::Verifier)
+    })
+    .await;
+    settle().await;
+    assert!(
+        !actor.task.is_finished(),
+        "the idle limit ran from before the Help Request"
+    );
+
+    tokio::time::advance(Duration::from_secs(299)).await;
+    settle().await;
+    assert!(!actor.task.is_finished());
+
+    tokio::time::advance(Duration::from_secs(2)).await;
+    tokio::time::timeout(Duration::from_secs(5), actor.task)
+        .await
+        .expect("the session never reached its idle limit")
+        .unwrap();
+    let SessionState::Ended(card) = &actor.events.borrow().state else {
+        panic!("no ended card")
+    };
+    assert_eq!(
+        card.end,
+        SessionEnd::Incomplete(IncompleteReason::Idle {
+            limit: Duration::from_secs(300)
+        })
+    );
+}

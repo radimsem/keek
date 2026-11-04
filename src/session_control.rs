@@ -17,8 +17,8 @@ pub enum Command {
         reason: String,
         reply: oneshot::Sender<Span>,
     },
-    /// Sent after a Help Request's waiter went away, so the card can leave Help Request.
-    Withdraw,
+    /// Sent after a Help Request's waiter went away. The controller answers once the card has left Help Request.
+    Withdraw(oneshot::Sender<()>),
     Stop(oneshot::Sender<()>),
 }
 #[derive(Clone)]
@@ -418,13 +418,16 @@ impl Controller {
                         Ok(())
                     }
                 }
-                Some(Command::Withdraw) => {
+                Some(Command::Withdraw(acknowledged)) => {
                     waiting.retain(|waiter| !waiter.is_closed());
-                    if taking.is_none() && waiting.is_empty() && reason.take().is_some() {
-                        self.withdraw_help(before_help.clone()).await
-                    } else {
-                        Ok(())
-                    }
+                    let result =
+                        if taking.is_none() && waiting.is_empty() && reason.take().is_some() {
+                            self.withdraw_help(before_help.clone()).await
+                        } else {
+                            Ok(())
+                        };
+                    let _ = acknowledged.send(());
+                    result
                 }
                 Some(Command::Stop(reply)) => {
                     if let Some(mut active) = taking.take() {
