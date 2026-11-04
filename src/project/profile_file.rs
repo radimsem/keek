@@ -123,14 +123,14 @@ mod tests {
     }
 
     #[test]
-    fn a_null_optional_key_reads_as_absent() {
+    fn null_keys_and_list_items_read_as_absent() {
         let directory = tempfile::tempdir().unwrap();
         let written = write(
             directory.path(),
-            json!({"start":"run","install":null,"window":null,"toolchain":{"node":null},"env":{},"ports":[null]}),
+            json!({"start":"run","install":null,"window":null,"toolchain":{"node":null},"env":{},"ports":[5432,null]}),
         )
         .unwrap();
-        assert_eq!(written.toml, "start = \"run\"\n");
+        assert_eq!(written.toml, "start = \"run\"\nports = [5432]\n");
     }
 
     #[test]
