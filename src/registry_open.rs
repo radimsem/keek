@@ -1,4 +1,9 @@
 use super::*;
+/// What the connection that sent an open_session offers the open.
+pub(super) struct Caller {
+    pub(super) opener: Option<watch::Receiver<()>>,
+    pub(super) events: Option<mpsc::Sender<Event>>,
+}
 impl Registry {
     pub(super) fn begin_open(
         &mut self,
@@ -7,8 +12,9 @@ impl Registry {
         goal: String,
         checks: Vec<String>,
         reply: oneshot::Sender<Response>,
-        mut opener: Option<watch::Receiver<()>>,
+        caller: Caller,
     ) {
+        let Caller { mut opener, events } = caller;
         let refusal = match self.lifecycle {
             Lifecycle::ShuttingDown => {
                 Some("keek is ShuttingDown. Start keek again to open an Agent Session.".to_owned())
@@ -38,6 +44,7 @@ impl Registry {
                 let credential_path = projects_config.join(format!("{project}.env"));
                 let (credentials, warning) = tokio::task::spawn_blocking(move || crate::credentials::Credentials::read(&credential_path)).await.map_err(|e| SessionError::Refused(e.to_string()))?.map_err(|e| SessionError::Refused(e.to_string()))?;
                 warnings.extend(warning);
+                let progress = crate::open_progress::OpenProgress::new(events, credentials.clone());
                 let goal = credentials.mask(&goal);
                 let checks = checks.iter().map(|text| credentials.mask(text)).collect();
                 let catalog = wait_catalog(&mut catalog)
@@ -80,6 +87,7 @@ impl Registry {
                     catalog,
                     revision,
                     settings, warnings,
+                    progress,
                 })
             };
             let result = tokio::select! { biased;
@@ -104,6 +112,7 @@ impl Registry {
             revision,
             settings,
             warnings,
+            progress,
         } = opening;
         match self.lifecycle {
             Lifecycle::Running => {}
@@ -282,6 +291,7 @@ impl Registry {
                 clock: Arc::clone(&self.dependencies.clock),
                 catalog,
                 events,
+                progress,
             },
             Inbox::new(receiver, close_receiver),
         ))

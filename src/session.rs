@@ -97,6 +97,7 @@ pub struct Opening {
     pub worktree: PathBuf,
     pub settings: crate::project::Settings,
     pub name: SessionName,
+    pub progress: crate::open_progress::OpenProgress,
 }
 #[derive(Default)]
 pub struct Mounts {
@@ -147,6 +148,7 @@ pub struct Actor {
     pub clock: Arc<dyn Clock + Send + Sync>,
     pub catalog: Arc<Catalog>,
     pub events: watch::Sender<SessionSnapshot>,
+    pub progress: crate::open_progress::OpenProgress,
 }
 pub use crate::session_messages::{ActorRequest, CloseRequest, Finished};
 fn refusal(error: impl std::fmt::Display) -> Response {

@@ -1,6 +1,6 @@
 use crate::VERSION;
 use crate::daemon_client::{self, DaemonClient, ProcessStarter};
-use crate::ipc::{Request, Response};
+use crate::ipc::{Event, Request, Response};
 use crate::paths::Paths;
 use crate::verifier_protocol::VERIFIER_PROTOCOL;
 use anyhow::{Context, Result};
@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use std::time::Duration;
 const DAEMON_START_TIMEOUT: Duration = Duration::from_secs(2);
 const HELP_REASON_MAX_CHARS: usize = 40;
+const NOTIFY_GRACE: Duration = Duration::from_millis(250);
 pub async fn serve() -> Result<()> {
     let paths = Paths::from_env()?;
     let executable = std::env::current_exe().context("could not find the keek executable")?;
@@ -47,12 +48,12 @@ fn own_tools() -> Vec<Tool> {
 }
 fn can_wait(request: &Request) -> bool {
     match request {
-        Request::RequestHelp { .. } | Request::CallTool { .. } | Request::CloseSession { .. } => {
-            true
-        }
+        Request::OpenSession { .. }
+        | Request::RequestHelp { .. }
+        | Request::CallTool { .. }
+        | Request::CloseSession { .. } => true,
         Request::Status
         | Request::ListTools
-        | Request::OpenSession { .. }
         | Request::AddCheck { .. }
         | Request::MarkCheck { .. }
         | Request::WatchSession { .. }
@@ -113,8 +114,10 @@ impl ServerHandler for KeekServer {
                 std::future::pending::<()>().await;
             }
         };
+        let (events, event_receiver) = tokio::sync::mpsc::channel(16);
         let response = match waiting_with_progress(
-            self.daemon.request_until(request, cancelled),
+            self.daemon.request_until(request, Some(events), cancelled),
+            event_receiver,
             if can_wait {
                 context.meta.get_progress_token()
             } else {
@@ -273,8 +276,10 @@ mod progress_tests;
 #[path = "mcp_cancel_tests.rs"]
 mod cancel_tests;
 
+/// Sends a progress notification for each `Event::Progress` and one every minute, until `request` ends.
 async fn waiting_with_progress<F, T, N, NF>(
     request: F,
+    mut events: tokio::sync::mpsc::Receiver<Event>,
     token: Option<rmcp::model::ProgressToken>,
     mut notify: N,
 ) -> T
@@ -296,6 +301,15 @@ where
     loop {
         tokio::select! {
             biased;
+            Some(event) = events.recv() => match event {
+                Event::Progress { message } => {
+                    progress += 1.0;
+                    let notification = rmcp::model::ProgressNotificationParam::new(token.clone(), progress).with_message(message);
+                    // A client that stops reading must not hold the reply, so a slow delivery is dropped.
+                    let _ = tokio::time::timeout(NOTIFY_GRACE, notify(notification)).await;
+                }
+                Event::Snapshot(_) => {}
+            },
             reply = &mut request => return reply,
             _ = interval.tick() => {
                 progress += 1.0;

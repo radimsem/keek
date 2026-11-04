@@ -73,26 +73,28 @@ pub async fn prepare(
     let layer = crate::project::ensure_layer(
         &factory.projects_cache.join(&spec.project),
         &key,
-        &Install(&spec),
+        &Install(&spec, &opening.progress),
         &folder.root().join("install.log"),
     )
     .await
     .map_err(|e| SessionError::Refused(e.to_string()))?;
     Ok(Mounts { tree, layer })
 }
-struct Install<'a>(&'a SandboxSpec);
+struct Install<'a>(&'a SandboxSpec, &'a crate::open_progress::OpenProgress);
 impl Installer for Install<'_> {
     fn install<'a>(&'a self, upper: &'a Path, work: &'a Path, log: &'a Path) -> InstallFuture<'a> {
         Box::pin(async move {
             let spec = self.0.clone();
             let upper = upper.to_owned();
             let work = work.to_owned();
-            let log = log.to_owned();
-            let mut command =
-                tokio::task::spawn_blocking(move || spec.install_command(&upper, &work, &log))
-                    .await?
-                    .map_err(std::io::Error::other)?;
-            let status = command.spawn()?.wait().await?;
+            let command_log = log.to_owned();
+            let mut command = tokio::task::spawn_blocking(move || {
+                spec.install_command(&upper, &work, &command_log)
+            })
+            .await?
+            .map_err(std::io::Error::other)?;
+            let mut child = command.spawn()?;
+            let status = self.1.tailing(log, child.wait()).await?;
             Ok(status.code().unwrap_or(-1))
         })
     }
