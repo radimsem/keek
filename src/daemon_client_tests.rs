@@ -258,7 +258,7 @@ async fn a_cancelled_request_tells_the_daemon_and_drops_its_pending_reply() {
     let client = DaemonClient::new(Connection::new(near));
     let mut daemon = Connection::new(far);
     let (cancel, cancelled) = oneshot::channel::<()>();
-    let request = client.request_until(Request::Status, async {
+    let request = client.request_until(Request::Status, None, async {
         let _ = cancelled.await;
     });
     let daemon_side = async {

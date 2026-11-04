@@ -377,12 +377,14 @@ impl DaemonClient {
     }
 
     /// Asks the daemon to drop the request when `cancelled` resolves first.
+    /// The daemon's progress events for the request arrive on `events`.
     pub async fn request_until(
         &self,
         request: Request,
+        events: Option<mpsc::Sender<Event>>,
         cancelled: impl std::future::Future<Output = ()>,
     ) -> Result<Response, RequestError> {
-        let (id, answer) = self.start_request(request, None).await?;
+        let (id, answer) = self.start_request(request, events).await?;
         tokio::select! {
             biased;
             response = answer => response.map_err(|_| RequestError::DaemonGone)?,

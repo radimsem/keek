@@ -1,4 +1,8 @@
 use super::*;
+
+fn silent() -> tokio::sync::mpsc::Receiver<Event> {
+    tokio::sync::mpsc::channel(1).1
+}
 #[tokio::test(start_paused = true)]
 async fn call_tool_forwards_progress_token_to_the_client() {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -62,6 +66,7 @@ async fn progress_ticks_each_minute_only_with_a_token() {
                     tokio::time::sleep(Duration::from_secs(181)).await;
                     42
                 },
+                silent(),
                 token,
                 move |p| {
                     captured.lock().unwrap().push(p);
@@ -115,6 +120,7 @@ async fn an_ordinary_call_finishes_without_progress() {
     let mut notifications = Vec::new();
     let result = waiting_with_progress(
         async { 42 },
+        silent(),
         Some(rmcp::model::ProgressToken(
             rmcp::model::NumberOrString::String("fast".into()),
         )),
@@ -134,6 +140,7 @@ async fn a_daemon_reply_finishes_even_when_progress_delivery_stalls() {
             tokio::time::sleep(Duration::from_secs(61)).await;
             42
         },
+        silent(),
         Some(rmcp::model::ProgressToken(
             rmcp::model::NumberOrString::String("wait".into()),
         )),
@@ -201,7 +208,7 @@ fn only_tools_that_can_wait_for_the_developer_get_progress() {
                 goal: "test".into(),
                 checks: vec![],
             },
-            false,
+            true,
         ),
         (
             Request::AddCheck {
@@ -222,4 +229,159 @@ fn only_tools_that_can_wait_for_the_developer_get_progress() {
     ] {
         assert_eq!(can_wait(&request), expected, "{request:?}");
     }
+}
+
+async fn open_session_lines(token: Option<&str>) -> Vec<Value> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let (daemon_stream, fake_stream) = tokio::io::duplex(4096);
+    let daemon = DaemonClient::new(crate::ipc::Connection::new(daemon_stream));
+    let fake = tokio::spawn(async move {
+        let mut connection = crate::ipc::Connection::new(fake_stream);
+        let Some(crate::ipc::Message::Request {
+            id,
+            request: Request::OpenSession { .. },
+        }) = connection.recv().await.unwrap()
+        else {
+            panic!("expected open_session");
+        };
+        for message in [
+            "Building Project Layer",
+            "Starting desktop",
+            "Starting App Under Test",
+        ] {
+            connection
+                .send(&crate::ipc::Message::Event {
+                    id,
+                    event: crate::ipc::Event::Progress {
+                        message: message.into(),
+                    },
+                })
+                .await
+                .unwrap();
+        }
+        connection
+            .send(&crate::ipc::Message::Response {
+                id,
+                response: Response::Opened {
+                    credentials: vec![],
+                    session: "app_12-00-00".parse().unwrap(),
+                    checks: vec![],
+                    warnings: vec![],
+                },
+            })
+            .await
+            .unwrap();
+        std::future::pending::<()>().await;
+    });
+    let (server_stream, client_stream) = tokio::io::duplex(8192);
+    let server = tokio::spawn(async move {
+        let service = KeekServer { daemon }.serve(server_stream).await.unwrap();
+        let _ = service.waiting().await;
+    });
+    let (read, mut write) = tokio::io::split(client_stream);
+    let mut lines = BufReader::new(read).lines();
+    write.write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test\",\"version\":\"1\"}}}\n").await.unwrap();
+    let _ = lines.next_line().await.unwrap().unwrap();
+    let meta = token
+        .map(|token| json!({"progressToken": token}))
+        .unwrap_or(Value::Null);
+    let mut params = json!({"name":"open_session","arguments":{"project":"app","worktree":"/tmp","goal":"g","checks":[]}});
+    if !meta.is_null() {
+        params["_meta"] = meta;
+    }
+    let call = json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":params});
+    write
+        .write_all(
+            format!("{{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}}\n{call}\n")
+                .as_bytes(),
+        )
+        .await
+        .unwrap();
+    let mut seen = Vec::new();
+    loop {
+        let line = tokio::time::timeout(Duration::from_secs(5), lines.next_line())
+            .await
+            .expect("the open_session reply arrives")
+            .unwrap()
+            .unwrap();
+        let value: Value = serde_json::from_str(&line).unwrap();
+        let done = value.get("id") == Some(&json!(2));
+        seen.push(value);
+        if done {
+            break;
+        }
+    }
+    server.abort();
+    fake.abort();
+    seen
+}
+
+#[tokio::test]
+async fn open_session_streams_each_phase_to_a_client_that_sent_a_progress_token() {
+    let seen = open_session_lines(Some("open-token")).await;
+    let progress: Vec<_> = seen
+        .iter()
+        .filter(|value| value["method"] == "notifications/progress")
+        .collect();
+    let messages: Vec<_> = progress
+        .iter()
+        .map(|value| value["params"]["message"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        messages,
+        [
+            "Building Project Layer",
+            "Starting desktop",
+            "Starting App Under Test"
+        ]
+    );
+    let numbers: Vec<_> = progress
+        .iter()
+        .map(|value| value["params"]["progress"].as_f64().unwrap())
+        .collect();
+    assert!(
+        numbers.windows(2).all(|pair| pair[0] < pair[1]),
+        "{numbers:?}"
+    );
+    assert!(
+        progress
+            .iter()
+            .all(|value| value["params"]["progressToken"] == "open-token")
+    );
+    assert!(seen.last().unwrap()["result"].is_object());
+}
+
+#[tokio::test]
+async fn open_session_sends_no_progress_to_a_client_without_a_progress_token() {
+    let seen = open_session_lines(None).await;
+    assert_eq!(seen.len(), 1, "{seen:?}");
+    assert!(seen[0]["result"].is_object());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stalled_progress_delivery_does_not_hold_the_reply() {
+    let (events, receiver) = tokio::sync::mpsc::channel(16);
+    for message in ["Building Project Layer", "Starting desktop"] {
+        events
+            .try_send(Event::Progress {
+                message: message.into(),
+            })
+            .unwrap();
+    }
+    let result = tokio::time::timeout(
+        Duration::from_secs(5),
+        waiting_with_progress(
+            async {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                42
+            },
+            receiver,
+            Some(rmcp::model::ProgressToken(
+                rmcp::model::NumberOrString::String("wait".into()),
+            )),
+            |_| std::future::pending::<()>(),
+        ),
+    )
+    .await;
+    assert_eq!(result.unwrap(), 42);
 }
