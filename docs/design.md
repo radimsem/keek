@@ -109,6 +109,8 @@ The host MCP server exposes these to the Verifier. MCP calls carry no caller ide
   3. injects Test Credentials and starts the App Under Test
   4. starts recording and the Session Timeline
 
+  While it runs it sends a progress notification with a message at each phase (Building Project Layer, Starting desktop, Starting App Under Test), when the client sent a progress token. During an install it also sends the newest finished line of `install.log`, prefixed `install: `, at most every 10 seconds, cut to 200 characters and masked like any result. Claude Code aborts a local MCP call after 30 minutes with no response or progress, and a cold install can take 20 minutes.
+
   It returns once the desktop is ready, with the session's name (`myapp_14-03-22`), each Check's id and text, and the names of its Test Credentials. It warns when the Project has no Test Credentials or settings, which is how a misspelled name shows up.
 - Cua Driver's tools (`get_window_state`, `click`, `type_text` and the rest), forwarded with `session` added to their schema and stripped before the call. These are not forwarded, because each would undo something keek owns:
   - Recording is always on: `start_recording`, `stop_recording`, `get_recording_state`, `replay_trajectory`.
@@ -207,3 +209,5 @@ The spikes' results and the facts this design rests on are in [`facts.md`](facts
 - keek carries an ffmpeg editor and a credential scrub until Cua releases their replacements, and a piece Cua declines stays keek's to carry.
 - The Verifier split and the retry cap hold by instruction only. A coding agent that ignores them can verify its own change.
 - A repository's config can name programs that keek's git runs don't turn off. `filter.<name>.clean` runs on a changed file during `git status`, and submodule recursion runs git under each submodule's own config. Only `core.fsmonitor` was run: it fires on `git status` on git 2.56.0, and `-c core.fsmonitor=false` stops it. The other two routes come from git's documentation and haven't run. If scope changes, run `status` in a read-only, networkless bwrap that mounts the worktree and its `git rev-parse --git-common-dir`, or drop the dirty state.
+- Codex 0.166 counts `tool_timeout_sec` (300 s by default) as active time and pauses it only while an MCP elicitation is outstanding (`codex-rs/rmcp-client/src/rmcp_client.rs`, `active_time_timeout`). Progress notifications don't extend it, so in Codex a call longer than 5 minutes of active time is cancelled. A cold `open_session` can pass that limit. #48's `prepare_project` keeps building after a cancel, so the next call rejoins it.
+- In Codex, a Help Request must be answered within 5 minutes, or `request_help` is cancelled and keek withdraws the Help Request ([`viewer.md`](viewer.md#help-request)).
