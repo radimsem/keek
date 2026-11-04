@@ -6,6 +6,17 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 const RUSTUP: &str = "rustup";
+// Downloads need the developer's proxy and CA settings, which say nothing about mise's own folders.
+const DOWNLOAD_ENV: &[&str] = &[
+    "HTTPS_PROXY",
+    "https_proxy",
+    "HTTP_PROXY",
+    "http_proxy",
+    "NO_PROXY",
+    "no_proxy",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+];
 const PIN_PATTERN: &str = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$";
 
 /// Pinned versions, as mise reads them: "24", "24.11" or "24.11.1". Without a pin the sandbox's /usr/bin toolchain is used.
@@ -185,6 +196,11 @@ impl HostMise {
             .env("MISE_CARGO_HOME", store.join("cargo"))
             .env("MISE_CEILING_PATHS", store)
             .env("MISE_YES", "1")
+            .envs(
+                DOWNLOAD_ENV
+                    .iter()
+                    .filter_map(|name| std::env::var_os(name).map(|value| (*name, value))),
+            )
             .current_dir(store.join("work"))
             .stdin(std::process::Stdio::null())
             .kill_on_drop(true);
