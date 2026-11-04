@@ -17,6 +17,8 @@ pub enum Command {
         reason: String,
         reply: oneshot::Sender<Span>,
     },
+    /// Sent after a Help Request's waiter went away, so the card can leave Help Request.
+    Withdraw,
     Stop(oneshot::Sender<()>),
 }
 #[derive(Clone)]
@@ -339,6 +341,7 @@ impl Controller {
         let mut taking: Option<Taking> = None;
         let mut lines: Option<Box<dyn TakeoverEvents>> = None;
         let mut reason = None;
+        let mut before_help = ControlState::default();
         let mut waiting: Vec<oneshot::Sender<Span>> = Vec::new();
         loop {
             let command = tokio::select! {
@@ -409,7 +412,16 @@ impl Controller {
                     waiting.push(reply);
                     if taking.is_none() {
                         reason = Some(help.clone());
+                        before_help = self.events.borrow().control.clone();
                         self.raise_help(&help).await
+                    } else {
+                        Ok(())
+                    }
+                }
+                Some(Command::Withdraw) => {
+                    waiting.retain(|waiter| !waiter.is_closed());
+                    if taking.is_none() && waiting.is_empty() && reason.take().is_some() {
+                        self.withdraw_help(before_help.clone()).await
                     } else {
                         Ok(())
                     }

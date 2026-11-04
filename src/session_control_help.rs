@@ -38,4 +38,10 @@ impl Controller {
         )
         .await
     }
+
+    /// Puts back the card state from before the Help Request and unsets the orange border.
+    pub(super) async fn withdraw_help(&self, before: ControlState) -> Result<(), ProcessError> {
+        self.events.send_modify(|s| s.control = before);
+        self.prop("inactive_border_color", "unset").await
+    }
 }

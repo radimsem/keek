@@ -535,3 +535,6 @@ mod host_window;
 
 #[path = "session_actor_tests/close_failed.rs"]
 mod close_failed;
+
+#[path = "session_actor_tests/withdraw_help.rs"]
+mod withdraw_help;
