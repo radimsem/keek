@@ -1,6 +1,8 @@
+use crate::session_folder::SessionName;
 use crate::timeline::{CheckId, CheckOutcome, Millis};
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Check {
@@ -105,6 +107,16 @@ impl IncompleteReason {
             Self::DesktopStopped => "The session's desktop stopped before close_session.".into(),
             Self::HostWindowOpened => "keek ended the session because the session opened a window on the developer's desktop other than its Session Window.".into(),
         }
+    }
+    pub fn ended_refusal(&self, name: &SessionName, evidence: Option<&Path>) -> String {
+        let evidence = match evidence {
+            Some(folder) => format!("Its Evidence is in {}.", folder.display()),
+            None => "Its Evidence was not filed.".into(),
+        };
+        format!(
+            "Agent Session {name} ended as an Incomplete Session. {} {evidence} Open a new Agent Session.",
+            self.sentence()
+        )
     }
     pub fn short(&self) -> String {
         match self {

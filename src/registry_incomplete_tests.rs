@@ -312,3 +312,118 @@ async fn a_queued_close_takes_precedence_over_an_expired_idle_deadline() {
         "{response:?}"
     );
 }
+
+struct CardViewer;
+impl crate::viewer::Viewer for CardViewer {
+    fn opened(
+        &self,
+        _: crate::viewer::SessionInfo,
+        _: watch::Receiver<SessionSnapshot>,
+    ) -> crate::viewer::ViewerFuture<'_> {
+        Box::pin(async {})
+    }
+    fn closed(&self, _: crate::viewer::SlotId) -> crate::viewer::ViewerFuture<'_> {
+        Box::pin(async {})
+    }
+}
+
+async fn idle_session_with_card(h: &mut Harness, worktree: &str) -> (SessionName, PathBuf) {
+    h.registry.dependencies.viewer = Arc::new(CardViewer);
+    h.registry.dependencies.session_idle_limit = std::time::Duration::from_secs(3);
+    let path = h.worktree(worktree);
+    let name = h.open(path).await;
+    tokio::time::advance(std::time::Duration::from_secs(4)).await;
+    let finished = h.registry.tasks.join_next().await.unwrap().unwrap();
+    let Response::Closed(value) = &finished.response else {
+        panic!("idle session was not filed: {:?}", finished.response)
+    };
+    let report = PathBuf::from(value["evidence"]["report"].as_str().unwrap());
+    let folder = report.parent().unwrap().to_owned();
+    h.registry.finished(finished).await;
+    (name, folder)
+}
+
+async fn refused_call(h: &mut Harness, name: &SessionName) -> String {
+    let request = Request::CallTool {
+        session: name.clone(),
+        tool: "click".into(),
+        arguments: json!({}),
+    };
+    let Response::Refused { message } = h.request(request).await else {
+        panic!("call was not refused")
+    };
+    message
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_call_to_an_idle_incomplete_session_with_a_card_names_its_ending_and_evidence() {
+    let mut h = Harness::new(1);
+    let (name, folder) = idle_session_with_card(&mut h, "idle-card").await;
+    assert_eq!(
+        refused_call(&mut h, &name).await,
+        format!(
+            "Agent Session {name} ended as an Incomplete Session. keek ended the session after 3 seconds without a tool call. Its Evidence is in {}. Open a new Agent Session.",
+            folder.display()
+        )
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_incomplete_session_whose_evidence_was_not_filed_says_so() {
+    let mut h = Harness::new(1);
+    h.registry.dependencies.viewer = Arc::new(CardViewer);
+    h.registry.dependencies.session_idle_limit = std::time::Duration::from_secs(3);
+    let name = h.open(h.worktree("unfiled-card")).await;
+    std::fs::write(h.directory.path().join("videos"), "not a directory").unwrap();
+    tokio::time::advance(std::time::Duration::from_secs(4)).await;
+    let finished = h.registry.tasks.join_next().await.unwrap().unwrap();
+    h.registry.finished(finished).await;
+    assert_eq!(
+        refused_call(&mut h, &name).await,
+        format!(
+            "Agent Session {name} ended as an Incomplete Session. keek ended the session after 3 seconds without a tool call. Its Evidence was not filed. Open a new Agent Session."
+        )
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn dismissing_an_incomplete_session_card_returns_the_unknown_session_reply() {
+    let mut h = Harness::new(1);
+    let (name, _) = idle_session_with_card(&mut h, "dismissed-card").await;
+    h.registry
+        .control(crate::viewer::ViewerCommand::Dismiss(name.clone()))
+        .await;
+    assert_eq!(
+        refused_call(&mut h, &name).await,
+        format!(
+            "Unknown Agent Session {name}. Open Agent Sessions: none. Use an open session name or call open_session."
+        )
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_new_session_that_replaces_an_incomplete_card_leaves_its_old_name_unknown() {
+    let mut h = Harness::new(1);
+    let (old, _) = idle_session_with_card(&mut h, "replaced-card").await;
+    let new = h.open(h.worktree("replacement")).await;
+    assert_eq!(
+        refused_call(&mut h, &old).await,
+        format!(
+            "Unknown Agent Session {old}. Open Agent Sessions: {new}. Use an open session name or call open_session."
+        )
+    );
+}
+
+#[tokio::test]
+async fn a_card_for_a_session_with_a_verdict_keeps_the_unknown_session_reply() {
+    let mut h = Harness::new(1);
+    h.registry.dependencies.viewer = Arc::new(CardViewer);
+    let name = h.open(h.worktree("verdict-card")).await;
+    assert!(matches!(h.finish(name.clone()).await, Response::Closed(_)));
+    assert_eq!(
+        refused_call(&mut h, &name).await,
+        format!(
+            "Unknown Agent Session {name}. Open Agent Sessions: none. Use an open session name or call open_session."
+        )
+    );
+}
