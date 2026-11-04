@@ -41,6 +41,8 @@ Issue and pull request text is approved by the developer before it is posted.
 
 An Agent Session is a nested Hyprland in a bubblewrap sandbox under the developer's uid ([ADR 0006](adr/0006-nested-hyprland-in-a-sandbox-under-your-uid.md)). The coding agent already runs as the developer with a shell, so the sandbox keeps the agent's desktop from disturbing the developer's. It is not a wall against a hostile agent.
 
+keek trusts the repository it is given. It runs git on the host, in the folder the caller passes, against that repository's own config. Those runs turn off `core.fsmonitor`, `core.hooksPath` and lazy fetch, and `open_session` refuses a `core.worktree` that moves the top level. A hostile repository is out of scope for v1. Risks lists the routes that stay open.
+
 | Resource | In an Agent Session |
 | --- | --- |
 | Screen, input, focus | Its own nested Hyprland. The agent's input arrives on the Cua plugin's seat. The host shows the session as a Session Window that ignores the developer until Take control. |
@@ -204,3 +206,4 @@ The spikes' results and the facts this design rests on are in [`facts.md`](facts
 - The editor seeks by time. On a recording with long gaps between frames, which a visible Session Window may produce, a segment starting inside a gap opens on the frame after the gap. Recordings with a hidden window had gaps of at most 71 ms. #8 shows a window to a person, so recheck this there.
 - keek carries an ffmpeg editor and a credential scrub until Cua releases their replacements, and a piece Cua declines stays keek's to carry.
 - The Verifier split and the retry cap hold by instruction only. A coding agent that ignores them can verify its own change.
+- A repository's config can name programs that keek's git runs don't turn off. `filter.<name>.clean` runs on a changed file during `git status`, and submodule recursion runs git under each submodule's own config. Only `core.fsmonitor` was run: it fires on `git status` on git 2.56.0, and `-c core.fsmonitor=false` stops it. The other two routes come from git's documentation and haven't run. If scope changes, run `status` in a read-only, networkless bwrap that mounts the worktree and its `git rev-parse --git-common-dir`, or drop the dirty state.
