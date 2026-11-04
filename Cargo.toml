@@ -31,6 +31,14 @@ tokio = { version = "1", features = ["test-util"] }
 rmcp = { version = "3.8", features = ["client", "transport-child-process"] }
 tempfile = "3"
 
+# Full debug info made each test binary about 200 MB, and linking them loaded the disk.
+# Line tables keep file and line numbers in backtraces.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [lints.clippy]
 expect_used = "deny"
 panic = "deny"
