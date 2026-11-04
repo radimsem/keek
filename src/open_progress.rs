@@ -62,9 +62,11 @@ impl OpenProgress {
                         output = &mut work => return output,
                         line = read => line.ok().flatten(),
                     };
-                    // Masking comes before the cut so the cut can't leave half a value.
+                    // Mask the raw line before trimming or cutting it: a value can end in whitespace,
+                    // and a cut can leave half a value.
                     if let Some(line) = line.filter(|line| sent.as_ref() != Some(line)) {
-                        self.send(&format!("install: {}", cap(&self.credentials.mask(&line))));
+                        let masked = self.credentials.mask(&line);
+                        self.send(&format!("install: {}", cap(masked.trim())));
                         sent = Some(line);
                     }
                 }
@@ -77,7 +79,7 @@ fn cap(line: &str) -> String {
     line.chars().take(LINE_MAX_CHARS).collect()
 }
 
-/// The newest non-empty line that the writer has finished. The last 4 KiB is enough: a line that
+/// The newest line with text in it that the writer has finished, untrimmed. The last 4 KiB is enough: a line that
 /// starts before the window, or has no line end yet, could hold half of a credential value that
 /// masking would not recognize.
 fn last_line(log: &Path) -> Option<String> {
@@ -94,8 +96,7 @@ fn last_line(log: &Path) -> Option<String> {
     }
     lines
         .into_iter()
-        .map(str::trim)
-        .rfind(|line| !line.is_empty())
+        .rfind(|line| !line.trim().is_empty())
         .map(str::to_owned)
 }
 

@@ -171,3 +171,25 @@ async fn without_a_sink_nothing_is_sent_and_the_work_runs() {
     progress.send("ignored");
     assert_eq!(tail_for(&progress, &log, &[(1, "one\n")], 25).await, "done");
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_credential_value_with_trailing_whitespace_is_masked_before_the_line_is_trimmed() {
+    let padded = Credentials::parse(
+        Path::new("app.env"),
+        &format!("KEEK_TEST_PASSWORD=\"{SECRET} \"\n"),
+    )
+    .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let log = dir.path().join("install.log");
+    let (sender, mut receiver) = mpsc::channel(16);
+    let progress = OpenProgress::new(Some(sender), padded);
+    tail_for(
+        &progress,
+        &log,
+        &[(1, &format!("password={SECRET} \n"))],
+        15,
+    )
+    .await;
+    let sent = messages(&mut receiver);
+    assert_eq!(sent, ["install: password=[masked]"], "{sent:?}");
+}
