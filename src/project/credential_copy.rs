@@ -67,8 +67,19 @@ pub fn copy_credentials(
     })?;
     let mut values: BTreeMap<&str, &str> = BTreeMap::new();
     for (index, line) in text.lines().enumerate() {
-        // A repository's .env can hold lines keek's format doesn't, such as a multi-line value, and none of them defines a name asked for.
+        // A repository's .env can hold lines keek's format doesn't, such as a multi-line value. Only one that seems to define a name asked for refuses.
         let Ok(found) = entries(source, line) else {
+            let line = line.trim_start();
+            let line = line.strip_prefix("export ").unwrap_or(line);
+            if let Some((name, _)) = line.split_once('=')
+                && requested.contains(&name.trim())
+            {
+                return Err(CredentialsError::Malformed {
+                    path: source.to_owned(),
+                    line: index + 1,
+                }
+                .into());
+            }
             continue;
         };
         for entry in found {
@@ -264,6 +275,22 @@ mod tests {
         let target = directory.path().join("demo.env");
         let copied = copy_credentials(&target, &source, &names(&["TEST_PASSWORD"])).unwrap();
         assert_eq!(copied.copied, ["TEST_PASSWORD"]);
+    }
+
+    #[test]
+    fn a_requested_name_on_a_line_keek_cannot_read_refuses_with_the_line() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join(".env");
+        std::fs::write(&source, "PORT=3000\nTEST_PASSWORD = made-up-secret\n").unwrap();
+        let target = directory.path().join("demo.env");
+        let error = copy_credentials(&target, &source, &names(&["TEST_PASSWORD"]))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("line 2") && !error.contains("made-up-secret"),
+            "{error}"
+        );
+        assert!(!target.exists());
     }
 
     #[test]
