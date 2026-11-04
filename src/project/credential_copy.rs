@@ -86,6 +86,13 @@ pub fn copy_credentials(
             if !requested.contains(&entry.name) {
                 continue;
             }
+            if opens_multi_line_value(line) {
+                return Err(CredentialsError::Malformed {
+                    path: source.to_owned(),
+                    line: index + 1,
+                }
+                .into());
+            }
             if values.insert(entry.name, entry.value).is_some() {
                 return Err(CredentialsError::Duplicate {
                     path: source.to_owned(),
@@ -152,6 +159,17 @@ pub fn copy_credentials(
         source: error,
     })?;
     Ok(copied)
+}
+
+// A quote with no matching quote at the line's end opens a value that continues on the next lines.
+fn opens_multi_line_value(line: &str) -> bool {
+    let Some((_, value)) = line.split_once('=') else {
+        return false;
+    };
+    let value = value.strip_suffix('\r').unwrap_or(value);
+    value.chars().next().is_some_and(|quote| {
+        matches!(quote, '"' | '\'') && !(value.len() >= 2 && value.ends_with(quote))
+    })
 }
 
 // Outer single quotes are stripped literally, so any one-line value reads back unchanged.
@@ -291,6 +309,33 @@ mod tests {
             "{error}"
         );
         assert!(!target.exists());
+    }
+
+    #[test]
+    fn a_requested_name_opening_a_multi_line_value_refuses_and_keeps_the_old_value() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join(".env");
+        std::fs::write(
+            &source,
+            "PORT=3000\nTEST_KEY=\"-----BEGIN MADE UP KEY-----\nMIIBmadeup\n-----END MADE UP KEY-----\"\n",
+        )
+        .unwrap();
+        let target = directory.path().join("demo.env");
+        std::fs::write(&target, "TEST_KEY='working-made-up'\n").unwrap();
+        let error = copy_credentials(&target, &source, &names(&["TEST_KEY"]))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("line 2") && !error.contains("BEGIN"),
+            "{error}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "TEST_KEY='working-made-up'\n"
+        );
+        std::fs::write(&source, "TEST_QUOTED='\"made-up-quoted\"'\n").unwrap();
+        let copied = copy_credentials(&target, &source, &names(&["TEST_QUOTED"])).unwrap();
+        assert_eq!(copied.copied, ["TEST_QUOTED"]);
     }
 
     #[test]
