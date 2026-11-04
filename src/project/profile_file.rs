@@ -22,9 +22,19 @@ pub fn check_profile(path: &Path, mut profile: serde_json::Value) -> Result<Prof
 
 // TOML has no null, and a coding agent sends one for a key it leaves out.
 fn drop_nulls(value: &mut serde_json::Value) {
-    if let serde_json::Value::Object(object) = value {
-        object.retain(|_, value| !value.is_null());
-        object.values_mut().for_each(drop_nulls);
+    match value {
+        serde_json::Value::Object(object) => {
+            object.retain(|_, value| !value.is_null());
+            object.values_mut().for_each(drop_nulls);
+        }
+        serde_json::Value::Array(items) => {
+            items.retain(|value| !value.is_null());
+            items.iter_mut().for_each(drop_nulls);
+        }
+        serde_json::Value::Null
+        | serde_json::Value::Bool(_)
+        | serde_json::Value::Number(_)
+        | serde_json::Value::String(_) => {}
     }
 }
 
@@ -117,7 +127,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let written = write(
             directory.path(),
-            json!({"start":"run","install":null,"window":null,"toolchain":{"node":null},"env":{}}),
+            json!({"start":"run","install":null,"window":null,"toolchain":{"node":null},"env":{},"ports":[null]}),
         )
         .unwrap();
         assert_eq!(written.toml, "start = \"run\"\n");
