@@ -50,34 +50,7 @@ impl Registry {
                 let catalog = wait_catalog(&mut catalog)
                     .await
                     .map_err(SessionError::Refused)?;
-                // The daemon's working folder is /, so a relative path would name the wrong folder.
-                if !worktree.is_absolute() {
-                    return Err(SessionError::Refused(
-                        "worktree must be an absolute path. Pass the full path to a git worktree."
-                            .into(),
-                    ));
-                }
-                let worktree = tokio::task::spawn_blocking(move || std::fs::canonicalize(worktree))
-                    .await
-                    .map_err(|e| SessionError::Refused(e.to_string()))?
-                    .map_err(|e| {
-                        SessionError::Refused(format!(
-                            "Cannot open worktree: {e}. Pass an existing git worktree."
-                        ))
-                    })?;
-                let sessions = tokio::task::spawn_blocking(move || std::fs::canonicalize(sessions_dir)).await.map_err(|e| SessionError::Refused(e.to_string()))?;
-                match &sessions {
-                    Ok(sessions) if worktree.starts_with(sessions) => return Err(SessionError::Refused("Cannot open a worktree inside the sessions folder. Choose a worktree outside it.".into())),
-                    Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(SessionError::Refused(format!("Cannot inspect sessions folder: {error}. Check its permissions."))),
-                    _ => {}
-                }
-                let (root, revision) = revision(runner.as_ref(), &worktree).await?;
-                let worktree = tokio::task::spawn_blocking(move || {
-                    let root = std::fs::canonicalize(root).map_err(|e| format!("Cannot inspect git worktree root: {e}. Check the worktree and retry."))?;
-                    crate::project::check_git_root(&worktree, &root).map_err(|e| e.to_string())?;
-                    Ok::<_, String>(root)
-                }).await.map_err(|e| SessionError::Refused(e.to_string()))?.map_err(SessionError::Refused)?;
-                if sessions.as_ref().is_ok_and(|sessions| worktree.starts_with(sessions)) { return Err(SessionError::Refused("Cannot open a worktree inside the sessions folder. Choose a worktree outside it.".into())); }
+                let (worktree, revision) = checked_worktree(runner.as_ref(), sessions_dir, worktree).await?;
                 Ok(Opening {
                     credentials,
                     project,
@@ -296,4 +269,64 @@ impl Registry {
             Inbox::new(receiver, close_receiver),
         ))
     }
+}
+
+/// The worktree's canonical git root, refused when it isn't absolute, isn't a plain git worktree or sits inside the sessions folder.
+pub(super) async fn checked_worktree(
+    runner: &dyn ProcessRunner,
+    sessions_dir: PathBuf,
+    worktree: PathBuf,
+) -> Result<(PathBuf, crate::revision::Revision), SessionError> {
+    // The daemon's working folder is /, so a relative path would name the wrong folder.
+    if !worktree.is_absolute() {
+        return Err(SessionError::Refused(
+            "worktree must be an absolute path. Pass the full path to a git worktree.".into(),
+        ));
+    }
+    let worktree = tokio::task::spawn_blocking(move || std::fs::canonicalize(worktree))
+        .await
+        .map_err(|e| SessionError::Refused(e.to_string()))?
+        .map_err(|e| {
+            SessionError::Refused(format!(
+                "Cannot open worktree: {e}. Pass an existing git worktree."
+            ))
+        })?;
+    let sessions = tokio::task::spawn_blocking(move || std::fs::canonicalize(sessions_dir))
+        .await
+        .map_err(|e| SessionError::Refused(e.to_string()))?;
+    match &sessions {
+        Ok(sessions) if worktree.starts_with(sessions) => {
+            return Err(SessionError::Refused(
+                "Cannot open a worktree inside the sessions folder. Choose a worktree outside it."
+                    .into(),
+            ));
+        }
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            return Err(SessionError::Refused(format!(
+                "Cannot inspect sessions folder: {error}. Check its permissions."
+            )));
+        }
+        _ => {}
+    }
+    let (root, revision) = revision(runner, &worktree).await?;
+    let worktree = tokio::task::spawn_blocking(move || {
+        let root = std::fs::canonicalize(root).map_err(|e| {
+            format!("Cannot inspect git worktree root: {e}. Check the worktree and retry.")
+        })?;
+        crate::project::check_git_root(&worktree, &root).map_err(|e| e.to_string())?;
+        Ok::<_, String>(root)
+    })
+    .await
+    .map_err(|e| SessionError::Refused(e.to_string()))?
+    .map_err(SessionError::Refused)?;
+    if sessions
+        .as_ref()
+        .is_ok_and(|sessions| worktree.starts_with(sessions))
+    {
+        return Err(SessionError::Refused(
+            "Cannot open a worktree inside the sessions folder. Choose a worktree outside it."
+                .into(),
+        ));
+    }
+    Ok((worktree, revision))
 }

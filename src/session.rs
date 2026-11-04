@@ -121,6 +121,16 @@ pub trait DriverFactory: Send + Sync {
         opening: &'a Opening,
         mounts: &'a Mounts,
     ) -> OpenDriverFuture<'a>;
+    fn prepare_project<'a>(
+        &'a self,
+        _prep: &'a crate::project_prepare::ProjectPrep,
+    ) -> crate::project_prepare::PrepareFuture<'a> {
+        Box::pin(async {
+            Err(SessionError::Refused(
+                "This keek cannot prepare a Project. Update keek and try again.".into(),
+            ))
+        })
+    }
 }
 pub struct Actor {
     pub frames_dir: PathBuf,
@@ -171,6 +181,7 @@ impl Actor {
             | Response::CheckAdded { .. }
             | Response::CheckMarked { .. }
             | Response::ProfileWritten { .. }
+            | Response::Prepared(_)
             | Response::WatchEnded
             | Response::ShuttingDown
             | Response::ShutdownRefused { .. } => response,

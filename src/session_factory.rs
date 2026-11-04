@@ -15,6 +15,7 @@ pub struct SandboxFactory {
     pub trees: PathBuf,
     pub toolchains: PathBuf,
     pub mise: Arc<dyn crate::toolchain::Mise>,
+    pub prepare: PathBuf,
 }
 impl DriverFactory for SandboxFactory {
     fn prepare<'a>(
@@ -25,6 +26,12 @@ impl DriverFactory for SandboxFactory {
         Box<dyn std::future::Future<Output = Result<Mounts, SessionError>> + Send + 'a>,
     > {
         Box::pin(crate::session_project::prepare(self, folder, opening))
+    }
+    fn prepare_project<'a>(
+        &'a self,
+        prep: &'a crate::project_prepare::ProjectPrep,
+    ) -> crate::project_prepare::PrepareFuture<'a> {
+        Box::pin(crate::project_prepare::prepare(self, prep))
     }
     fn open<'a>(
         &'a self,

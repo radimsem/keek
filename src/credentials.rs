@@ -188,6 +188,10 @@ impl Credentials {
     pub fn fingerprint(&self) -> Option<String> {
         self.fingerprint.clone()
     }
+    /// The byte length of the longest form `mask` replaces.
+    pub fn longest_form(&self) -> usize {
+        self.forms.iter().map(String::len).max().unwrap_or(0)
+    }
     pub fn names(&self) -> Vec<String> {
         self.pairs.keys().cloned().collect()
     }

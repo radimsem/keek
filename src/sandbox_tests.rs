@@ -466,3 +466,37 @@ fn pinned_toolchains_are_mounted_read_only_and_lead_path_in_install_and_session(
         );
     }
 }
+
+#[test]
+fn the_start_probe_runs_start_with_the_lan_block_and_credentials_but_no_desktop() {
+    let args = spec().args_for(SandboxMode::Probe {
+        log: Path::new("/log"),
+    });
+    let connect = args.iter().position(|a| a == "connect-exec").unwrap();
+    assert_eq!(args[connect + 1], "--no-display");
+    assert!(args.windows(2).any(|a| a == ["--args", "4"]));
+    assert!(!args.iter().any(|a| a == "--dev-bind"
+        || a == "/dev/dri"
+        || a == "/sys"
+        || a == "/run/user/42"
+        || a == "/keek/nested"
+        || a == "KEEK_SESSION"
+        || a == "KEEK_START"
+        || a == "WAYLAND_DISPLAY"));
+    let expected: Vec<OsString> = [
+        "--overlay-src",
+        "/projects/key",
+        "--overlay-src",
+        "/trees/demo",
+        "--tmp-overlay",
+        "/keek/worktree",
+        "--chdir",
+        "/keek/worktree",
+        "/usr/bin/bash",
+        "-c",
+        "npm run dev",
+    ]
+    .map(Into::into)
+    .into();
+    assert!(args.ends_with(&expected), "{args:?}");
+}

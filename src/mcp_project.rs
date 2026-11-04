@@ -20,11 +20,23 @@ pub(super) fn project_tools() -> Vec<Tool> {
         },
         "required":["project","profile"]
     });
-    [(
-        "set_project_profile",
-        "Validate and write the whole Project Profile, keeping the previous one as <project>.toml.bak. Returns the written TOML and the copied Test Credential names, never their values.",
-        set,
-    )]
+    let prepare = json!({
+        "type":"object",
+        "properties":{"project":{"type":"string"},"worktree":{"type":"string"}},
+        "required":["project","worktree"]
+    });
+    [
+        (
+            "set_project_profile",
+            "Validate and write the whole Project Profile, keeping the previous one as <project>.toml.bak. Returns the written TOML and the copied Test Credential names, never their values.",
+            set,
+        ),
+        (
+            "prepare_project",
+            "Build or reuse the Project Layer, then run start for up to 15 seconds with no desktop or recording. Returns the toolchain versions, whether the layer was built or reused, the install and start log tails, and whether start was still running or exited with a status. If this call is cancelled the build keeps running, and calling prepare_project again joins it.",
+            prepare,
+        ),
+    ]
     .into_iter()
     .map(|(name, description, schema)| {
         Tool::new(name, description, schema.as_object().cloned().unwrap_or_default())
@@ -61,6 +73,25 @@ pub(super) fn parse_set_profile(value: Value) -> Result<Request, String> {
         project: args.project,
         profile: args.profile,
         credentials: args.credentials,
+    })
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PrepareArguments {
+    project: String,
+    worktree: std::path::PathBuf,
+}
+
+pub(super) fn parse_prepare(value: Value) -> Result<Request, String> {
+    let args: PrepareArguments = serde_json::from_value(value)
+        .map_err(|e| format!("Cannot prepare the Project: {e}. Pass project and worktree."))?;
+    if !args.worktree.is_absolute() {
+        return Err("Cannot prepare the Project: worktree must be an absolute path. Pass the full path to a git worktree.".into());
+    }
+    Ok(Request::PrepareProject {
+        project: args.project,
+        worktree: args.worktree,
     })
 }
 
@@ -105,5 +136,13 @@ mod tests {
         assert_eq!(profile, json!({"start":"npm start"}));
         assert_eq!(credentials.unwrap().names, ["TEST_PASSWORD"]);
         assert!(parse_set_profile(json!({"project":"web"})).is_err());
+    }
+
+    #[test]
+    fn prepare_project_refuses_a_relative_worktree_and_may_wait() {
+        let error = parse_prepare(json!({"project":"web","worktree":"relative"})).unwrap_err();
+        assert!(error.contains("absolute path"), "{error}");
+        let request = parse_prepare(json!({"project":"web","worktree":"/repo"})).unwrap();
+        assert!(super::super::can_wait(&request));
     }
 }

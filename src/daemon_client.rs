@@ -224,6 +224,7 @@ where
             | Response::Closed(_)
             | Response::Refused { .. }
             | Response::ProfileWritten { .. }
+            | Response::Prepared(_)
             | Response::WatchEnded),
         ) => Err(RequestError::Unexpected(format!("{other:?}")).into()),
         Err(error) => Err(error.into()),
@@ -422,6 +423,7 @@ impl DaemonClient {
             | Response::Closed(_)
             | Response::Refused { .. }
             | Response::ProfileWritten { .. }
+            | Response::Prepared(_)
             | Response::WatchEnded) => Err(RequestError::Unexpected(format!("{other:?}"))),
         }
     }

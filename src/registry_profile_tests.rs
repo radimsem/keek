@@ -64,3 +64,6 @@ async fn set_project_profile_refuses_an_invalid_profile_and_keeps_the_old_one() 
         "start = \"old\"\n"
     );
 }
+
+#[path = "registry_prepare_tests.rs"]
+mod prepare;

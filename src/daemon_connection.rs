@@ -99,7 +99,7 @@ where
                 };
                 let (reply, mut answer) = oneshot::channel();
                 let (events, mut event_receiver) = mpsc::channel(REQUEST_QUEUE);
-                let reports = matches!(request, Request::WatchSession { .. } | Request::OpenSession { .. });
+                let reports = matches!(request, Request::WatchSession { .. } | Request::OpenSession { .. } | Request::PrepareProject { .. });
                 requests.send(PendingRequest { opener: opener.clone(), request, reply, events: reports.then_some(events) }).await.map_err(|_| ConnectionError::OwnerGone)?;
                 let outgoing = outgoing.clone();
                 let reply_task = tasks.spawn(async move {

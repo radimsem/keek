@@ -96,7 +96,10 @@ pub async fn prepare(
         toolchains: spec.toolchains,
     })
 }
-struct Install<'a>(&'a SandboxSpec, &'a crate::open_progress::OpenProgress);
+pub(crate) struct Install<'a>(
+    pub(crate) &'a SandboxSpec,
+    pub(crate) &'a crate::open_progress::OpenProgress,
+);
 impl Installer for Install<'_> {
     fn install<'a>(&'a self, upper: &'a Path, work: &'a Path, log: &'a Path) -> InstallFuture<'a> {
         Box::pin(async move {

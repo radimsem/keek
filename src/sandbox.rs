@@ -53,6 +53,9 @@ enum SandboxMode<'a> {
         work: &'a Path,
         log: &'a Path,
     },
+    Probe {
+        log: &'a Path,
+    },
 }
 
 impl SandboxSpec {
@@ -164,6 +167,11 @@ impl SandboxSpec {
         self.command_with(SandboxMode::Install { upper, work, log })
     }
 
+    /// Runs `start` in the session's sandbox, network and LAN block, with no desktop, writing its output to `log`.
+    pub fn probe_command(&self, log: &Path) -> Result<Command, SandboxError> {
+        self.command_with(SandboxMode::Probe { log })
+    }
+
     fn command_with(&self, mode: SandboxMode<'_>) -> Result<Command, SandboxError> {
         let mut command = Command::new("pasta");
         command.env_clear();
@@ -172,7 +180,7 @@ impl SandboxSpec {
                 command.env(name, value);
             }
         }
-        if matches!(mode, SandboxMode::Session)
+        if matches!(mode, SandboxMode::Session | SandboxMode::Probe { .. })
             && let Some(values) = self.credentials.sandbox_env()
         {
             command.env(crate::credentials::SANDBOX_ENV, values);
@@ -183,7 +191,7 @@ impl SandboxSpec {
             .stdout(Stdio::piped())
             .stderr(std::fs::File::create(self.session_dir.join("sandbox.err"))?)
             .kill_on_drop(true);
-        if let SandboxMode::Install { log, .. } = mode {
+        if let SandboxMode::Install { log, .. } | SandboxMode::Probe { log } = mode {
             let file = std::fs::File::create(log)?;
             command
                 .stdin(Stdio::null())
@@ -227,9 +235,16 @@ impl SandboxSpec {
         ]
         .map(OsString::from)
         .into();
-        if matches!(mode, SandboxMode::Session) {
-            args.push(self.executable.as_os_str().to_owned());
-            args.extend(["connect-exec", "--"].map(OsString::from));
+        match mode {
+            SandboxMode::Session => {
+                args.push(self.executable.as_os_str().to_owned());
+                args.extend(["connect-exec", "--"].map(OsString::from));
+            }
+            SandboxMode::Probe { .. } => {
+                args.push(self.executable.as_os_str().to_owned());
+                args.extend(["connect-exec", "--no-display", "--"].map(OsString::from));
+            }
+            SandboxMode::Install { .. } => {}
         }
         args.extend(["bwrap", "--unshare-user", "--uid"].map(OsString::from));
         args.push(self.uid.to_string().into());
@@ -253,7 +268,7 @@ impl SandboxSpec {
         for (name, value) in self.toolchains.env() {
             args.extend([OsString::from("--setenv"), name.into(), value]);
         }
-        if matches!(mode, SandboxMode::Session) {
+        if matches!(mode, SandboxMode::Session | SandboxMode::Probe { .. }) {
             // The file parses where this option stands, so the required variables below still win a clashing name.
             args.extend([
                 OsString::from("--args"),
@@ -282,7 +297,9 @@ impl SandboxSpec {
                 || matches!(key, "HOME" | "USER" | "LANG" | "PATH")
             {
                 let value = match (mode, key) {
-                    (SandboxMode::Install { .. }, "PATH") => self.toolchains.path("/usr/bin"),
+                    (SandboxMode::Install { .. } | SandboxMode::Probe { .. }, "PATH") => {
+                        self.toolchains.path("/usr/bin")
+                    }
                     (SandboxMode::Session, "PATH") => {
                         self.toolchains.path(&value.to_string_lossy())
                     }
@@ -395,6 +412,14 @@ impl SandboxSpec {
             "--chdir".into(),
             SANDBOX_WORKTREE.into(),
         ]);
+        if let SandboxMode::Probe { .. } = mode {
+            args.extend([
+                OsString::from("/usr/bin/bash"),
+                "-c".into(),
+                self.profile.start.clone().into(),
+            ]);
+            return args;
+        }
         for path in [".config/hypr", ".config/omarchy"] {
             let path = self.home.join(path);
             args.extend([

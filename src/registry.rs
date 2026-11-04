@@ -24,6 +24,8 @@ pub struct Registry {
     pub background: JoinSet<()>,
     pub recovery: JoinSet<()>,
     pub preparing: JoinSet<Prepared>,
+    // A finished build keeps its entry until the next prepare_project for that Project replaces it.
+    prepares: HashMap<String, watch::Receiver<Option<Response>>>,
     pub catalog: watch::Receiver<Option<Result<Arc<Catalog>, String>>>,
     pub dependencies: Dependencies,
     lifecycle: Lifecycle,
@@ -100,6 +102,7 @@ impl Registry {
             background: JoinSet::new(),
             recovery: JoinSet::new(),
             preparing: JoinSet::new(),
+            prepares: HashMap::new(),
             catalog,
             dependencies,
             lifecycle: Lifecycle::Running,
@@ -355,6 +358,9 @@ impl Registry {
                 profile,
                 credentials,
             } => self.set_project_profile(project, profile, credentials, reply),
+            Request::PrepareProject { project, worktree } => {
+                self.prepare_project(project, worktree, reply, opening::Caller { opener, events })
+            }
             Request::Shutdown => {
                 let response = self.shutdown();
                 let _ = reply.send(response);

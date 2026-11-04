@@ -51,6 +51,7 @@ mod project;
 fn can_wait(request: &Request) -> bool {
     match request {
         Request::OpenSession { .. }
+        | Request::PrepareProject { .. }
         | Request::RequestHelp { .. }
         | Request::CallTool { .. }
         | Request::CloseSession { .. } => true,
@@ -103,6 +104,7 @@ impl ServerHandler for KeekServer {
             "add_check"=>parse_add(args),
             "mark_check"=>parse_mark(args),
             "set_project_profile"=>project::parse_set_profile(args),
+            "prepare_project"=>project::parse_prepare(args),
             tool=>args.get("session").and_then(Value::as_str).ok_or_else(||"Every forwarded tool requires an Agent Session name in session. Call open_session first.".to_owned()).and_then(|name|name.parse().map_err(|e:crate::session_folder::InvalidSessionName|e.to_string())).map(|session|Request::CallTool{session,tool:tool.into(),arguments:args}),
         };
         let request = match request {
@@ -162,6 +164,10 @@ impl ServerHandler for KeekServer {
                 credentials,
             } => CallToolResult::structured(
                 json!({"path":path,"profile":profile,"credentials":credentials}),
+            ),
+            Response::Prepared(prepared) => CallToolResult::structured(
+                serde_json::to_value(prepared)
+                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?,
             ),
             Response::Status(status) => CallToolResult::structured(
                 serde_json::to_value(status)

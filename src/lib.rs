@@ -15,6 +15,7 @@ pub mod mcp;
 pub mod paths;
 pub mod process;
 pub mod project;
+pub mod project_prepare;
 pub mod registry;
 pub mod report;
 pub mod sandbox;
