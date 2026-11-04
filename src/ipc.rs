@@ -21,10 +21,25 @@ pub struct RequestId(pub u64);
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Message {
-    Hello { version: String },
-    Request { id: RequestId, request: Request },
-    Response { id: RequestId, response: Response },
-    Event { id: RequestId, event: Event },
+    Hello {
+        version: String,
+    },
+    Request {
+        id: RequestId,
+        request: Request,
+    },
+    Response {
+        id: RequestId,
+        response: Response,
+    },
+    Event {
+        id: RequestId,
+        event: Event,
+    },
+    /// The client no longer wants the answer to the request with this id.
+    Cancel {
+        id: RequestId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

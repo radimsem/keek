@@ -1,12 +1,14 @@
 //! One client connection: the Hello exchange, then requests in and replies out,
 //! where replies may come back in any order.
 
+use std::collections::HashMap;
+
 use tokio::net::UnixStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
 
 use crate::VERSION;
-use crate::ipc::{Connection, IpcError, Message, Request, Response};
+use crate::ipc::{Connection, IpcError, Message, Request, RequestId, Response};
 
 const REQUEST_QUEUE: usize = 32;
 
@@ -69,6 +71,7 @@ where
     let (incoming, mut messages) = mpsc::channel(REQUEST_QUEUE);
     let (outgoing, mut replies) = mpsc::channel(REQUEST_QUEUE);
     let mut tasks = JoinSet::<Result<(), ConnectionError>>::new();
+    let mut cancellable = HashMap::<RequestId, tokio::task::AbortHandle>::new();
     tasks.spawn(async move {
         loop {
             let message = reader.recv().await;
@@ -85,6 +88,13 @@ where
                     None | Some(Ok(None)) => return Ok(ConnectionEnd::ClientLeft),
                     Some(Err(error)) => return Err(error.into()),
                     Some(Ok(Some(Message::Request { id, request }))) => (id, request),
+                    Some(Ok(Some(Message::Cancel { id }))) => {
+                        // Dropping the task's receiver closes the request's reply, which the session watches.
+                        if let Some(abort) = cancellable.remove(&id) {
+                            abort.abort();
+                        }
+                        continue;
+                    }
                     Some(Ok(Some(other))) => return Err(ConnectionError::Protocol(Box::new(other))),
                 };
                 let (reply, mut answer) = oneshot::channel();
@@ -92,7 +102,7 @@ where
                 let watches = matches!(request, Request::WatchSession { .. });
                 requests.send(PendingRequest { opener: opener.clone(), request, reply, events: watches.then_some(events) }).await.map_err(|_| ConnectionError::OwnerGone)?;
                 let outgoing = outgoing.clone();
-                tasks.spawn(async move {
+                let reply_task = tasks.spawn(async move {
                     loop {
                         tokio::select! {
                             response = &mut answer => {
@@ -106,6 +116,8 @@ where
                         }
                     }
                 });
+                cancellable.retain(|_, task| !task.is_finished());
+                cancellable.insert(id, reply_task);
             }
             Some(message) = replies.recv() => {
                 let shutdown = matches!(message, Message::Response { response: Response::ShuttingDown, .. });
@@ -116,6 +128,7 @@ where
                 match result {
                     Ok(Ok(())) => {},
                     Ok(Err(error)) => return Err(error),
+                    Err(error) if error.is_cancelled() => {}
                     Err(error) => tracing::warn!(%error, "a connection task failed"),
                 }
             }
@@ -304,6 +317,86 @@ mod tests {
             client.recv().await.unwrap(),
             Some(Message::Response {
                 id: RequestId(2),
+                ..
+            })
+        ));
+        drop(client);
+        server.await.unwrap().unwrap();
+    }
+
+    async fn hello_exchange(client: &mut Connection<tokio::io::DuplexStream>) {
+        client
+            .send(&Message::Hello {
+                version: VERSION.into(),
+            })
+            .await
+            .unwrap();
+        client.recv().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_cancel_closes_the_reply_of_that_request_only() {
+        let (near, far) = duplex(4096);
+        let (sender, mut requests) = mpsc::channel(8);
+        let server = tokio::spawn(serve_connection(Connection::new(far), sender));
+        let mut client = Connection::new(near);
+        hello_exchange(&mut client).await;
+        for id in [1, 2] {
+            client
+                .send(&Message::Request {
+                    id: RequestId(id),
+                    request: Request::Status,
+                })
+                .await
+                .unwrap();
+        }
+        let mut first = requests.recv().await.unwrap();
+        let second = requests.recv().await.unwrap();
+
+        client
+            .send(&Message::Cancel { id: RequestId(1) })
+            .await
+            .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(1), first.reply.closed())
+            .await
+            .expect("the cancelled request's reply stayed open");
+        assert!(!second.reply.is_closed());
+        drop(client);
+        server.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_cancel_for_an_unknown_request_is_ignored() {
+        let (near, far) = duplex(4096);
+        let (sender, mut requests) = mpsc::channel(8);
+        let server = tokio::spawn(serve_connection(Connection::new(far), sender));
+        let mut client = Connection::new(near);
+        hello_exchange(&mut client).await;
+
+        client
+            .send(&Message::Cancel { id: RequestId(9) })
+            .await
+            .unwrap();
+        client
+            .send(&Message::Request {
+                id: RequestId(1),
+                request: Request::Status,
+            })
+            .await
+            .unwrap();
+        requests
+            .recv()
+            .await
+            .unwrap()
+            .reply
+            .send(Response::WatchEnded)
+            .unwrap();
+
+        assert!(matches!(
+            client.recv().await.unwrap(),
+            Some(Message::Response {
+                id: RequestId(1),
                 ..
             })
         ));
