@@ -29,6 +29,11 @@ pub enum CopyError {
         path: PathBuf,
         source: std::io::Error,
     },
+    #[error("Cannot read the Test Credentials file {path}: {source}. Check its permissions and try again.", path = .path.display())]
+    ReadTarget {
+        path: PathBuf,
+        source: std::io::Error,
+    },
     #[error(transparent)]
     Parse(#[from] CredentialsError),
     #[error("Cannot write Test Credentials to {path}: {source}. Check the folder's permissions and try again.", path = .path.display())]
@@ -61,25 +66,31 @@ pub fn copy_credentials(
         source: error,
     })?;
     let mut values: BTreeMap<&str, &str> = BTreeMap::new();
-    for entry in entries(source, &text)? {
-        if !requested.contains(&entry.name) {
+    for (index, line) in text.lines().enumerate() {
+        // A repository's .env can hold lines keek's format doesn't, such as a multi-line value, and none of them defines a name asked for.
+        let Ok(found) = entries(source, line) else {
             continue;
-        }
-        if values.insert(entry.name, entry.value).is_some() {
-            return Err(CredentialsError::Duplicate {
-                path: source.to_owned(),
-                line: entry.line,
-                name: entry.name.into(),
+        };
+        for entry in found {
+            if !requested.contains(&entry.name) {
+                continue;
             }
-            .into());
+            if values.insert(entry.name, entry.value).is_some() {
+                return Err(CredentialsError::Duplicate {
+                    path: source.to_owned(),
+                    line: index + 1,
+                    name: entry.name.into(),
+                }
+                .into());
+            }
+            check_length(source, entry.name, entry.value)?;
         }
-        check_length(source, entry.name, entry.value)?;
     }
     let existing = match std::fs::read_to_string(target) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(error) => {
-            return Err(CopyError::ReadSource {
+            return Err(CopyError::ReadTarget {
                 path: target.to_owned(),
                 source: error,
             });
@@ -139,7 +150,13 @@ fn line_for(name: &str, value: &str) -> String {
 
 fn write_private(target: &Path, text: &str) -> std::io::Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    if let Some(directory) = target.parent() {
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(directory)?;
+    }
     let temporary = target.with_extension("env.tmp");
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -233,6 +250,20 @@ mod tests {
             .to_string();
         assert!(error.contains("PIN") && !error.contains("1234"), "{error}");
         assert!(!target.exists());
+    }
+
+    #[test]
+    fn a_source_line_keek_cannot_read_does_not_block_the_names_asked_for() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join(".env");
+        std::fs::write(
+            &source,
+            "KEY = spaced\nPEM=\"-----BEGIN\nMIIBmadeup\n-----END\"\nTEST_PASSWORD=made-up-secret\n",
+        )
+        .unwrap();
+        let target = directory.path().join("demo.env");
+        let copied = copy_credentials(&target, &source, &names(&["TEST_PASSWORD"])).unwrap();
+        assert_eq!(copied.copied, ["TEST_PASSWORD"]);
     }
 
     #[test]

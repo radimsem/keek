@@ -65,5 +65,28 @@ async fn set_project_profile_refuses_an_invalid_profile_and_keeps_the_old_one() 
     );
 }
 
+#[tokio::test]
+async fn the_first_set_project_profile_with_credentials_creates_the_config_folder() {
+    let mut h = Harness::new(2);
+    let config = h.registry.dependencies.projects_config.clone();
+    std::fs::remove_dir_all(&config).unwrap();
+    let source = h.directory.path().join("repo.env");
+    std::fs::write(&source, "TEST_PASSWORD=made-up-secret\n").unwrap();
+    let response = set(
+        &mut h,
+        json!({"start":"npm start"}),
+        Some(crate::ipc::CredentialSource {
+            source,
+            names: vec!["TEST_PASSWORD".into()],
+        }),
+    )
+    .await;
+    assert!(
+        matches!(response, Response::ProfileWritten { .. }),
+        "{response:?}"
+    );
+    assert!(config.join("web.env").is_file() && config.join("web.toml").is_file());
+}
+
 #[path = "registry_prepare_tests.rs"]
 mod prepare;
