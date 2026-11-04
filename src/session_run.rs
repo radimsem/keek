@@ -47,7 +47,9 @@ impl Actor {
             worktree: self.worktree.clone(),
             settings: self.settings.clone(),
             name: self.name.clone(),
+            progress: self.progress.clone(),
         };
+        self.progress.send("Building Project Layer");
         let mounts = match tokio::select! { biased;
             () = opener_left(&mut opener) => {
                 self.remove_cancelled_folder().await;
@@ -64,6 +66,7 @@ impl Actor {
                 };
             }
         };
+        self.progress.send("Starting desktop");
         // Outlasts the factory's 30 s handshake limit, whose refusal names the log files.
         let mut driver = match tokio::select! { biased;
             () = opener_left(&mut opener) => {
@@ -91,6 +94,7 @@ impl Actor {
                 };
             }
         };
+        self.progress.send("Starting App Under Test");
         let opened = self.setup(driver.as_mut()).await;
         let zero = match opened {
             Ok(zero) => zero,

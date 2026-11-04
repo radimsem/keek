@@ -227,6 +227,7 @@ async fn start_configured(
         clock: clock.clone(),
         catalog: Arc::new(Catalog::new(tools)),
         events,
+        progress: Default::default(),
     };
     let (sender, mailbox) = mpsc::channel(32);
     let (close, close_receiver) = mpsc::channel(1);

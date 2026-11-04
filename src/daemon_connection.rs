@@ -99,19 +99,19 @@ where
                 };
                 let (reply, mut answer) = oneshot::channel();
                 let (events, mut event_receiver) = mpsc::channel(REQUEST_QUEUE);
-                let watches = matches!(request, Request::WatchSession { .. });
-                requests.send(PendingRequest { opener: opener.clone(), request, reply, events: watches.then_some(events) }).await.map_err(|_| ConnectionError::OwnerGone)?;
+                let reports = matches!(request, Request::WatchSession { .. } | Request::OpenSession { .. });
+                requests.send(PendingRequest { opener: opener.clone(), request, reply, events: reports.then_some(events) }).await.map_err(|_| ConnectionError::OwnerGone)?;
                 let outgoing = outgoing.clone();
                 let reply_task = tasks.spawn(async move {
                     loop {
-                        tokio::select! {
+                        tokio::select! { biased;
+                            Some(event) = event_receiver.recv() => {
+                                outgoing.send(Message::Event { id, event }).await.map_err(|_| ConnectionError::OwnerGone)?;
+                            }
                             response = &mut answer => {
                                 let response = response.unwrap_or_else(|_| Response::Refused { message: "The Agent Session ended before it answered. Open a new Agent Session.".into() });
                                 outgoing.send(Message::Response { id, response }).await.map_err(|_| ConnectionError::OwnerGone)?;
                                 return Ok(());
-                            }
-                            Some(event) = event_receiver.recv() => {
-                                outgoing.send(Message::Event { id, event }).await.map_err(|_| ConnectionError::OwnerGone)?;
                             }
                         }
                     }
@@ -275,6 +275,63 @@ mod tests {
         drop(client);
         server.await.unwrap().unwrap();
     }
+    #[tokio::test]
+    async fn open_session_progress_reaches_the_client_before_the_opened_reply() {
+        let (near, far) = duplex(4096);
+        let (sender, mut requests) = mpsc::channel(8);
+        let server = tokio::spawn(serve_connection(Connection::new(far), sender));
+        let mut client = Connection::new(near);
+        hello_exchange(&mut client).await;
+        client
+            .send(&Message::Request {
+                id: RequestId(1),
+                request: Request::OpenSession {
+                    project: "app".into(),
+                    worktree: "/tmp".into(),
+                    goal: "goal".into(),
+                    checks: vec![],
+                },
+            })
+            .await
+            .unwrap();
+        let pending = requests.recv().await.unwrap();
+        let events = pending
+            .events
+            .expect("an open_session request carries an event channel");
+        for message in ["Building Project Layer", "Starting desktop"] {
+            events
+                .send(Event::Progress {
+                    message: message.into(),
+                })
+                .await
+                .unwrap();
+        }
+        pending.reply.send(Response::WatchEnded).unwrap();
+        for message in ["Building Project Layer", "Starting desktop"] {
+            let event = Event::Progress {
+                message: message.into(),
+            };
+            let got = tokio::time::timeout(Duration::from_secs(5), client.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                got,
+                Some(Message::Event {
+                    id: RequestId(1),
+                    event
+                })
+            );
+        }
+        let got = tokio::time::timeout(Duration::from_secs(5), client.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(got, Some(Message::Response { .. })));
+        drop(client);
+        server.await.unwrap().unwrap();
+    }
+
     #[tokio::test]
     async fn dropped_session_reply_does_not_close_connection() {
         let (near, far) = duplex(4096);

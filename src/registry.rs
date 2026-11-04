@@ -86,6 +86,7 @@ struct Opening {
     revision: crate::revision::Revision,
     settings: crate::project::Settings,
     warnings: Vec<String>,
+    progress: crate::open_progress::OpenProgress,
 }
 impl Registry {
     pub fn new(
@@ -229,7 +230,14 @@ impl Registry {
                 goal,
                 checks,
             } => {
-                self.begin_open(project, worktree, goal, checks, reply, opener);
+                self.begin_open(
+                    project,
+                    worktree,
+                    goal,
+                    checks,
+                    reply,
+                    opening::Caller { opener, events },
+                );
             }
             Request::CallTool {
                 session,

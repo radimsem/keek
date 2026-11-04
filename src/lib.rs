@@ -30,6 +30,8 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 mod session_evidence;
 
+pub mod open_progress;
+
 mod session_project;
 
 pub mod credential_scrub;

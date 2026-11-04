@@ -592,6 +592,9 @@ mod checks;
 #[path = "registry_project_tests.rs"]
 mod project;
 
+#[path = "registry_progress_tests.rs"]
+mod progress;
+
 #[path = "registry_viewer_tests.rs"]
 mod viewer;
 
