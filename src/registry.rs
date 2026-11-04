@@ -1,4 +1,5 @@
 use crate::catalog::Catalog;
+use crate::checklist::SessionEnd;
 use crate::clock::Clock;
 use crate::compositor::Compositor;
 use crate::ipc::{Event, Request, Response, SessionSnapshot, SessionState};
@@ -30,6 +31,8 @@ pub struct Registry {
 struct EndedCard {
     slot: crate::viewer::SlotId,
     frame: Option<PathBuf>,
+    end: SessionEnd,
+    folder: Option<PathBuf>,
     ended: std::time::Instant,
 }
 struct Entry {
@@ -154,13 +157,15 @@ impl Registry {
     pub async fn finished(&mut self, finished: Finished) {
         if let Some(entry) = self.sessions.remove(&finished.name) {
             let ended = match &entry.events.borrow().state {
-                SessionState::Ended(ended) => Some(ended.frame.clone()),
+                SessionState::Ended(ended) => {
+                    Some((ended.frame.clone(), ended.end.clone(), ended.folder.clone()))
+                }
                 SessionState::Opening
                 | SessionState::Open
                 | SessionState::Closing
                 | SessionState::Rendering { .. } => None,
             };
-            if let Some(frame) = ended {
+            if let Some((frame, end, folder)) = ended {
                 if self.dependencies.viewer.supports_cards() && entry.card == CardDisposition::Keep
                 {
                     self.cards.insert(
@@ -168,6 +173,8 @@ impl Registry {
                         EndedCard {
                             slot: entry.slot,
                             frame,
+                            end,
+                            folder,
                             ended: self.dependencies.clock.now(),
                         },
                     );
@@ -342,6 +349,18 @@ impl Registry {
         }
     }
     fn unknown(&self, name: &SessionName) -> Response {
+        match self
+            .cards
+            .get(name)
+            .map(|card| (&card.end, card.folder.as_deref()))
+        {
+            Some((SessionEnd::Incomplete(reason), folder)) => {
+                return Response::Refused {
+                    message: reason.ended_refusal(name, folder),
+                };
+            }
+            Some((SessionEnd::Verdict(_), _)) | None => {}
+        }
         let mut names: Vec<_> = self.sessions.keys().map(ToString::to_string).collect();
         names.sort();
         Response::Refused {
