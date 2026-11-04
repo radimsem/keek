@@ -42,6 +42,7 @@ pub struct SandboxSpec {
     pub user: String,
     pub lang: String,
     pub nvidia_devices: Vec<PathBuf>,
+    pub toolchains: crate::toolchain::Toolchains,
 }
 
 #[derive(Clone, Copy)]
@@ -91,6 +92,7 @@ impl SandboxSpec {
             user: environment("USER")?.to_string_lossy().into_owned(),
             lang: std::env::var("LANG").unwrap_or_else(|_| "C.UTF-8".to_owned()),
             nvidia_devices,
+            toolchains: Default::default(),
         })
     }
 
@@ -248,6 +250,9 @@ impl SandboxSpec {
         for (name, value) in &self.profile.env {
             args.extend([OsString::from("--setenv"), name.into(), value.into()]);
         }
+        for (name, value) in self.toolchains.env() {
+            args.extend([OsString::from("--setenv"), name.into(), value]);
+        }
         if matches!(mode, SandboxMode::Session) {
             // The file parses where this option stands, so the required variables below still win a clashing name.
             args.extend([
@@ -276,12 +281,14 @@ impl SandboxSpec {
             if matches!(mode, SandboxMode::Session)
                 || matches!(key, "HOME" | "USER" | "LANG" | "PATH")
             {
-                let value = if matches!(mode, SandboxMode::Install { .. }) && key == "PATH" {
-                    std::ffi::OsStr::new("/usr/bin")
-                } else {
-                    value
+                let value = match (mode, key) {
+                    (SandboxMode::Install { .. }, "PATH") => self.toolchains.path("/usr/bin"),
+                    (SandboxMode::Session, "PATH") => {
+                        self.toolchains.path(&value.to_string_lossy())
+                    }
+                    _ => value.to_owned(),
                 };
-                args.extend([OsString::from("--setenv"), key.into(), value.to_owned()]);
+                args.extend([OsString::from("--setenv"), key.into(), value]);
             }
         }
         args.extend([
@@ -349,6 +356,14 @@ impl SandboxSpec {
             .map(OsString::from),
         );
         args.push(self.home.as_os_str().to_owned());
+        if !self.toolchains.tools.is_empty() {
+            // Read-only, so an install or the App Under Test can't change a toolchain another Project uses.
+            args.extend([
+                OsString::from("--ro-bind"),
+                self.toolchains.store.clone().into(),
+                self.toolchains.store.clone().into(),
+            ]);
+        }
         if matches!(mode, SandboxMode::Session) {
             args.extend(["--perms", "0700", "--tmpfs"].map(OsString::from));
             args.push(self.runtime_dir.as_os_str().to_owned());

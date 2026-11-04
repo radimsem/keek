@@ -31,11 +31,16 @@ const LOCKFILES: &[&str] = &[
 ];
 
 impl ProjectFiles {
-    /// Covers what builds the Project Layer: the install command, the environment and the tracked lockfiles.
+    /// Covers what builds the Project Layer: the install command, the toolchain pins, the environment and the tracked lockfiles.
     pub fn key(&self, worktree: &Path, profile: &Profile) -> Result<ProjectKey, ProjectError> {
         let mut hash = Sha256::new();
         frame(&mut hash, b"install");
         frame(&mut hash, profile.install.as_bytes());
+        frame(&mut hash, b"toolchain");
+        for (tool, pin) in profile.toolchain.pins() {
+            frame(&mut hash, tool.name().as_bytes());
+            frame(&mut hash, pin.as_bytes());
+        }
         frame(&mut hash, b"env");
         for (name, value) in &profile.env {
             frame(&mut hash, name.as_bytes());
@@ -119,7 +124,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_key_changes_with_install_env_and_tracked_lockfiles() {
+    async fn the_key_changes_with_install_toolchain_env_and_tracked_lockfiles() {
         let d = repository();
         let root = d.path();
         std::fs::write(root.join("Cargo.lock"), "first").unwrap();
@@ -131,6 +136,9 @@ mod tests {
             "install = \"make all\"\nstart = \"run\"\n[env]\nAPP_ENV = \"test\"",
             "install = \"make\"\nstart = \"run\"\n[env]\nAPP_ENV = \"other\"",
             "install = \"make\"\nstart = \"run\"\n[env]\nAPP_ENV = \"test\"\nMORE = \"x\"",
+            "install = \"make\"\nstart = \"run\"\n[toolchain]\nnode = \"24\"\n[env]\nAPP_ENV = \"test\"",
+            "install = \"make\"\nstart = \"run\"\n[toolchain]\nnode = \"22\"\n[env]\nAPP_ENV = \"test\"",
+            "install = \"make\"\nstart = \"run\"\n[toolchain]\nrust = \"24\"\n[env]\nAPP_ENV = \"test\"",
         ] {
             assert_ne!(first, key(root, &profile(changed)).await, "{changed}");
         }

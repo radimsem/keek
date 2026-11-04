@@ -103,6 +103,7 @@ pub struct Opening {
 pub struct Mounts {
     pub tree: PathBuf,
     pub layer: PathBuf,
+    pub toolchains: crate::toolchain::Toolchains,
 }
 pub trait DriverFactory: Send + Sync {
     fn prepare<'a>(

@@ -71,6 +71,17 @@ pub async fn prepare(
         .map_err(|e| {
             SessionError::Refused(format!("Cannot prepare the Agent Session files: {e}. Check the session folder and open again."))
         })??;
+    if !spec.profile.toolchain.is_empty() {
+        opening.progress.send("Installing toolchains");
+    }
+    spec.toolchains = crate::toolchain::resolve(
+        factory.mise.as_ref(),
+        &factory.toolchains,
+        &spec.profile.toolchain,
+        &folder.root().join("toolchain.log"),
+    )
+    .await
+    .map_err(|e| SessionError::Refused(e.to_string()))?;
     let layer = crate::project::ensure_layer(
         &factory.projects_cache.join(&spec.project),
         &key,
@@ -79,7 +90,11 @@ pub async fn prepare(
     )
     .await
     .map_err(|e| SessionError::Refused(e.to_string()))?;
-    Ok(Mounts { tree, layer })
+    Ok(Mounts {
+        tree,
+        layer,
+        toolchains: spec.toolchains,
+    })
 }
 struct Install<'a>(&'a SandboxSpec, &'a crate::open_progress::OpenProgress);
 impl Installer for Install<'_> {

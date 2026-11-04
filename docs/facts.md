@@ -158,3 +158,15 @@ Checked on 2026-11-01 with bubblewrap 0.13.1, pasta 2026_10_02, Hyprland 0.56.2 
 - Hyprland window resizing uses `hl.dispatch(hl.dsp.window.resize({ window = 'pid:N', x = W, y = H, relative = false }))`, after the client maps and before recording.
 
 A real session on 2026-11-01 ran `python3 -m venv` and `pip install` in `install`: DNS and TLS worked, a first open took 5.5 to 7.0 s and a reuse 2.6 s, and a 640x480 setting produced a 640x480 Raw Recording. A venv's console scripts have an absolute shebang, which is why the worktree has a fixed path inside the sandbox.
+
+## Toolchain Store results
+
+Checked on 2026-11-04 with `/usr/bin/mise` 2026.10.25 linux-x64 (2026-10-31), against mise's documentation for v2026.10.21, in a scratch folder with `env -i`. Only jq was installed; node, rust, python, pnpm and yarn were not installed by this check.
+
+- `MISE_DATA_DIR`, `MISE_CONFIG_DIR`, `MISE_CACHE_DIR`, `MISE_STATE_DIR`, `MISE_SYSTEM_CONFIG_DIR` and `MISE_GLOBAL_CONFIG_FILE` move each of mise's folders. mise also writes under `$HOME/.local/share/mise`, so keek sets `HOME` inside the store too.
+- With only the folders above moved, mise still read `/etc/mise/conf.d/omarchy.toml`, and `mise install` failed on a tool that file names. Pointing `MISE_SYSTEM_CONFIG_DIR` at an empty folder fixed it.
+- Before any install, `mise where node@24` resolves the pin against the newest remote release (24.22.2) and fails with "not installed". After an install, `mise where jq@1` reports the newest installed match, `.../installs/jq/1.7`, whose folder name is the version.
+- `mise install jq@1.7` when it is present prints "already installed" and downloads nothing. `mise bin-paths jq@1.7` works for an installed tool that no config activates.
+- mise's rust backend uses `RUSTUP_HOME` and `CARGO_HOME`; the settings `rust.rustup_home` and `rust.cargo_home`, or `MISE_RUSTUP_HOME` and `MISE_CARGO_HOME`, take precedence, and with explicit homes mise runs its own rustup-init. Toolchains live in `RUSTUP_HOME`. A rust pin inside the sandbox has not run.
+- The registry maps node to `core:node`, python to `core:python`, rust to `core:rust`, pnpm to `aqua:pnpm/pnpm` and yarn to `vfox:jdx/vfox-yarn`.
+- On this host `/usr/bin/node` is v26.12.0, and there is no `/usr/bin/cargo`, `pnpm` or `yarn`. The developer's `~/.config/mise/config.toml` and `~/.local/share/mise/installs` exist and were left unchanged.

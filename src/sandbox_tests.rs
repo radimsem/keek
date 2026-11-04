@@ -24,6 +24,7 @@ fn spec() -> SandboxSpec {
         user: "test".into(),
         lang: "C.UTF-8".into(),
         nvidia_devices: vec!["/dev/nvidia0".into(), "/dev/nvidiactl".into()],
+        toolchains: Default::default(),
     }
 }
 
@@ -75,7 +76,7 @@ fn preparing_a_session_writes_executable_assets_and_preserves_shell_settings() {
 }
 
 #[test]
-fn preparing_a_session_always_writes_the_setup_script_launcher() {
+fn preparing_a_session_always_writes_the_start_launcher() {
     let directory = tempfile::tempdir().unwrap();
     let mut sandbox = spec();
     sandbox.home = directory.path().join("home");
@@ -403,5 +404,65 @@ fn profile_env_reaches_install_and_session_before_credentials_and_keek_variables
         if let Some(file) = args.iter().position(|a| a == "--args") {
             assert!(env < file);
         }
+    }
+}
+
+#[test]
+fn pinned_toolchains_are_mounted_read_only_and_lead_path_in_install_and_session() {
+    use crate::toolchain::{Fetch, ResolvedTool, Tool, Toolchains};
+    let mut spec = spec();
+    let store = PathBuf::from("/home/test/.cache/keek/toolchains");
+    spec.toolchains = Toolchains {
+        store: store.clone(),
+        tools: vec![ResolvedTool {
+            tool: Tool::Rust,
+            pin: "1.90".into(),
+            version: "1.90.0".into(),
+            bin_dirs: vec![store.join("cargo/bin")],
+            fetch: Fetch::Present,
+        }],
+    };
+    let install = spec.args_for(SandboxMode::Install {
+        upper: Path::new("/build/upper"),
+        work: Path::new("/build/work"),
+        log: Path::new("/log"),
+    });
+    for (args, base) in [
+        (
+            spec.args(),
+            "/keek/nested/bin:/usr/share/omarchy/bin:/usr/bin",
+        ),
+        (install, "/usr/bin"),
+    ] {
+        let path = format!("{}:{base}", store.join("cargo/bin").display());
+        assert!(
+            args.windows(3)
+                .any(|a| a == ["--setenv", "PATH", path.as_str()]),
+            "{args:?}"
+        );
+        let home = args
+            .windows(2)
+            .position(|a| a == ["--tmpfs", "/home/test"])
+            .unwrap();
+        let mount = args
+            .windows(3)
+            .position(|a| {
+                a == [
+                    OsString::from("--ro-bind"),
+                    store.clone().into(),
+                    store.clone().into(),
+                ]
+            })
+            .unwrap_or_else(|| panic!("no read-only store in {args:?}"));
+        assert!(home < mount);
+        assert!(
+            !args
+                .windows(2)
+                .any(|a| a[0] == "--bind" && a[1] == store.as_os_str())
+        );
+        assert!(
+            args.windows(3)
+                .any(|a| a == ["--setenv", "RUSTUP_TOOLCHAIN", "1.90.0"])
+        );
     }
 }

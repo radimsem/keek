@@ -34,6 +34,10 @@ _Avoid_: settings, config, recipe, Setup Script
 A Project's installed dependencies, built once by its Project Profile's install command and reused across Agent Sessions until the profile or the lockfiles change.
 _Avoid_: image, snapshot, cache
 
+**Toolchain Store**:
+The toolchains keek installs on the host for Project Profiles that pin a version, shared read-only by every Agent Session.
+_Avoid_: toolchain cache, runtime
+
 **Test Credentials**:
 Smoke-test-only accounts and keys that a project grants to its Agent Sessions, kept outside the project and chosen so they are safe to appear in Evidence. A Verifier refers to them by name and never sees their values.
 _Avoid_: secrets, env, .env

@@ -77,7 +77,14 @@ mod tests {
             .keys()
             .map(String::as_str)
             .collect();
-        assert_eq!(properties, ["env", "install", "ports", "start", "window"]);
+        assert_eq!(
+            properties,
+            ["env", "install", "ports", "start", "toolchain", "window"]
+        );
+        assert_eq!(
+            schema["properties"]["toolchain"]["additionalProperties"],
+            json!(false)
+        );
         assert_eq!(schema["required"], json!(["start"]));
         assert_eq!(schema["additionalProperties"], json!(false));
         assert!(!schema.to_string().contains("$ref"), "{schema}");

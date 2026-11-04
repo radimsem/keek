@@ -13,6 +13,8 @@ pub struct SandboxFactory {
     pub compositor: Arc<dyn crate::compositor::Compositor>,
     pub projects_cache: PathBuf,
     pub trees: PathBuf,
+    pub toolchains: PathBuf,
+    pub mise: Arc<dyn crate::toolchain::Mise>,
 }
 impl DriverFactory for SandboxFactory {
     fn prepare<'a>(
@@ -37,6 +39,7 @@ impl DriverFactory for SandboxFactory {
             let mut spec = crate::session_project::spec(self, folder, opening).await?;
             spec.layer = mounts.layer.clone();
             spec.tree = mounts.tree.clone();
+            spec.toolchains = mounts.toolchains.clone();
             let mut command = tokio::task::spawn_blocking(move || spec.command())
                 .await
                 .map_err(|e| {

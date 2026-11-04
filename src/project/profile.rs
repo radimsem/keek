@@ -24,6 +24,9 @@ pub struct Profile {
     pub install: String,
     /// Shell command run from the worktree root that starts the App Under Test.
     pub start: String,
+    /// Pinned toolchain versions that keek installs into the Toolchain Store and puts on PATH for install and start.
+    #[serde(default, skip_serializing_if = "crate::toolchain::Toolchain::is_empty")]
+    pub toolchain: crate::toolchain::Toolchain,
     /// Non-secret environment variables for both install and start. The Verifier can see them.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
@@ -85,6 +88,9 @@ impl Profile {
             if value.contains('\0') {
                 return Some(format!("{field} contains a NUL byte. Remove it"));
             }
+        }
+        if let Some(problem) = self.toolchain.problem() {
+            return Some(problem);
         }
         for (name, value) in &self.env {
             if !crate::credentials::valid_name(name) {
