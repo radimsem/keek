@@ -289,7 +289,15 @@ impl SandboxSpec {
             ("CUA_DRIVER_RS_ENABLE_WAYLAND", "1".as_ref()),
             ("CUA_DRIVER_RS_TELEMETRY_ENABLED", "false".as_ref()),
         ] {
-            if matches!(mode, SandboxMode::Session) || matches!(key, "HOME" | "USER" | "LANG") {
+            let shared = match mode {
+                SandboxMode::Session => true,
+                // Omarchy's scripts on the probe's PATH read OMARCHY_PATH.
+                SandboxMode::Probe { .. } => {
+                    matches!(key, "HOME" | "USER" | "LANG" | "OMARCHY_PATH")
+                }
+                SandboxMode::Install { .. } => matches!(key, "HOME" | "USER" | "LANG"),
+            };
+            if shared {
                 args.extend([OsString::from("--setenv"), key.into(), value.to_owned()]);
             }
         }

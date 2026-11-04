@@ -503,4 +503,8 @@ fn the_start_probe_runs_start_with_the_lan_block_and_credentials_but_no_desktop(
         args.windows(3)
             .any(|a| a == ["--setenv", "PATH", "/usr/share/omarchy/bin:/usr/bin"])
     );
+    assert!(
+        args.windows(3)
+            .any(|a| a == ["--setenv", "OMARCHY_PATH", "/usr/share/omarchy"])
+    );
 }
