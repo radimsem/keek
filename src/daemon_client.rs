@@ -83,6 +83,8 @@ pub enum RequestError {
     DaemonGone,
     #[error("the keek daemon sent an unexpected message: {0}")]
     Unexpected(String),
+    #[error("The coding agent cancelled the request. Call the tool again if it is still needed.")]
+    Cancelled,
 }
 
 impl From<IpcError> for RequestError {
@@ -268,8 +270,10 @@ where
             // Nothing in `keek mcp` reads events yet.
             Some(Message::Event { .. }) => {}
             Some(
-                other
-                @ (Message::Hello { .. } | Message::Request { .. } | Message::Response { .. }),
+                other @ (Message::Hello { .. }
+                | Message::Request { .. }
+                | Message::Response { .. }
+                | Message::Cancel { .. }),
             ) => {
                 return Err(RequestError::Unexpected(format!("{other:?}")));
             }
@@ -339,7 +343,7 @@ impl DaemonClient {
         &self,
         request: Request,
         events: Option<mpsc::Sender<Event>>,
-    ) -> Result<oneshot::Receiver<Result<Response, RequestError>>, RequestError> {
+    ) -> Result<(RequestId, oneshot::Receiver<Result<Response, RequestError>>), RequestError> {
         let id = RequestId(self.next_id.fetch_add(1, Ordering::Relaxed));
         let (reply, answer) = oneshot::channel();
         let mut pending = self.pending.lock().await;
@@ -364,14 +368,30 @@ impl DaemonClient {
             self.pending.lock().await.replies.remove(&id);
             return Err(error.into());
         }
-        Ok(answer)
+        Ok((id, answer))
     }
 
     pub async fn request(&self, request: Request) -> Result<Response, RequestError> {
-        self.start_request(request, None)
-            .await?
-            .await
-            .map_err(|_| RequestError::DaemonGone)?
+        let (_, answer) = self.start_request(request, None).await?;
+        answer.await.map_err(|_| RequestError::DaemonGone)?
+    }
+
+    /// Asks the daemon to drop the request when `cancelled` resolves first.
+    pub async fn request_until(
+        &self,
+        request: Request,
+        cancelled: impl std::future::Future<Output = ()>,
+    ) -> Result<Response, RequestError> {
+        let (id, answer) = self.start_request(request, None).await?;
+        tokio::select! {
+            biased;
+            response = answer => response.map_err(|_| RequestError::DaemonGone)?,
+            () = cancelled => {
+                self.pending.lock().await.replies.remove(&id);
+                let _ = self.writer.lock().await.send(&Message::Cancel { id }).await;
+                Err(RequestError::Cancelled)
+            }
+        }
     }
 
     pub async fn watch_session(
@@ -426,7 +446,9 @@ async fn read_responses<R: AsyncRead + Unpin>(
                     let _ = sender.try_send(event);
                 }
             }
-            Ok(Some(Message::Hello { .. } | Message::Request { .. })) | Ok(None) | Err(_) => break,
+            Ok(Some(Message::Hello { .. } | Message::Request { .. } | Message::Cancel { .. }))
+            | Ok(None)
+            | Err(_) => break,
         }
     }
     let mut pending = pending.lock().await;

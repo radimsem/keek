@@ -17,6 +17,8 @@ pub enum Command {
         reason: String,
         reply: oneshot::Sender<Span>,
     },
+    /// Sent after a Help Request's waiter went away. The controller answers once the card has left Help Request.
+    Withdraw(oneshot::Sender<()>),
     Stop(oneshot::Sender<()>),
 }
 #[derive(Clone)]
@@ -339,6 +341,7 @@ impl Controller {
         let mut taking: Option<Taking> = None;
         let mut lines: Option<Box<dyn TakeoverEvents>> = None;
         let mut reason = None;
+        let mut before_help = ControlState::default();
         let mut waiting: Vec<oneshot::Sender<Span>> = Vec::new();
         loop {
             let command = tokio::select! {
@@ -409,45 +412,22 @@ impl Controller {
                     waiting.push(reply);
                     if taking.is_none() {
                         reason = Some(help.clone());
-                        self.events.send_modify(|s| {
-                            s.control = ControlState::HelpRequest {
-                                reason: help.clone(),
-                                start_ms: self.time(self.clock.now()),
-                            }
-                        });
-                        let text = format!("{help} · {}", self.project);
-                        if let Err(error) = self
-                            .runner
-                            .output(
-                                "omarchy-notification-send",
-                                &[
-                                    "-u",
-                                    "normal",
-                                    "Agent needs you",
-                                    &text,
-                                    "--exec",
-                                    "hyprctl",
-                                    "eval",
-                                    "hl.dispatch(hl.dsp.focus({ workspace = \"name:keek\" }))",
-                                ],
-                                None,
-                            )
-                            .await
-                        {
-                            tracing::warn!(%error, "Could not send Help Request notification");
-                        }
-                        let orange =
-                            tokio::task::spawn_blocking(|| crate::viewer::theme::load().orange)
-                                .await
-                                .unwrap_or_else(|_| crate::viewer::theme::parse("").yellow);
-                        self.prop(
-                            "inactive_border_color",
-                            &format!("rgb({})", orange.trim_start_matches('#')),
-                        )
-                        .await
+                        before_help = self.events.borrow().control.clone();
+                        self.raise_help(&help).await
                     } else {
                         Ok(())
                     }
+                }
+                Some(Command::Withdraw(acknowledged)) => {
+                    waiting.retain(|waiter| !waiter.is_closed());
+                    let result =
+                        if taking.is_none() && waiting.is_empty() && reason.take().is_some() {
+                            self.withdraw_help(before_help.clone()).await
+                        } else {
+                            Ok(())
+                        };
+                    let _ = acknowledged.send(());
+                    result
                 }
                 Some(Command::Stop(reply)) => {
                     if let Some(mut active) = taking.take() {
@@ -469,6 +449,9 @@ impl Controller {
         }
     }
 }
+#[path = "session_control_help.rs"]
+mod help;
+
 pub fn has_submap(binds: &serde_json::Value) -> bool {
     binds.as_array().into_iter().flatten().any(|b| {
         b.get("submap").and_then(serde_json::Value::as_str) == Some("keek")

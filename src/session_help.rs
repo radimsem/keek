@@ -7,8 +7,11 @@ impl Actor {
         state: &mut LoopState,
         arrival: gate::Arrival,
         reason: String,
-        reply: oneshot::Sender<Response>,
+        mut reply: oneshot::Sender<Response>,
     ) -> Option<IncompleteReason> {
+        if reply.is_closed() {
+            return None;
+        }
         let reason = self.credentials.mask(&reason);
         if reason.trim().is_empty() {
             let _ = reply.send(refusal(
@@ -31,6 +34,21 @@ impl Actor {
                     Ok(span) => span,
                     Err(_) => { let _ = reply.send(refusal("The Agent Session ended while the Help Request waited. Open a new Agent Session.")); return Some(IncompleteReason::DesktopStopped); }
                 },
+                () = reply.closed() => {
+                    drop(waiting);
+                    let (acknowledged, restored) = oneshot::channel();
+                    if self
+                        .control
+                        .commands
+                        .send(control::Command::Withdraw(acknowledged))
+                        .await
+                        .is_ok()
+                    {
+                        let _ = restored.await;
+                    }
+                    state.deadline = tokio::time::Instant::now() + self.idle_limit;
+                    return None;
+                }
                 () = self.opener_gone(&mut state.opener) => { let _ = reply.send(refusal("The coding agent disconnected. Open a new Agent Session.")); return Some(IncompleteReason::OpenerLeft);
                 }
                 () = &mut state.ended => { let _ = reply.send(refusal("The Agent Session ended while the Help Request waited. Open a new Agent Session.")); return Some(IncompleteReason::DesktopStopped); }

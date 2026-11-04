@@ -251,3 +251,31 @@ async fn request_after_invalid_message_returns_daemon_gone() {
         "{result:?}"
     );
 }
+
+#[tokio::test]
+async fn a_cancelled_request_tells_the_daemon_and_drops_its_pending_reply() {
+    let (near, far) = duplex(4096);
+    let client = DaemonClient::new(Connection::new(near));
+    let mut daemon = Connection::new(far);
+    let (cancel, cancelled) = oneshot::channel::<()>();
+    let request = client.request_until(Request::Status, async {
+        let _ = cancelled.await;
+    });
+    let daemon_side = async {
+        let Some(Message::Request { id, .. }) = daemon.recv().await.unwrap() else {
+            panic!("the client sent no request");
+        };
+        cancel.send(()).unwrap();
+        (id, daemon.recv().await.unwrap())
+    };
+
+    let (result, (id, next)) = tokio::time::timeout(Duration::from_secs(2), async {
+        tokio::join!(request, daemon_side)
+    })
+    .await
+    .expect("the cancel never reached the daemon");
+
+    assert!(matches!(result, Err(RequestError::Cancelled)), "{result:?}");
+    assert_eq!(next, Some(Message::Cancel { id }));
+    assert!(client.pending.lock().await.replies.is_empty());
+}

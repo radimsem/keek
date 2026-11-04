@@ -105,8 +105,16 @@ impl ServerHandler for KeekServer {
             Err(message) => return Ok(tool_error(message).into()),
         };
         let can_wait = can_wait(&request);
+        let withdrawable = matches!(request, Request::RequestHelp { .. });
+        let cancelled = async {
+            if withdrawable {
+                context.ct.cancelled().await;
+            } else {
+                std::future::pending::<()>().await;
+            }
+        };
         let response = match waiting_with_progress(
-            self.daemon.request(request),
+            self.daemon.request_until(request, cancelled),
             if can_wait {
                 context.meta.get_progress_token()
             } else {
@@ -260,6 +268,10 @@ mod check_tests {
 #[cfg(test)]
 #[path = "mcp_progress_tests.rs"]
 mod progress_tests;
+
+#[cfg(test)]
+#[path = "mcp_cancel_tests.rs"]
+mod cancel_tests;
 
 async fn waiting_with_progress<F, T, N, NF>(
     request: F,
