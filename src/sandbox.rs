@@ -279,10 +279,6 @@ impl SandboxSpec {
             ("HOME", self.home.as_os_str()),
             ("USER", self.user.as_ref()),
             ("LANG", self.lang.as_ref()),
-            (
-                "PATH",
-                "/keek/nested/bin:/usr/share/omarchy/bin:/usr/bin".as_ref(),
-            ),
             ("OMARCHY_PATH", "/usr/share/omarchy".as_ref()),
             ("XDG_RUNTIME_DIR", self.runtime_dir.as_os_str()),
             ("XDG_SESSION_TYPE", "wayland".as_ref()),
@@ -293,21 +289,17 @@ impl SandboxSpec {
             ("CUA_DRIVER_RS_ENABLE_WAYLAND", "1".as_ref()),
             ("CUA_DRIVER_RS_TELEMETRY_ENABLED", "false".as_ref()),
         ] {
-            if matches!(mode, SandboxMode::Session)
-                || matches!(key, "HOME" | "USER" | "LANG" | "PATH")
-            {
-                let value = match (mode, key) {
-                    (SandboxMode::Install { .. } | SandboxMode::Probe { .. }, "PATH") => {
-                        self.toolchains.path("/usr/bin")
-                    }
-                    (SandboxMode::Session, "PATH") => {
-                        self.toolchains.path(&value.to_string_lossy())
-                    }
-                    _ => value.to_owned(),
-                };
-                args.extend([OsString::from("--setenv"), key.into(), value]);
+            if matches!(mode, SandboxMode::Session) || matches!(key, "HOME" | "USER" | "LANG") {
+                args.extend([OsString::from("--setenv"), key.into(), value.to_owned()]);
             }
         }
+        // The probe has no nested desktop, so it has no /keek/nested/bin.
+        let path = self.toolchains.path(match mode {
+            SandboxMode::Session => "/keek/nested/bin:/usr/share/omarchy/bin:/usr/bin",
+            SandboxMode::Probe { .. } => "/usr/share/omarchy/bin:/usr/bin",
+            SandboxMode::Install { .. } => "/usr/bin",
+        });
+        args.extend([OsString::from("--setenv"), "PATH".into(), path]);
         args.extend([
             OsString::from("--setenv"),
             "KEEK_PROJECT".into(),

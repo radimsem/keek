@@ -499,4 +499,8 @@ fn the_start_probe_runs_start_with_the_lan_block_and_credentials_but_no_desktop(
     .map(Into::into)
     .into();
     assert!(args.ends_with(&expected), "{args:?}");
+    assert!(
+        args.windows(3)
+            .any(|a| a == ["--setenv", "PATH", "/usr/share/omarchy/bin:/usr/bin"])
+    );
 }
