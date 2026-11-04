@@ -126,3 +126,25 @@ async fn prepare_project_without_a_profile_refuses_and_names_set_project_profile
     assert!(message.contains("set_project_profile"), "{message}");
     assert_eq!(factory.starts.load(Ordering::SeqCst), 0);
 }
+
+#[tokio::test]
+async fn a_prepare_project_for_another_worktree_while_one_runs_is_refused_with_the_running_worktree()
+ {
+    let (mut h, factory, worktree) = harness();
+    let (_first_client, opener) = watch::channel(());
+    let first = prepare(&mut h, &worktree, opener).await;
+    within(factory.started.notified()).await;
+    let other = h.worktree("other");
+    let (_second_client, opener) = watch::channel(());
+    let message = refused(within(prepare(&mut h, &other, opener).await).await.unwrap());
+    assert!(
+        message.contains(&worktree.display().to_string()),
+        "{message}"
+    );
+    factory.release.notify_one();
+    assert!(matches!(
+        within(first).await.unwrap(),
+        Response::Prepared(_)
+    ));
+    assert_eq!(factory.starts.load(Ordering::SeqCst), 1);
+}

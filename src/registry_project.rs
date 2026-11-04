@@ -65,10 +65,19 @@ impl Registry {
     ) {
         let opening::Caller { mut opener, events } = caller;
         // A build whose task ended without a result has dropped its sender, so it is not joined.
-        if let Some(running) = self.prepares.get(&project)
+        if let Some((running_worktree, running)) = self.prepares.get(&project)
             && running.borrow().is_none()
             && running.has_changed().is_ok()
         {
+            if *running_worktree != worktree {
+                let _ = reply.send(Response::Refused {
+                    message: format!(
+                        "Project {project} is being prepared from {}. Wait for that prepare_project to finish, then call it again for this worktree.",
+                        running_worktree.display()
+                    ),
+                });
+                return;
+            }
             let mut running = running.clone();
             self.background.spawn(async move {
                 let response = match running.wait_for(Option::is_some).await {
@@ -80,7 +89,8 @@ impl Registry {
             return;
         }
         let (done, running) = watch::channel(None);
-        self.prepares.insert(project.clone(), running);
+        self.prepares
+            .insert(project.clone(), (worktree.clone(), running));
         let runner = Arc::clone(&self.dependencies.runner);
         let factory = Arc::clone(&self.dependencies.factory);
         let sessions_dir = self.dependencies.sessions_dir.clone();

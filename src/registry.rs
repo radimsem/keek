@@ -25,7 +25,7 @@ pub struct Registry {
     pub recovery: JoinSet<()>,
     pub preparing: JoinSet<Prepared>,
     // A finished build keeps its entry until the next prepare_project for that Project replaces it.
-    prepares: HashMap<String, watch::Receiver<Option<Response>>>,
+    prepares: HashMap<String, (PathBuf, watch::Receiver<Option<Response>>)>,
     pub catalog: watch::Receiver<Option<Result<Arc<Catalog>, String>>>,
     pub dependencies: Dependencies,
     lifecycle: Lifecycle,
