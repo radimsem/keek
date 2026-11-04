@@ -6,9 +6,6 @@ pub struct WrittenProfile {
     pub toml: String,
 }
 
-// Two coding agents can set the same Project's profile at once, and each write moves the .bak.
-static WRITES: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 /// Checks `profile`, the JSON a coding agent sent, without writing anything.
 pub fn check_profile(path: &Path, mut profile: serde_json::Value) -> Result<Profile, ProfileError> {
     drop_nulls(&mut profile);
@@ -39,6 +36,7 @@ fn drop_nulls(value: &mut serde_json::Value) {
 }
 
 /// Replaces the Project Profile whole, keeping the previous one as `<project>.toml.bak`.
+/// The caller serializes writes, since two at once share the temporary file and the .bak.
 pub fn write_profile(
     directory: &Path,
     project: &str,
@@ -54,9 +52,6 @@ pub fn write_profile(
         path: path.clone(),
         source,
     };
-    let _writing = WRITES
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
     std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)

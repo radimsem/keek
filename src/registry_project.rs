@@ -25,7 +25,11 @@ impl Registry {
     }
 }
 
-fn write_profile(
+// Two coding agents can set the same Project's profile at once. The credential copy is a
+// read-modify-write through one temporary file, and each profile write moves the .bak.
+static WRITES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+pub(super) fn write_profile(
     directory: &std::path::Path,
     project: &str,
     profile: serde_json::Value,
@@ -35,6 +39,9 @@ fn write_profile(
     let profile =
         crate::project::check_profile(&crate::project::profile_path(directory, project), profile)
             .map_err(|e| e.to_string())?;
+    let _writing = WRITES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let copied = match credentials {
         Some(credentials) => Some(
             crate::project::copy_credentials(

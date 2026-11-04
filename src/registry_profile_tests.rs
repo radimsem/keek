@@ -88,5 +88,44 @@ async fn the_first_set_project_profile_with_credentials_creates_the_config_folde
     assert!(config.join("web.env").is_file() && config.join("web.toml").is_file());
 }
 
+#[test]
+fn concurrent_set_project_profile_calls_keep_every_copied_credential() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = directory.path().join("projects");
+    let writers = 16;
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(writers));
+    let threads: Vec<_> = (0..writers)
+        .map(|index| {
+            let source = directory.path().join(format!("repo-{index}.env"));
+            std::fs::write(&source, format!("TEST_KEY_{index}=made-up-value-{index}\n")).unwrap();
+            let (config, barrier) = (config.clone(), barrier.clone());
+            std::thread::spawn(move || {
+                let credentials = crate::ipc::CredentialSource {
+                    source,
+                    names: vec![format!("TEST_KEY_{index}")],
+                };
+                barrier.wait();
+                crate::registry::project::write_profile(
+                    &config,
+                    "web",
+                    json!({"start":"npm start"}),
+                    Some(&credentials),
+                )
+            })
+        })
+        .collect();
+    for thread in threads {
+        let written = thread.join().unwrap();
+        assert!(
+            matches!(written, Ok(Response::ProfileWritten { .. })),
+            "{written:?}"
+        );
+    }
+    let file = std::fs::read_to_string(config.join("web.env")).unwrap();
+    for index in 0..writers {
+        assert!(file.contains(&format!("TEST_KEY_{index}=")), "{file}");
+    }
+}
+
 #[path = "registry_prepare_tests.rs"]
 mod prepare;
