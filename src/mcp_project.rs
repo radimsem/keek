@@ -146,3 +146,42 @@ mod tests {
         assert!(super::super::can_wait(&request));
     }
 }
+
+#[cfg(test)]
+mod skill_tests {
+    use super::*;
+
+    const SKILL: &str = include_str!("../skills/keek-setup/SKILL.md");
+
+    fn keys(schema: &Value) -> Vec<String> {
+        schema["properties"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    #[test]
+    fn the_setup_skill_example_is_a_valid_profile_using_every_schema_key() {
+        let example = SKILL
+            .split("```toml\n")
+            .nth(1)
+            .and_then(|rest| rest.split("```").next())
+            .expect("the skill has a toml example");
+        let profile =
+            crate::project::Profile::parse(std::path::Path::new("SKILL.md"), example).unwrap();
+        let written: Value = toml::from_str(example).unwrap();
+        let schema = profile_schema();
+        let mut used: Vec<String> = written.as_object().unwrap().keys().cloned().collect();
+        used.sort();
+        assert_eq!(used, keys(&schema));
+        for tool in keys(&schema["properties"]["toolchain"]) {
+            assert!(
+                SKILL.contains(&format!("`{tool}`")),
+                "the skill does not name toolchain {tool}"
+            );
+        }
+        assert!(!profile.toolchain.is_empty());
+    }
+}
