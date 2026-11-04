@@ -19,13 +19,13 @@ pub async fn spec(
     let project = opening.project.clone();
     let worktree = opening.worktree.clone();
     let credentials = opening.credentials.clone();
-    let ports = opening.settings.ports.clone();
+    let profile = opening.profile.clone();
     tokio::task::spawn_blocking(move || {
         let mut spec = SandboxSpec::from_env(&root, &driver)?;
         spec.credentials = credentials;
         spec.project = project;
         spec.worktree = worktree;
-        spec.ports = ports;
+        spec.profile = profile;
         Ok(spec)
     })
     .await
@@ -38,16 +38,28 @@ pub async fn prepare(
     opening: &Opening,
 ) -> Result<Mounts, SessionError> {
     let mut spec = spec(factory, folder, opening).await?;
+    if !spec.profile.toolchain.is_empty() {
+        opening.progress.send("Installing toolchains");
+    }
+    spec.toolchains = crate::toolchain::resolve(
+        factory.mise.as_ref(),
+        &factory.toolchains,
+        &spec.profile.toolchain,
+        &folder.root().join("toolchain.log"),
+    )
+    .await
+    .map_err(|e| SessionError::Refused(e.to_string()))?;
     let files = ProjectFiles::read(factory.runner.as_ref(), &spec.worktree)
         .await
         .map_err(|e| SessionError::Refused(e.to_string()))?;
     let worktree = spec.worktree.clone();
+    let (spec_profile, toolchains) = (spec.profile.clone(), spec.toolchains.clone());
     let tree = tree_path(&factory.trees, &opening.name);
     // The tree stays outside the writable session folder so the sandbox cannot change an overlay lower layer.
     let build_tree = tree.clone();
     let key = tokio::task::spawn_blocking(move || {
         let key = files
-            .key(&worktree)
+            .key(&worktree, &spec_profile, &toolchains)
             .map_err(|e| SessionError::Refused(e.to_string()))?;
         files.build_tree(&worktree, &build_tree).map_err(|e| {
             SessionError::Refused(format!(
@@ -78,12 +90,27 @@ pub async fn prepare(
     )
     .await
     .map_err(|e| SessionError::Refused(e.to_string()))?;
-    Ok(Mounts { tree, layer })
+    Ok(Mounts {
+        tree,
+        layer,
+        toolchains: spec.toolchains,
+    })
 }
-struct Install<'a>(&'a SandboxSpec, &'a crate::open_progress::OpenProgress);
+pub(crate) struct Install<'a>(
+    pub(crate) &'a SandboxSpec,
+    pub(crate) &'a crate::open_progress::OpenProgress,
+);
 impl Installer for Install<'_> {
     fn install<'a>(&'a self, upper: &'a Path, work: &'a Path, log: &'a Path) -> InstallFuture<'a> {
         Box::pin(async move {
+            if self.0.profile.install.trim().is_empty() {
+                let log = log.to_owned();
+                tokio::task::spawn_blocking(move || {
+                    std::fs::write(log, "The Project Profile has no install command.\n")
+                })
+                .await??;
+                return Ok(0);
+            }
             let spec = self.0.clone();
             let upper = upper.to_owned();
             let work = work.to_owned();

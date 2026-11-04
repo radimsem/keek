@@ -101,12 +101,10 @@ async fn ensure_layer_with_cleanup(
     .await;
     let outcome = match result {
         Ok(Ok(0)) => Ok(()),
-        Ok(Ok(status)) => Err(format!(
-            ".keek/setup.sh install exited with status {status}"
-        )),
-        Ok(Err(error)) => Err(format!(".keek/setup.sh install could not run: {error}")),
+        Ok(Ok(status)) => Err(format!("the install command exited with status {status}")),
+        Ok(Err(error)) => Err(format!("the install command could not run: {error}")),
         Err(_) => Err(format!(
-            ".keek/setup.sh install timed out after {} minutes",
+            "the install command timed out after {} minutes",
             INSTALL_LIMIT.as_secs() / 60
         )),
     };

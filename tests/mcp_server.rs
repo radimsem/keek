@@ -40,7 +40,9 @@ async fn an_agent_can_read_the_verifier_protocol_and_list_tools() -> Result<()> 
             "add_check",
             "mark_check",
             "request_help",
-            "close_session"
+            "close_session",
+            "set_project_profile",
+            "prepare_project"
         ]
     );
 

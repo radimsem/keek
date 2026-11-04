@@ -30,6 +30,9 @@ enum Command {
     },
     #[command(hide = true)]
     ConnectExec {
+        /// Run without a compositor connection, for prepare_project's start probe.
+        #[arg(long)]
+        no_display: bool,
         #[arg(last = true, required = true)]
         args: Vec<String>,
     },
@@ -42,11 +45,17 @@ fn main() -> Result<std::process::ExitCode> {
         Command::Edit { raw, timeline, out } => tokio::runtime::Runtime::new()?
             .block_on(run_edit(raw, timeline, out))
             .map(|()| std::process::ExitCode::SUCCESS),
-        Command::ConnectExec { args } => {
+        Command::ConnectExec { no_display, args } => {
             let (command, rest) = args
                 .split_first()
                 .context("Cannot start connect-exec because its command is missing. Pass a command after --.")?;
-            let status = keek::connect_exec::run(command, rest).map_err(anyhow::Error::msg)?;
+            let display = if no_display {
+                keek::connect_exec::Display::None
+            } else {
+                keek::connect_exec::Display::Wayland
+            };
+            let status =
+                keek::connect_exec::run(display, command, rest).map_err(anyhow::Error::msg)?;
             Ok(status)
         }
         Command::Mcp => {

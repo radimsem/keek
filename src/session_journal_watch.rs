@@ -105,6 +105,7 @@ mod tests {
             timeline: SessionTimeline::new(Millis(0)),
             takeovers: vec![],
             credentials_hash: None,
+            profile: Default::default(),
         };
         let handle = crate::session_journal::Handle::create(root.path(), journal)
             .await

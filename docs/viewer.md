@@ -46,7 +46,7 @@ The viewer fails, even if it works, if:
 ### Agents Workspace
 
 - keek uses one named Hyprland workspace, `keek`, for every Session Card.
-- The workspace has one slot per allowed open session: two by default, each half the monitor's width. A Session Card fills its slot; its Session Window floats in the slot above the Session Footer at a size fixed when the session opens. A Project's settings can give it a different size, such as a phone-sized window for a mobile web app.
+- The workspace has one slot per allowed open session: two by default, each half the monitor's width. A Session Card fills its slot; its Session Window floats in the slot above the Session Footer at a size fixed when the session opens. A Project's Project Profile can give it a different size, such as a phone-sized window for a mobile web app.
 - A Session Window opens there silently: it never takes focus or switches the developer's workspace. It closes when its session ends. Its window rule includes `render_unfocused`, so the session keeps rendering and recording while the workspace is hidden.
 - keek ships no keybinding to reach the workspace. Its docs suggest one for the user's Hyprland config. *(my call)*
 

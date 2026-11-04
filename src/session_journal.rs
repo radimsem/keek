@@ -22,6 +22,9 @@ pub struct Journal {
     pub timeline: SessionTimeline,
     pub takeovers: Vec<Takeover>,
     pub credentials_hash: Option<String>,
+    // A journal written before Project Profiles has none.
+    #[serde(default)]
+    pub profile: crate::report::ProfileSummary,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Takeover {

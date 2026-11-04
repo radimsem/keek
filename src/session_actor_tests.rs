@@ -205,7 +205,8 @@ async fn start_configured(
         credentials,
         project: "app".into(),
         worktree: root.to_owned(),
-        settings: crate::project::Settings::default(),
+        profile: Default::default(),
+        toolchains: Default::default(),
         warnings: vec![],
         goal: "fixture".into(),
         revision: Revision {

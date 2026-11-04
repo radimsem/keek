@@ -86,6 +86,7 @@ async fn recovery_files_marked_checks_without_a_verdict_and_removes_the_journal(
     );
     assert!(report.contains("Passed"));
     assert!(!report.contains("Verdict:"));
+    assert!(report.contains("- Start: `true`"), "{report}");
     let filed: crate::timeline::SessionTimeline = serde_json::from_slice(
         &std::fs::read(reports.join(format!("{name}_incomplete_timeline.json"))).unwrap(),
     )

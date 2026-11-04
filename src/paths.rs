@@ -10,6 +10,8 @@ pub struct Paths {
     projects_config: PathBuf,
     projects_cache: PathBuf,
     trees: PathBuf,
+    toolchains: PathBuf,
+    prepare: PathBuf,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -39,6 +41,8 @@ impl Paths {
             projects_config: root.join("config/keek/projects"),
             projects_cache: root.join("cache/keek/projects"),
             trees: root.join("cache/keek/trees"),
+            toolchains: root.join("cache/keek/toolchains"),
+            prepare: root.join("cache/keek/prepare"),
         }
     }
 
@@ -64,6 +68,9 @@ impl Paths {
             projects_config: or_under_home("XDG_CONFIG_HOME", ".config")?.join("keek/projects"),
             projects_cache: or_under_home("XDG_CACHE_HOME", ".cache")?.join("keek/projects"),
             trees: or_under_home("XDG_CACHE_HOME", ".cache")?.join("keek/trees"),
+            toolchains: or_under_home("XDG_CACHE_HOME", ".cache")?.join("keek/toolchains"),
+            // Outside projects/<project>/, whose old Project Layers keek removes.
+            prepare: or_under_home("XDG_CACHE_HOME", ".cache")?.join("keek/prepare"),
             config_file: or_under_home("XDG_CONFIG_HOME", ".config")?.join("keek/config.toml"),
         })
     }
@@ -76,6 +83,12 @@ impl Paths {
     }
     pub fn trees(&self) -> &Path {
         &self.trees
+    }
+    pub fn toolchains(&self) -> &Path {
+        &self.toolchains
+    }
+    pub fn prepare(&self) -> &Path {
+        &self.prepare
     }
 
     pub fn config_file(&self) -> &Path {
@@ -157,6 +170,8 @@ mod tests {
         assert_eq!(paths.projects_config(), Path::new("/config/keek/projects"));
         assert_eq!(paths.projects_cache(), Path::new("/cache/keek/projects"));
         assert_eq!(paths.trees(), Path::new("/cache/keek/trees"));
+        assert_eq!(paths.toolchains(), Path::new("/cache/keek/toolchains"));
+        assert_eq!(paths.prepare(), Path::new("/cache/keek/prepare"));
     }
 
     #[test]

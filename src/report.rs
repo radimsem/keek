@@ -22,11 +22,64 @@ pub struct ReportInputs<'a> {
     pub time_map: &'a dyn VideoTimeMap,
     pub video_error: Option<&'a str>,
     pub actions_error: Option<&'a str>,
+    pub profile: &'a ProfileSummary,
+}
+
+/// What built the session's environment, since a commit no longer says. `[env]` keeps only its names.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ProfileSummary {
+    pub install: String,
+    pub start: String,
+    pub toolchains: Vec<ToolVersion>,
+    pub env: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ToolVersion {
+    pub tool: String,
+    pub version: String,
+}
+
+impl ProfileSummary {
+    pub fn new(
+        profile: &crate::project::Profile,
+        toolchains: &crate::toolchain::Toolchains,
+    ) -> Self {
+        Self {
+            install: profile.install.clone(),
+            start: profile.start.clone(),
+            toolchains: toolchains
+                .tools
+                .iter()
+                .map(|tool| ToolVersion {
+                    tool: tool.tool.name().to_owned(),
+                    version: tool.version.clone(),
+                })
+                .collect(),
+            env: profile.env.keys().cloned().collect(),
+        }
+    }
+
+    pub fn masked(mut self, credentials: &crate::credentials::Credentials) -> Self {
+        self.install = credentials.mask(&self.install);
+        self.start = credentials.mask(&self.start);
+        self
+    }
 }
 // open_session takes the goal and Checks as free text, and a newline would break a heading,
 // a list item or an index line.
 fn one_line(text: &str) -> String {
     text.replace(['\r', '\n'], " ")
+}
+// A code span whose fence is longer than any backtick run inside, as CommonMark requires.
+fn code(text: &str) -> String {
+    let text = one_line(text);
+    let longest = text.split(|c| c != '`').map(str::len).max().unwrap_or(0);
+    if longest == 0 {
+        return format!("`{text}`");
+    }
+    let fence = "`".repeat(longest + 1);
+    format!("{fence} {text} {fence}")
 }
 pub fn render(input: &ReportInputs<'_>) -> String {
     let revision = input.revision;
@@ -95,6 +148,34 @@ pub fn render(input: &ReportInputs<'_>) -> String {
     if !takeovers.is_empty() {
         text.push_str("\n## Takeovers\n\n");
         text.push_str(&takeovers);
+    }
+    let profile = input.profile;
+    // A recovered session from before Project Profiles has no start command.
+    if !profile.start.is_empty() {
+        let install = if profile.install.is_empty() {
+            "none".to_owned()
+        } else {
+            code(&profile.install)
+        };
+        let toolchains = if profile.toolchains.is_empty() {
+            "the sandbox's /usr/bin".to_owned()
+        } else {
+            profile
+                .toolchains
+                .iter()
+                .map(|tool| format!("{} {}", tool.tool, tool.version))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let env = if profile.env.is_empty() {
+            "none".to_owned()
+        } else {
+            profile.env.join(", ")
+        };
+        text.push_str(&format!(
+            "\n## Project Profile\n\n- Install: {install}\n- Start: {}\n- Toolchains: {toolchains}\n- Environment: {env}\n",
+            code(&profile.start)
+        ));
     }
     if !input.summary.trim().is_empty() {
         text.push_str(&format!("\n## Verifier summary\n\n{}\n", input.summary));

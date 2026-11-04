@@ -195,6 +195,12 @@ struct Harness {
 impl Harness {
     fn new(cap: usize) -> Self {
         let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(directory.path().join("config")).unwrap();
+        std::fs::write(
+            directory.path().join("config/app.toml"),
+            "start = \"true\"\n",
+        )
+        .unwrap();
         let calls = Arc::new(Mutex::new(vec![]));
         let compositor = Arc::new(Compositor::default());
         let controls = Arc::new(Controls::default());
@@ -450,6 +456,7 @@ async fn close_files_the_timeline_and_revision_in_the_report() {
     assert!(report.contains("# goal"));
     assert!(report.contains("Verified feature at fake-co + uncommitted changes"));
     assert!(report.contains("1. check: Passed"));
+    assert!(report.contains("- Start: `true`"), "{report}");
 
     assert!(
         h.calls
@@ -606,3 +613,6 @@ mod journal;
 
 #[path = "registry_daemon_tests.rs"]
 mod daemon;
+
+#[path = "registry_profile_tests.rs"]
+mod profile;

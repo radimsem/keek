@@ -45,7 +45,7 @@ impl Actor {
             credentials: self.credentials.clone(),
             project: self.project.clone(),
             worktree: self.worktree.clone(),
-            settings: self.settings.clone(),
+            profile: self.profile.clone(),
             name: self.name.clone(),
             progress: self.progress.clone(),
         };
@@ -66,6 +66,15 @@ impl Actor {
                 };
             }
         };
+        self.toolchains = mounts.toolchains.clone();
+        if let Some(journal) = &self.journal {
+            let profile = crate::report::ProfileSummary::new(&self.profile, &self.toolchains)
+                .masked(&self.credentials);
+            journal.data.lock().await.profile = profile;
+            if let Err(error) = journal.save().await {
+                tracing::warn!(%error, "could not record the toolchain versions in the journal");
+            }
+        }
         self.progress.send("Starting desktop");
         // Outlasts the factory's 30 s handshake limit, whose refusal names the log files.
         let mut driver = match tokio::select! { biased;

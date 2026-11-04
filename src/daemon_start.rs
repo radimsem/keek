@@ -87,6 +87,9 @@ pub async fn run_with_viewer(
             compositor,
             projects_cache: paths.projects_cache().to_owned(),
             trees: paths.trees().to_owned(),
+            toolchains: paths.toolchains().to_owned(),
+            mise: std::sync::Arc::new(crate::toolchain::HostMise),
+            prepare: paths.prepare().to_owned(),
         }),
     };
     let (catalog_sender, catalog_receiver) = tokio::sync::watch::channel(None);

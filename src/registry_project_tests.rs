@@ -1,7 +1,26 @@
 use super::*;
 
 #[tokio::test]
-async fn project_opened_carries_missing_settings_and_credentials_warnings() {
+async fn open_session_without_a_project_profile_refuses_and_names_set_project_profile() {
+    let mut h = Harness::new(2);
+    let profile = h.registry.dependencies.projects_config.join("app.toml");
+    let _ = std::fs::remove_file(&profile);
+    let worktree = h.worktree("one");
+    let response = h
+        .request(Request::OpenSession {
+            project: "app".into(),
+            worktree,
+            goal: "goal".into(),
+            checks: vec!["check".into()],
+        })
+        .await;
+    let message = refused(response);
+    assert!(message.contains("set_project_profile"), "{message}");
+    assert!(message.contains(profile.to_str().unwrap()), "{message}");
+    assert!(h.registry.sessions.is_empty());
+}
+#[tokio::test]
+async fn project_opened_warns_when_the_project_has_no_test_credentials() {
     let mut h = Harness::new(2);
     let worktree = h.worktree("one");
     let response = h
@@ -15,14 +34,9 @@ async fn project_opened_carries_missing_settings_and_credentials_warnings() {
     let Response::Opened { warnings, .. } = response else {
         panic!("{response:?}");
     };
-    assert_eq!(warnings.len(), 2);
-    assert!(
-        warnings
-            .iter()
-            .all(|w| w.contains("Project app") && w.contains("Project name is misspelled"))
-    );
-    assert!(warnings.iter().any(|w| w.contains("app.toml")));
-    assert!(warnings.iter().any(|w| w.contains("app.env")));
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains("Project app") && warnings[0].contains("app.env"));
+    assert!(warnings[0].contains("Project name is misspelled"));
 }
 #[tokio::test]
 async fn project_tree_is_removed_when_a_session_finishes() {

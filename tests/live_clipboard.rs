@@ -115,11 +115,9 @@ async fn live_a_takeover_keeps_the_host_clipboard_apart_from_the_nested_one() ->
     let mut session_folder = None;
     let result = async {
         let mut windows = keek::hypr::subscribe().await?;
-        let worktree = fixture
-            .worktree_with_start("clip", "bash .keek/probe.sh")
-            .await?;
+        let worktree = fixture.worktree_with_start("clip", "bash probe.sh").await?;
         clipboard_fs::write(
-            worktree.join(".keek/probe.sh"),
+            worktree.join("probe.sh"),
             include_str!("fixtures/clipboard_probe.sh"),
         )
         .await?;

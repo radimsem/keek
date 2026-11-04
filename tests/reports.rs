@@ -26,6 +26,7 @@ fn failed_video_notice_covers_takeover_times_without_double_punctuation() {
         time_map: &IdentityTimeMap,
         actions_error: None,
         video_error: Some("failed"),
+        profile: &Default::default(),
     });
     assert!(rendered.contains("2FA code.\n"));
     assert!(!rendered.contains("2FA code.."));
@@ -111,6 +112,7 @@ fn reports_match_the_reviewed_markdown() {
             time_map: &IdentityTimeMap,
             actions_error: None,
             video_error: None,
+            profile: &Default::default(),
         });
         let (fixture, sentence) = match name {
             "idle-minutes" => (
@@ -177,6 +179,7 @@ fn reports_map_video_times_and_handle_detached_short_revisions() {
         time_map: &Map,
         actions_error: None,
         video_error: None,
+        profile: &Default::default(),
     });
     assert!(text.contains("Verified detached HEAD at é\n"));
     assert!(text.contains("Passed at 0:09"));
@@ -221,6 +224,56 @@ fn reports_list_takeovers_after_the_checklist_at_mapped_video_times() {
         time_map: &Map,
         actions_error: None,
         video_error: None,
+        profile: &Default::default(),
     });
     assert_eq!(rendered, include_str!("fixtures/reports/takeover.md"));
+}
+
+#[test]
+fn the_report_lists_the_profile_commands_toolchain_versions_and_env_names_without_values() {
+    let revision = Revision {
+        branch: None,
+        commit: "abc".into(),
+        dirty: false,
+    };
+    let profile = report::ProfileSummary {
+        install: "pnpm install --frozen-lockfile".into(),
+        start: "pnpm dev --host `hostname`".into(),
+        toolchains: vec![
+            report::ToolVersion {
+                tool: "node".into(),
+                version: "24.11.1".into(),
+            },
+            report::ToolVersion {
+                tool: "pnpm".into(),
+                version: "9.12.0".into(),
+            },
+        ],
+        env: vec!["APP_ENV".into(), "FEATURE_FLAGS".into()],
+    };
+    let rendered = report::render(&ReportInputs {
+        session: "s",
+        goal: "g",
+        revision: &revision,
+        summary: "",
+        timeline_events: &[],
+        checks: &[],
+        end: &SessionEnd::Verdict(Verdict::Pass),
+        time_map: &IdentityTimeMap,
+        actions_error: None,
+        video_error: None,
+        profile: &profile,
+    });
+    for expected in [
+        "## Project Profile\n",
+        "- Install: `pnpm install --frozen-lockfile`\n",
+        "- Start: `` pnpm dev --host `hostname` ``\n",
+        "- Toolchains: node 24.11.1, pnpm 9.12.0\n",
+        "- Environment: APP_ENV, FEATURE_FLAGS\n",
+    ] {
+        assert!(
+            rendered.contains(expected),
+            "{expected:?} missing from:\n{rendered}"
+        );
+    }
 }

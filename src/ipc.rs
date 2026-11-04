@@ -80,6 +80,15 @@ pub enum Request {
     WatchSession {
         session: SessionName,
     },
+    SetProjectProfile {
+        project: String,
+        profile: Value,
+        credentials: Option<CredentialSource>,
+    },
+    PrepareProject {
+        project: String,
+        worktree: PathBuf,
+    },
     /// Asks the daemon to exit. It refuses while an Agent Session is open.
     Shutdown,
 }
@@ -112,6 +121,56 @@ pub enum Response {
     ShutdownRefused {
         open_sessions: usize,
     },
+    ProfileWritten {
+        path: PathBuf,
+        profile: String,
+        credentials: Option<crate::project::CopiedCredentials>,
+    },
+    Prepared(PreparedProject),
+}
+
+/// What a `prepare_project` built and how a brief `start` went, with log tails masked.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreparedProject {
+    pub project: String,
+    pub worktree: PathBuf,
+    pub toolchains: Vec<PreparedTool>,
+    pub layer: LayerUse,
+    pub install_log: String,
+    pub start: StartProbe,
+    pub start_log: String,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreparedTool {
+    pub tool: crate::toolchain::Tool,
+    pub version: String,
+    pub fetch: crate::toolchain::Fetch,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LayerUse {
+    Built,
+    Reused,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum StartProbe {
+    /// Still running when keek stopped it.
+    Running,
+    Exited {
+        status: i32,
+    },
+}
+
+/// The Test Credentials a profile write copies, and the host file holding their values.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CredentialSource {
+    pub source: PathBuf,
+    pub names: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

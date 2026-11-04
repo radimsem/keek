@@ -24,6 +24,8 @@ pub struct Registry {
     pub background: JoinSet<()>,
     pub recovery: JoinSet<()>,
     pub preparing: JoinSet<Prepared>,
+    // A finished build keeps its entry until the next prepare_project for that Project replaces it.
+    prepares: HashMap<String, (PathBuf, watch::Receiver<Option<Response>>)>,
     pub catalog: watch::Receiver<Option<Result<Arc<Catalog>, String>>>,
     pub dependencies: Dependencies,
     lifecycle: Lifecycle,
@@ -84,7 +86,7 @@ struct Opening {
     checks: Vec<String>,
     catalog: Arc<Catalog>,
     revision: crate::revision::Revision,
-    settings: crate::project::Settings,
+    profile: crate::project::Profile,
     warnings: Vec<String>,
     progress: crate::open_progress::OpenProgress,
 }
@@ -100,6 +102,7 @@ impl Registry {
             background: JoinSet::new(),
             recovery: JoinSet::new(),
             preparing: JoinSet::new(),
+            prepares: HashMap::new(),
             catalog,
             dependencies,
             lifecycle: Lifecycle::Running,
@@ -350,6 +353,14 @@ impl Registry {
                     open_sessions: self.len(),
                 }));
             }
+            Request::SetProjectProfile {
+                project,
+                profile,
+                credentials,
+            } => self.set_project_profile(project, profile, credentials, reply),
+            Request::PrepareProject { project, worktree } => {
+                self.prepare_project(project, worktree, reply, opening::Caller { opener, events })
+            }
             Request::Shutdown => {
                 let response = self.shutdown();
                 let _ = reply.send(response);
@@ -465,6 +476,9 @@ mod opening;
 
 #[path = "session_recovery.rs"]
 mod recovery;
+
+#[path = "registry_project.rs"]
+mod project;
 
 async fn remove_frame(frame: Option<PathBuf>) {
     if let Some(frame) = frame {

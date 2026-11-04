@@ -46,13 +46,21 @@ fn runtime_dir() -> Result<PathBuf, ConnectExecError> {
         .map(PathBuf::from)
         .ok_or(ConnectExecError::NoRuntimeDir)
 }
-pub fn run(command: &str, args: &[String]) -> Result<ExitCode, ConnectExecError> {
+/// Whether the command gets a compositor connection on fd 3.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Display {
+    Wayland,
+    None,
+}
+
+pub fn run(display: Display, command: &str, args: &[String]) -> Result<ExitCode, ConnectExecError> {
     die_with_parent()?;
-    run_with(&crate::lan_block::HostIp, command, args)
+    run_with(&crate::lan_block::HostIp, display, command, args)
 }
 
 fn run_with(
     tool: &dyn crate::lan_block::IpTool,
+    display: Display,
     command: &str,
     args: &[String],
 ) -> Result<ExitCode, ConnectExecError> {
@@ -60,6 +68,21 @@ fn run_with(
     let arguments = reserve_args_file(&sandbox_arguments(
         env::var_os(crate::credentials::SANDBOX_ENV).as_deref(),
     )?)?;
+    match display {
+        Display::Wayland => {}
+        Display::None => {
+            let mut running =
+                child_command(command, args)
+                    .spawn()
+                    .map_err(|source| ConnectExecError::Spawn {
+                        command: command.to_owned(),
+                        source,
+                    })?;
+            drop(arguments);
+            let status = running.wait().map_err(ConnectExecError::Wait)?;
+            return Ok(ExitCode::from(status.code().unwrap_or(1) as u8));
+        }
+    }
     let opened = open_security_context(&runtime_dir()?, ENGINE, APP_ID)?;
     let source_fd = opened.stream.as_raw_fd();
 
@@ -179,7 +202,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let marker = directory.path().join("marker");
         let args = ["-c".into(), format!("touch {}", marker.display())];
-        let result = run_with(&FailingTool, "sh", &args);
+        let result = run_with(&FailingTool, Display::Wayland, "sh", &args);
         assert!(
             matches!(result, Err(ConnectExecError::LanBlock(_))),
             "{result:?}"

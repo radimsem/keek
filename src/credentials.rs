@@ -43,7 +43,7 @@ impl std::fmt::Debug for Credentials {
             .finish()
     }
 }
-fn valid_name(name: &str) -> bool {
+pub(crate) fn valid_name(name: &str) -> bool {
     let mut bytes = name.bytes();
     bytes
         .next()
@@ -69,49 +69,71 @@ fn percent_form(text: &str, raw: &[u8], lower: bool, plus: bool) -> String {
     }
     out
 }
+/// One `NAME=value` line of an env file, with its 1-based line number.
+pub(crate) struct Entry<'a> {
+    pub line: usize,
+    pub name: &'a str,
+    pub value: &'a str,
+}
+/// Reads every `NAME=value` line, refusing malformed ones, without the length and duplicate rules.
+pub(crate) fn entries<'a>(path: &Path, text: &'a str) -> Result<Vec<Entry<'a>>, CredentialsError> {
+    let mut found = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        let line = line.trim_start();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let line = line.strip_prefix("export ").unwrap_or(line);
+        let malformed = || CredentialsError::Malformed {
+            path: path.into(),
+            line: index + 1,
+        };
+        let (name, value) = line.split_once('=').ok_or_else(malformed)?;
+        if !valid_name(name) {
+            return Err(malformed());
+        }
+        let value = value.strip_suffix('\r').unwrap_or(value);
+        let value = if value.len() >= 2
+            && ((value.starts_with('"') && value.ends_with('"'))
+                || (value.starts_with('\'') && value.ends_with('\'')))
+        {
+            &value[1..value.len() - 1]
+        } else {
+            value.trim()
+        };
+        found.push(Entry {
+            line: index + 1,
+            name,
+            value,
+        });
+    }
+    Ok(found)
+}
+pub(crate) fn check_length(path: &Path, name: &str, value: &str) -> Result<(), CredentialsError> {
+    if value.chars().count() < 6 {
+        return Err(CredentialsError::Short {
+            path: path.into(),
+            name: name.into(),
+        });
+    }
+    Ok(())
+}
 // One variable rather than one per name, so a credential named PATH can't clash with the environment pasta inherits.
 pub(crate) const SANDBOX_ENV: &str = "KEEK_CREDENTIALS";
 
 impl Credentials {
     pub fn parse(path: &Path, text: &str) -> Result<Self, CredentialsError> {
         let mut pairs: BTreeMap<String, String> = BTreeMap::new();
-        for (index, line) in text.lines().enumerate() {
-            let line = line.trim_start();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            let line = line.strip_prefix("export ").unwrap_or(line);
-            let malformed = || CredentialsError::Malformed {
-                path: path.into(),
-                line: index + 1,
-            };
-            let (name, value) = line.split_once('=').ok_or_else(malformed)?;
-            if !valid_name(name) {
-                return Err(malformed());
-            }
-            if pairs.contains_key(name) {
+        for entry in entries(path, text)? {
+            if pairs.contains_key(entry.name) {
                 return Err(CredentialsError::Duplicate {
                     path: path.into(),
-                    line: index + 1,
-                    name: name.into(),
+                    line: entry.line,
+                    name: entry.name.into(),
                 });
             }
-            let value = value.strip_suffix('\r').unwrap_or(value);
-            let value = if value.len() >= 2
-                && ((value.starts_with('"') && value.ends_with('"'))
-                    || (value.starts_with('\'') && value.ends_with('\'')))
-            {
-                &value[1..value.len() - 1]
-            } else {
-                value.trim()
-            };
-            if value.chars().count() < 6 {
-                return Err(CredentialsError::Short {
-                    path: path.into(),
-                    name: name.into(),
-                });
-            }
-            pairs.insert(name.into(), value.into());
+            check_length(path, entry.name, entry.value)?;
+            pairs.insert(entry.name.into(), entry.value.into());
         }
         let mut forms = Vec::new();
         for value in pairs.values() {
@@ -165,6 +187,10 @@ impl Credentials {
     }
     pub fn fingerprint(&self) -> Option<String> {
         self.fingerprint.clone()
+    }
+    /// The byte length of the longest form `mask` replaces.
+    pub fn longest_form(&self) -> usize {
+        self.forms.iter().map(String::len).max().unwrap_or(0)
     }
     pub fn names(&self) -> Vec<String> {
         self.pairs.keys().cloned().collect()

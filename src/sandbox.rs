@@ -31,7 +31,7 @@ pub struct SandboxSpec {
     pub worktree: PathBuf,
     pub tree: PathBuf,
     pub layer: PathBuf,
-    pub ports: Vec<crate::project::HostPort>,
+    pub profile: crate::project::Profile,
     pub home: PathBuf,
     pub runtime_dir: PathBuf,
     pub session_dir: PathBuf,
@@ -42,6 +42,7 @@ pub struct SandboxSpec {
     pub user: String,
     pub lang: String,
     pub nvidia_devices: Vec<PathBuf>,
+    pub toolchains: crate::toolchain::Toolchains,
 }
 
 #[derive(Clone, Copy)]
@@ -50,6 +51,9 @@ enum SandboxMode<'a> {
     Install {
         upper: &'a Path,
         work: &'a Path,
+        log: &'a Path,
+    },
+    Probe {
         log: &'a Path,
     },
 }
@@ -79,7 +83,7 @@ impl SandboxSpec {
             worktree: PathBuf::new(),
             tree: PathBuf::new(),
             layer: PathBuf::new(),
-            ports: Vec::new(),
+            profile: Default::default(),
             home,
             runtime_dir,
             session_dir: session_dir.to_owned(),
@@ -91,6 +95,7 @@ impl SandboxSpec {
             user: environment("USER")?.to_string_lossy().into_owned(),
             lang: std::env::var("LANG").unwrap_or_else(|_| "C.UTF-8".to_owned()),
             nvidia_devices,
+            toolchains: Default::default(),
         })
     }
 
@@ -162,6 +167,11 @@ impl SandboxSpec {
         self.command_with(SandboxMode::Install { upper, work, log })
     }
 
+    /// Runs `start` in the session's sandbox, network and LAN block, with no desktop, writing its output to `log`.
+    pub fn probe_command(&self, log: &Path) -> Result<Command, SandboxError> {
+        self.command_with(SandboxMode::Probe { log })
+    }
+
     fn command_with(&self, mode: SandboxMode<'_>) -> Result<Command, SandboxError> {
         let mut command = Command::new("pasta");
         command.env_clear();
@@ -170,7 +180,7 @@ impl SandboxSpec {
                 command.env(name, value);
             }
         }
-        if matches!(mode, SandboxMode::Session)
+        if matches!(mode, SandboxMode::Session | SandboxMode::Probe { .. })
             && let Some(values) = self.credentials.sandbox_env()
         {
             command.env(crate::credentials::SANDBOX_ENV, values);
@@ -181,7 +191,7 @@ impl SandboxSpec {
             .stdout(Stdio::piped())
             .stderr(std::fs::File::create(self.session_dir.join("sandbox.err"))?)
             .kill_on_drop(true);
-        if let SandboxMode::Install { log, .. } = mode {
+        if let SandboxMode::Install { log, .. } | SandboxMode::Probe { log } = mode {
             let file = std::fs::File::create(log)?;
             command
                 .stdin(Stdio::null())
@@ -205,11 +215,7 @@ impl SandboxSpec {
     }
 
     fn args_for(&self, mode: SandboxMode<'_>) -> Vec<OsString> {
-        let ports = crate::project::Settings {
-            ports: self.ports.clone(),
-            window: None,
-        }
-        .pasta_ports();
+        let ports = self.profile.pasta_ports();
         let mut args: Vec<OsString> = [
             "-f",
             "-q",
@@ -229,9 +235,16 @@ impl SandboxSpec {
         ]
         .map(OsString::from)
         .into();
-        if matches!(mode, SandboxMode::Session) {
-            args.push(self.executable.as_os_str().to_owned());
-            args.extend(["connect-exec", "--"].map(OsString::from));
+        match mode {
+            SandboxMode::Session => {
+                args.push(self.executable.as_os_str().to_owned());
+                args.extend(["connect-exec", "--"].map(OsString::from));
+            }
+            SandboxMode::Probe { .. } => {
+                args.push(self.executable.as_os_str().to_owned());
+                args.extend(["connect-exec", "--no-display", "--"].map(OsString::from));
+            }
+            SandboxMode::Install { .. } => {}
         }
         args.extend(["bwrap", "--unshare-user", "--uid"].map(OsString::from));
         args.push(self.uid.to_string().into());
@@ -248,7 +261,14 @@ impl SandboxSpec {
             ]
             .map(OsString::from),
         );
-        if matches!(mode, SandboxMode::Session) {
+        // Before the Test Credentials and keek's own variables, so both win a clashing name.
+        for (name, value) in &self.profile.env {
+            args.extend([OsString::from("--setenv"), name.into(), value.into()]);
+        }
+        for (name, value) in self.toolchains.env() {
+            args.extend([OsString::from("--setenv"), name.into(), value]);
+        }
+        if matches!(mode, SandboxMode::Session | SandboxMode::Probe { .. }) {
             // The file parses where this option stands, so the required variables below still win a clashing name.
             args.extend([
                 OsString::from("--args"),
@@ -259,10 +279,6 @@ impl SandboxSpec {
             ("HOME", self.home.as_os_str()),
             ("USER", self.user.as_ref()),
             ("LANG", self.lang.as_ref()),
-            (
-                "PATH",
-                "/keek/nested/bin:/usr/share/omarchy/bin:/usr/bin".as_ref(),
-            ),
             ("OMARCHY_PATH", "/usr/share/omarchy".as_ref()),
             ("XDG_RUNTIME_DIR", self.runtime_dir.as_os_str()),
             ("XDG_SESSION_TYPE", "wayland".as_ref()),
@@ -273,17 +289,25 @@ impl SandboxSpec {
             ("CUA_DRIVER_RS_ENABLE_WAYLAND", "1".as_ref()),
             ("CUA_DRIVER_RS_TELEMETRY_ENABLED", "false".as_ref()),
         ] {
-            if matches!(mode, SandboxMode::Session)
-                || matches!(key, "HOME" | "USER" | "LANG" | "PATH")
-            {
-                let value = if matches!(mode, SandboxMode::Install { .. }) && key == "PATH" {
-                    std::ffi::OsStr::new("/usr/bin")
-                } else {
-                    value
-                };
+            let shared = match mode {
+                SandboxMode::Session => true,
+                // Omarchy's scripts on the probe's PATH read OMARCHY_PATH.
+                SandboxMode::Probe { .. } => {
+                    matches!(key, "HOME" | "USER" | "LANG" | "OMARCHY_PATH")
+                }
+                SandboxMode::Install { .. } => matches!(key, "HOME" | "USER" | "LANG"),
+            };
+            if shared {
                 args.extend([OsString::from("--setenv"), key.into(), value.to_owned()]);
             }
         }
+        // The probe has no nested desktop, so it has no /keek/nested/bin.
+        let path = self.toolchains.path(match mode {
+            SandboxMode::Session => "/keek/nested/bin:/usr/share/omarchy/bin:/usr/bin",
+            SandboxMode::Probe { .. } => "/usr/share/omarchy/bin:/usr/bin",
+            SandboxMode::Install { .. } => "/usr/bin",
+        });
+        args.extend([OsString::from("--setenv"), "PATH".into(), path]);
         args.extend([
             OsString::from("--setenv"),
             "KEEK_PROJECT".into(),
@@ -294,6 +318,13 @@ impl SandboxSpec {
             "KEEK_WORKTREE".into(),
             SANDBOX_WORKTREE.into(),
         ]);
+        if matches!(mode, SandboxMode::Session) {
+            args.extend([
+                OsString::from("--setenv"),
+                "KEEK_START".into(),
+                self.profile.start.clone().into(),
+            ]);
+        }
         args.extend(
             [
                 "--ro-bind",
@@ -342,6 +373,14 @@ impl SandboxSpec {
             .map(OsString::from),
         );
         args.push(self.home.as_os_str().to_owned());
+        if !self.toolchains.tools.is_empty() {
+            // Read-only, so an install or the App Under Test can't change a toolchain another Project uses.
+            args.extend([
+                OsString::from("--ro-bind"),
+                self.toolchains.store.clone().into(),
+                self.toolchains.store.clone().into(),
+            ]);
+        }
         if matches!(mode, SandboxMode::Session) {
             args.extend(["--perms", "0700", "--tmpfs"].map(OsString::from));
             args.push(self.runtime_dir.as_os_str().to_owned());
@@ -356,8 +395,9 @@ impl SandboxSpec {
                 SANDBOX_WORKTREE.into(),
                 "--chdir".into(),
                 SANDBOX_WORKTREE.into(),
-                "./.keek/setup.sh".into(),
-                "install".into(),
+                "/usr/bin/bash".into(),
+                "-c".into(),
+                self.profile.install.clone().into(),
             ]);
             return args;
         }
@@ -372,6 +412,14 @@ impl SandboxSpec {
             "--chdir".into(),
             SANDBOX_WORKTREE.into(),
         ]);
+        if let SandboxMode::Probe { .. } = mode {
+            args.extend([
+                OsString::from("/usr/bin/bash"),
+                "-c".into(),
+                self.profile.start.clone().into(),
+            ]);
+            return args;
+        }
         for path in [".config/hypr", ".config/omarchy"] {
             let path = self.home.join(path);
             args.extend([

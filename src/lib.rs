@@ -15,6 +15,7 @@ pub mod mcp;
 pub mod paths;
 pub mod process;
 pub mod project;
+pub mod project_prepare;
 pub mod registry;
 pub mod report;
 pub mod sandbox;
@@ -24,6 +25,7 @@ pub mod session_factory;
 pub mod session_folder;
 pub mod timeline;
 pub mod title_card;
+pub mod toolchain;
 pub mod verifier_protocol;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

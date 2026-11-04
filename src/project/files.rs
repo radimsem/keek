@@ -1,40 +1,14 @@
 use super::ProjectError;
 use crate::process::ProcessRunner;
-use sha2::{Digest, Sha256};
 use std::ffi::OsStr;
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::symlink;
 use std::path::{Component, Path, PathBuf};
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProjectKey(pub String);
 pub struct ProjectFiles {
     entries: Vec<PathBuf>,
-    tracked: Vec<PathBuf>,
+    pub(super) tracked: Vec<PathBuf>,
 }
-const LOCKFILES: &[&str] = &[
-    "package-lock.json",
-    "npm-shrinkwrap.json",
-    "yarn.lock",
-    "pnpm-lock.yaml",
-    "bun.lock",
-    "bun.lockb",
-    "deno.lock",
-    "Cargo.lock",
-    "poetry.lock",
-    "uv.lock",
-    "pdm.lock",
-    "Pipfile.lock",
-    "Gemfile.lock",
-    "composer.lock",
-    "go.sum",
-    "flake.lock",
-    "mix.lock",
-    "pubspec.lock",
-    "Podfile.lock",
-    "packages.lock.json",
-    "gradle.lockfile",
-];
 fn paths(bytes: &[u8]) -> Vec<PathBuf> {
     let mut paths: Vec<_> = bytes
         .split(|b| *b == 0)
@@ -53,40 +27,12 @@ impl ProjectFiles {
             .chain(["ls-files", "-co", "--exclude-standard", "-z"])
             .collect();
         let entries = paths(&runner.output_bytes("git", &args, Some(worktree)).await?);
-        let script = Path::new(".keek/setup.sh");
-        let script_path = worktree.join(script);
-        let regular = tokio::task::spawn_blocking(move || {
-            std::fs::symlink_metadata(script_path).is_ok_and(|m| m.is_file())
-        })
-        .await?;
-        if !entries.iter().any(|p| p == script) || !regular {
-            return Err(ProjectError::MissingScript);
-        }
         let args: Vec<_> = crate::revision::GIT_WITHOUT_REPOSITORY_PROGRAMS
             .into_iter()
             .chain(["ls-files", "-z"])
             .collect();
         let tracked = paths(&runner.output_bytes("git", &args, Some(worktree)).await?);
         Ok(Self { entries, tracked })
-    }
-    pub fn key(&self, worktree: &Path) -> Result<ProjectKey, ProjectError> {
-        let mut hash = Sha256::new();
-        hash_file(&mut hash, &worktree.join(".keek/setup.sh"))?;
-        for path in &self.tracked {
-            if path
-                .file_name()
-                .is_some_and(|name| LOCKFILES.iter().any(|candidate| name == *candidate))
-            {
-                frame(&mut hash, path.as_os_str().as_bytes());
-                hash_file(&mut hash, &worktree.join(path))?;
-            }
-        }
-        Ok(ProjectKey(
-            hash.finalize()
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect(),
-        ))
     }
     pub fn build_tree(&self, worktree: &Path, tree: &Path) -> Result<(), ProjectError> {
         match std::fs::remove_dir_all(tree) {
@@ -139,26 +85,6 @@ fn is_real_folder(worktree: &Path, relative: &Path) -> Result<bool, ProjectError
         }
     }
     Ok(true)
-}
-fn frame(hash: &mut Sha256, bytes: &[u8]) {
-    hash.update((bytes.len() as u64).to_le_bytes());
-    hash.update(bytes);
-}
-fn hash_file(hash: &mut Sha256, path: &Path) -> Result<(), ProjectError> {
-    match std::fs::symlink_metadata(path) {
-        Ok(m) if m.is_file() => {
-            frame(hash, b"file");
-            frame(hash, &std::fs::read(path)?);
-        }
-        Ok(m) if m.is_symlink() => {
-            frame(hash, b"link");
-            frame(hash, std::fs::read_link(path)?.as_os_str().as_bytes());
-        }
-        Ok(_) => frame(hash, b"other"),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => frame(hash, b"missing"),
-        Err(e) => return Err(e.into()),
-    };
-    Ok(())
 }
 fn link_file(source: &Path, target: &Path, metadata: &std::fs::Metadata) -> std::io::Result<()> {
     let input = std::fs::File::open(source)?;
@@ -262,9 +188,6 @@ mod tests {
             );
         };
         git(&["init", "-q"]);
-        std::fs::create_dir(d.path().join(".keek")).unwrap();
-        std::fs::write(d.path().join(".keek/setup.sh"), "#!/bin/sh\n").unwrap();
-        git(&["add", ".keek/setup.sh"]);
         d
     }
     fn track(d: &Path, path: &str) {
@@ -277,30 +200,6 @@ mod tests {
                 .status
                 .success()
         );
-    }
-    #[tokio::test]
-    async fn project_key_changes_only_for_setup_and_tracked_lockfiles() {
-        let d = repository();
-        let root = d.path();
-        std::fs::write(root.join("Cargo.lock"), "first").unwrap();
-        track(root, "Cargo.lock");
-        let f = ProjectFiles::read(&HostRunner, root).await.unwrap();
-        let k = f.key(root).unwrap();
-        assert_eq!(k, f.key(root).unwrap());
-        std::fs::write(root.join("uv.lock"), "untracked").unwrap();
-        assert_eq!(
-            k,
-            ProjectFiles::read(&HostRunner, root)
-                .await
-                .unwrap()
-                .key(root)
-                .unwrap()
-        );
-        std::fs::write(root.join("Cargo.lock"), "second").unwrap();
-        assert_ne!(k, f.key(root).unwrap());
-        let k = f.key(root).unwrap();
-        std::fs::write(root.join(".keek/setup.sh"), "changed").unwrap();
-        assert_ne!(k, f.key(root).unwrap());
     }
     async fn populated_tree() -> tempfile::TempDir {
         let d = repository();
@@ -461,60 +360,5 @@ mod tests {
         files.build_tree(&work, &tree).unwrap();
         assert!(tree.join("kept").exists());
         assert!(!root.path().join("output/escape").exists());
-    }
-    #[tokio::test]
-    async fn project_setup_script_that_is_missing_or_ignored_refuses() {
-        let d = tempfile::tempdir().unwrap();
-        assert!(
-            std::process::Command::new("git")
-                .args(["init", "-q"])
-                .current_dir(d.path())
-                .output()
-                .unwrap()
-                .status
-                .success()
-        );
-        assert!(matches!(
-            ProjectFiles::read(&HostRunner, d.path()).await,
-            Err(ProjectError::MissingScript)
-        ));
-        std::fs::create_dir(d.path().join(".keek")).unwrap();
-        std::fs::write(d.path().join(".keek/setup.sh"), "#!/bin/bash\n").unwrap();
-        std::fs::write(d.path().join(".gitignore"), ".keek/setup.sh\n").unwrap();
-        let error = match ProjectFiles::read(&HostRunner, d.path()).await {
-            Err(error) => error,
-            Ok(_) => panic!("ignored Setup Script accepted"),
-        };
-        assert!(matches!(error, ProjectError::MissingScript));
-        assert!(
-            error
-                .to_string()
-                .contains("Commit a Setup Script with install and start phases")
-        );
-    }
-    #[tokio::test]
-    async fn project_key_frames_fields_so_moving_bytes_changes_the_hash() {
-        let d = repository();
-        let root = d.path();
-        std::fs::write(root.join(".keek/setup.sh"), b"ab").unwrap();
-        std::fs::write(root.join("Cargo.lock"), b"c").unwrap();
-        track(root, "Cargo.lock");
-        let files = ProjectFiles::read(&HostRunner, root).await.unwrap();
-        let first = files.key(root).unwrap();
-        std::fs::write(root.join(".keek/setup.sh"), b"a").unwrap();
-        std::fs::write(root.join("Cargo.lock"), b"bc").unwrap();
-        assert_ne!(first, files.key(root).unwrap());
-    }
-    #[tokio::test]
-    async fn project_key_hashes_lockfile_symlinks_without_following_them() {
-        let d = repository();
-        let root = d.path();
-        symlink("absent-one", root.join("uv.lock")).unwrap();
-        track(root, "uv.lock");
-        let f = ProjectFiles::read(&HostRunner, root).await.unwrap();
-        let first = f.key(root).unwrap();
-        std::fs::remove_file(root.join("uv.lock")).unwrap();
-        symlink("absent-two", root.join("uv.lock")).unwrap();
-        assert_ne!(first, f.key(root).unwrap());
     }
 }

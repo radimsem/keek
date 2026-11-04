@@ -95,7 +95,7 @@ pub struct Opening {
     pub credentials: crate::credentials::Credentials,
     pub project: String,
     pub worktree: PathBuf,
-    pub settings: crate::project::Settings,
+    pub profile: crate::project::Profile,
     pub name: SessionName,
     pub progress: crate::open_progress::OpenProgress,
 }
@@ -103,6 +103,7 @@ pub struct Opening {
 pub struct Mounts {
     pub tree: PathBuf,
     pub layer: PathBuf,
+    pub toolchains: crate::toolchain::Toolchains,
 }
 pub trait DriverFactory: Send + Sync {
     fn prepare<'a>(
@@ -120,6 +121,16 @@ pub trait DriverFactory: Send + Sync {
         opening: &'a Opening,
         mounts: &'a Mounts,
     ) -> OpenDriverFuture<'a>;
+    fn prepare_project<'a>(
+        &'a self,
+        _prep: &'a crate::project_prepare::ProjectPrep,
+    ) -> crate::project_prepare::PrepareFuture<'a> {
+        Box::pin(async {
+            Err(SessionError::Refused(
+                "This keek cannot prepare a Project. Update keek and try again.".into(),
+            ))
+        })
+    }
 }
 pub struct Actor {
     pub frames_dir: PathBuf,
@@ -134,7 +145,8 @@ pub struct Actor {
     pub credentials: crate::credentials::Credentials,
     pub project: String,
     pub worktree: PathBuf,
-    pub settings: crate::project::Settings,
+    pub profile: crate::project::Profile,
+    pub toolchains: crate::toolchain::Toolchains,
     pub goal: String,
     pub warnings: Vec<String>,
     pub revision: Revision,
@@ -169,6 +181,8 @@ impl Actor {
             | Response::Tools(_)
             | Response::CheckAdded { .. }
             | Response::CheckMarked { .. }
+            | Response::ProfileWritten { .. }
+            | Response::Prepared(_)
             | Response::WatchEnded
             | Response::ShuttingDown
             | Response::ShutdownRefused { .. } => response,

@@ -100,11 +100,12 @@ async fn live_killing_keek_mcp_during_a_slow_install_leaves_no_sandbox_or_build(
     let fixture = Fixture::start().await?;
     let result = async {
         let worktree = fixture.worktree("slow-install").await?;
-        let script = worktree.join(".keek/setup.sh");
-        tokio::task::spawn_blocking(move || {
-            std::fs::write(script, "#!/bin/bash\ncase \"$1\" in\ninstall) sleep 60 ;;\nesac\n")
-        })
-        .await??;
+        write_profile(
+            fixture.directory.path(),
+            "slow-install",
+            "install = \"sleep 60\"\nstart = \"true\"\n",
+        )
+        .await?;
         let cache = fixture.directory.path().join("cache/keek");
         let sessions = cache.join("sessions");
         let build = cache.join("projects/slow-install/.build");
