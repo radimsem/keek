@@ -10,13 +10,22 @@ pub struct WrittenProfile {
 static WRITES: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Checks `profile`, the JSON a coding agent sent, without writing anything.
-pub fn check_profile(path: &Path, profile: serde_json::Value) -> Result<Profile, ProfileError> {
+pub fn check_profile(path: &Path, mut profile: serde_json::Value) -> Result<Profile, ProfileError> {
+    drop_nulls(&mut profile);
     // Going through TOML gives the same parser, and its errors name the key, as a hand-edited file gets.
     let text = toml::to_string(&profile).map_err(|error| ProfileError::Invalid {
         path: path.to_owned(),
         reason: format!("it is not a TOML table: {error}"),
     })?;
     Profile::parse(path, &text)
+}
+
+// TOML has no null, and a coding agent sends one for a key it leaves out.
+fn drop_nulls(value: &mut serde_json::Value) {
+    if let serde_json::Value::Object(object) = value {
+        object.retain(|_, value| !value.is_null());
+        object.values_mut().for_each(drop_nulls);
+    }
 }
 
 /// Replaces the Project Profile whole, keeping the previous one as `<project>.toml.bak`.
@@ -101,6 +110,17 @@ mod tests {
             .collect();
         names.sort();
         assert_eq!(names, ["demo.toml", "demo.toml.bak"]);
+    }
+
+    #[test]
+    fn a_null_optional_key_reads_as_absent() {
+        let directory = tempfile::tempdir().unwrap();
+        let written = write(
+            directory.path(),
+            json!({"start":"run","install":null,"window":null,"toolchain":{"node":null},"env":{}}),
+        )
+        .unwrap();
+        assert_eq!(written.toml, "start = \"run\"\n");
     }
 
     #[test]
