@@ -11,6 +11,6 @@ keek has to know how to install a Project's dependencies and start its App Under
 ## Consequences
 
 - `.keek/setup.sh` is no longer read. A Project that had one needs a Project Profile before its next `open_session`, which refuses without one and names `set_project_profile`.
-- The Project Layer key covers the install command, the toolchain pins, the `[env]` values and the tracked lockfiles, in place of the Setup Script's content.
+- The Project Layer key covers the install command, the resolved toolchain versions, the `[env]` values and the tracked lockfiles, in place of the Setup Script's content.
 - A commit no longer says what built the environment, so the Verdict Report lists the profile's install and start commands, its toolchain versions and its `[env]` names.
 - A profile is per machine and per developer. Two developers on one repository each have their own, written by their own coding agent.

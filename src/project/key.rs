@@ -1,4 +1,5 @@
 use super::{Profile, ProjectError, ProjectFiles};
+use crate::toolchain::Toolchains;
 use sha2::{Digest, Sha256};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
@@ -31,15 +32,20 @@ const LOCKFILES: &[&str] = &[
 ];
 
 impl ProjectFiles {
-    /// Covers what builds the Project Layer: the install command, the toolchain pins, the environment and the tracked lockfiles.
-    pub fn key(&self, worktree: &Path, profile: &Profile) -> Result<ProjectKey, ProjectError> {
+    /// Covers what builds the Project Layer: the install command, the resolved toolchain versions, the environment and the tracked lockfiles.
+    pub fn key(
+        &self,
+        worktree: &Path,
+        profile: &Profile,
+        toolchains: &Toolchains,
+    ) -> Result<ProjectKey, ProjectError> {
         let mut hash = Sha256::new();
         frame(&mut hash, b"install");
         frame(&mut hash, profile.install.as_bytes());
         frame(&mut hash, b"toolchain");
-        for (tool, pin) in profile.toolchain.pins() {
-            frame(&mut hash, tool.name().as_bytes());
-            frame(&mut hash, pin.as_bytes());
+        for resolved in &toolchains.tools {
+            frame(&mut hash, resolved.tool.name().as_bytes());
+            frame(&mut hash, resolved.version.as_bytes());
         }
         frame(&mut hash, b"env");
         for (name, value) in &profile.env {
@@ -91,6 +97,7 @@ fn hash_file(hash: &mut Sha256, path: &Path) -> Result<(), ProjectError> {
 mod tests {
     use super::*;
     use crate::process::HostRunner;
+    use crate::toolchain::{Fetch, ResolvedTool, Tool};
     use std::os::unix::fs::symlink;
 
     fn git(directory: &Path, args: &[&str]) {
@@ -116,15 +123,55 @@ mod tests {
     }
 
     async fn key(root: &Path, profile: &Profile) -> ProjectKey {
+        key_with(root, profile, &Toolchains::default()).await
+    }
+
+    async fn key_with(root: &Path, profile: &Profile, toolchains: &Toolchains) -> ProjectKey {
         ProjectFiles::read(&HostRunner, root)
             .await
             .unwrap()
-            .key(root, profile)
+            .key(root, profile, toolchains)
             .unwrap()
     }
 
+    fn resolved(tool: Tool, version: &str) -> Toolchains {
+        Toolchains {
+            store: "/store".into(),
+            tools: vec![ResolvedTool {
+                tool,
+                pin: "3".into(),
+                version: version.into(),
+                bin_dirs: vec!["/store/bin".into()],
+                fetch: Fetch::Present,
+            }],
+        }
+    }
+
     #[tokio::test]
-    async fn the_key_changes_with_install_toolchain_env_and_tracked_lockfiles() {
+    async fn the_key_follows_the_resolved_toolchain_version_not_the_pin() {
+        let d = repository();
+        let root = d.path();
+        let pinned = profile("start = \"run\"\n[toolchain]\npython = \"3\"");
+        let old = key_with(root, &pinned, &resolved(Tool::Python, "3.12.1")).await;
+        let newer = key_with(root, &pinned, &resolved(Tool::Python, "3.13.0")).await;
+        assert_ne!(old, newer);
+        assert_ne!(
+            key_with(root, &pinned, &resolved(Tool::Node, "3.12.1")).await,
+            old
+        );
+        assert_eq!(
+            key_with(
+                root,
+                &profile("start = \"run\""),
+                &resolved(Tool::Python, "3.12.1")
+            )
+            .await,
+            old
+        );
+    }
+
+    #[tokio::test]
+    async fn the_key_changes_with_install_env_and_tracked_lockfiles() {
         let d = repository();
         let root = d.path();
         std::fs::write(root.join("Cargo.lock"), "first").unwrap();
@@ -136,9 +183,6 @@ mod tests {
             "install = \"make all\"\nstart = \"run\"\n[env]\nAPP_ENV = \"test\"",
             "install = \"make\"\nstart = \"run\"\n[env]\nAPP_ENV = \"other\"",
             "install = \"make\"\nstart = \"run\"\n[env]\nAPP_ENV = \"test\"\nMORE = \"x\"",
-            "install = \"make\"\nstart = \"run\"\n[toolchain]\nnode = \"24\"\n[env]\nAPP_ENV = \"test\"",
-            "install = \"make\"\nstart = \"run\"\n[toolchain]\nnode = \"22\"\n[env]\nAPP_ENV = \"test\"",
-            "install = \"make\"\nstart = \"run\"\n[toolchain]\nrust = \"24\"\n[env]\nAPP_ENV = \"test\"",
         ] {
             assert_ne!(first, key(root, &profile(changed)).await, "{changed}");
         }

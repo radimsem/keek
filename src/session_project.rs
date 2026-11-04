@@ -38,17 +38,28 @@ pub async fn prepare(
     opening: &Opening,
 ) -> Result<Mounts, SessionError> {
     let mut spec = spec(factory, folder, opening).await?;
+    if !spec.profile.toolchain.is_empty() {
+        opening.progress.send("Installing toolchains");
+    }
+    spec.toolchains = crate::toolchain::resolve(
+        factory.mise.as_ref(),
+        &factory.toolchains,
+        &spec.profile.toolchain,
+        &folder.root().join("toolchain.log"),
+    )
+    .await
+    .map_err(|e| SessionError::Refused(e.to_string()))?;
     let files = ProjectFiles::read(factory.runner.as_ref(), &spec.worktree)
         .await
         .map_err(|e| SessionError::Refused(e.to_string()))?;
     let worktree = spec.worktree.clone();
-    let spec_profile = spec.profile.clone();
+    let (spec_profile, toolchains) = (spec.profile.clone(), spec.toolchains.clone());
     let tree = tree_path(&factory.trees, &opening.name);
     // The tree stays outside the writable session folder so the sandbox cannot change an overlay lower layer.
     let build_tree = tree.clone();
     let key = tokio::task::spawn_blocking(move || {
         let key = files
-            .key(&worktree, &spec_profile)
+            .key(&worktree, &spec_profile, &toolchains)
             .map_err(|e| SessionError::Refused(e.to_string()))?;
         files.build_tree(&worktree, &build_tree).map_err(|e| {
             SessionError::Refused(format!(
@@ -71,17 +82,6 @@ pub async fn prepare(
         .map_err(|e| {
             SessionError::Refused(format!("Cannot prepare the Agent Session files: {e}. Check the session folder and open again."))
         })??;
-    if !spec.profile.toolchain.is_empty() {
-        opening.progress.send("Installing toolchains");
-    }
-    spec.toolchains = crate::toolchain::resolve(
-        factory.mise.as_ref(),
-        &factory.toolchains,
-        &spec.profile.toolchain,
-        &folder.root().join("toolchain.log"),
-    )
-    .await
-    .map_err(|e| SessionError::Refused(e.to_string()))?;
     let layer = crate::project::ensure_layer(
         &factory.projects_cache.join(&spec.project),
         &key,

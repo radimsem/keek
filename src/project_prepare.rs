@@ -104,15 +104,31 @@ pub async fn prepare(
         std::fs::create_dir_all(&fresh)
     })
     .await?;
+    prep.progress.send("Building Project Layer");
+    if !prep.profile.toolchain.is_empty() {
+        prep.progress.send("Installing toolchains");
+    }
+    let toolchains = crate::toolchain::resolve(
+        factory.mise.as_ref(),
+        &factory.toolchains,
+        &prep.profile.toolchain,
+        &folder.join("toolchain.log"),
+    )
+    .await
+    .map_err(|e| SessionError::Refused(e.to_string()))?;
     let files = crate::project::ProjectFiles::read(factory.runner.as_ref(), &prep.worktree)
         .await
         .map_err(|e| SessionError::Refused(e.to_string()))?;
     let tree = folder.join("tree");
-    let (worktree, profile, build_tree) =
-        (prep.worktree.clone(), prep.profile.clone(), tree.clone());
+    let (worktree, profile, build_tree, key_toolchains) = (
+        prep.worktree.clone(),
+        prep.profile.clone(),
+        tree.clone(),
+        toolchains.clone(),
+    );
     let key = tokio::task::spawn_blocking(move || {
         let key = files
-            .key(&worktree, &profile)
+            .key(&worktree, &profile, &key_toolchains)
             .map_err(|e| SessionError::Refused(e.to_string()))?;
         files.build_tree(&worktree, &build_tree).map_err(|e| {
             SessionError::Refused(format!(
@@ -136,18 +152,7 @@ pub async fn prepare(
     spec.worktree = prep.worktree.clone();
     spec.profile = prep.profile.clone();
     spec.tree = tree.clone();
-    prep.progress.send("Building Project Layer");
-    if !spec.profile.toolchain.is_empty() {
-        prep.progress.send("Installing toolchains");
-    }
-    spec.toolchains = crate::toolchain::resolve(
-        factory.mise.as_ref(),
-        &factory.toolchains,
-        &spec.profile.toolchain,
-        &folder.join("toolchain.log"),
-    )
-    .await
-    .map_err(|e| SessionError::Refused(e.to_string()))?;
+    spec.toolchains = toolchains;
     let install_log = folder.join("install.log");
     spec.layer = crate::project::ensure_layer(
         &factory.projects_cache.join(&spec.project),
