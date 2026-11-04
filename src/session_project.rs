@@ -19,13 +19,13 @@ pub async fn spec(
     let project = opening.project.clone();
     let worktree = opening.worktree.clone();
     let credentials = opening.credentials.clone();
-    let ports = opening.settings.ports.clone();
+    let profile = opening.profile.clone();
     tokio::task::spawn_blocking(move || {
         let mut spec = SandboxSpec::from_env(&root, &driver)?;
         spec.credentials = credentials;
         spec.project = project;
         spec.worktree = worktree;
-        spec.ports = ports;
+        spec.profile = profile;
         Ok(spec)
     })
     .await
@@ -42,12 +42,13 @@ pub async fn prepare(
         .await
         .map_err(|e| SessionError::Refused(e.to_string()))?;
     let worktree = spec.worktree.clone();
+    let spec_profile = spec.profile.clone();
     let tree = tree_path(&factory.trees, &opening.name);
     // The tree stays outside the writable session folder so the sandbox cannot change an overlay lower layer.
     let build_tree = tree.clone();
     let key = tokio::task::spawn_blocking(move || {
         let key = files
-            .key(&worktree)
+            .key(&worktree, &spec_profile)
             .map_err(|e| SessionError::Refused(e.to_string()))?;
         files.build_tree(&worktree, &build_tree).map_err(|e| {
             SessionError::Refused(format!(
@@ -84,6 +85,14 @@ struct Install<'a>(&'a SandboxSpec, &'a crate::open_progress::OpenProgress);
 impl Installer for Install<'_> {
     fn install<'a>(&'a self, upper: &'a Path, work: &'a Path, log: &'a Path) -> InstallFuture<'a> {
         Box::pin(async move {
+            if self.0.profile.install.trim().is_empty() {
+                let log = log.to_owned();
+                tokio::task::spawn_blocking(move || {
+                    std::fs::write(log, "The Project Profile has no install command.\n")
+                })
+                .await??;
+                return Ok(0);
+            }
             let spec = self.0.clone();
             let upper = upper.to_owned();
             let work = work.to_owned();

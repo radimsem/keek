@@ -195,6 +195,12 @@ struct Harness {
 impl Harness {
     fn new(cap: usize) -> Self {
         let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(directory.path().join("config")).unwrap();
+        std::fs::write(
+            directory.path().join("config/app.toml"),
+            "start = \"true\"\n",
+        )
+        .unwrap();
         let calls = Arc::new(Mutex::new(vec![]));
         let compositor = Arc::new(Compositor::default());
         let controls = Arc::new(Controls::default());

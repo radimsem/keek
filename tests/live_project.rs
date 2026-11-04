@@ -116,9 +116,9 @@ async fn live_project_reuses_layers_and_applies_isolation_settings_and_warnings(
     let result = async {
         let worktree = fixture.worktree("project").await?;
         let root = worktree.clone();
-        let script = setup_script(forwarded.port, blocked.port);
+        let script = fixture_script(forwarded.port, blocked.port);
         tokio::task::spawn_blocking(move || -> Result<()> {
-            std::fs::write(root.join(".keek/setup.sh"), script)?;
+            std::fs::write(root.join("fixture.sh"), script)?;
             std::fs::write(root.join("uv.lock"), "first")?;
             std::fs::write(root.join("source"), "old source")?;
             std::fs::write(root.join(".gitignore"), ".env\n")?;
@@ -133,7 +133,7 @@ async fn live_project_reuses_layers_and_applies_isolation_settings_and_warnings(
         .await??;
         run(
             "git",
-            &["add", "uv.lock", "source", ".gitignore", "index.html"],
+            &["add", "fixture.sh", "uv.lock", "source", ".gitignore", "index.html"],
             Some(&worktree),
         )
         .await?;
@@ -143,7 +143,7 @@ async fn live_project_reuses_layers_and_applies_isolation_settings_and_warnings(
         write(
             settings.join("project.toml"),
             format!(
-                "ports = [{}]\n[window]\nwidth = 390\nheight = 844\n",
+                "install = \"bash fixture.sh install\"\nstart = \"bash fixture.sh start\"\nports = [{}]\n[window]\nwidth = 390\nheight = 844\n",
                 forwarded.port
             ),
         )
@@ -300,7 +300,7 @@ async fn live_project_reuses_layers_and_applies_isolation_settings_and_warnings(
                 )
                 .await?;
                 for name in [
-                    ".keek/setup.sh",
+                    "fixture.sh",
                     "uv.lock",
                     "source",
                     ".gitignore",
@@ -311,7 +311,7 @@ async fn live_project_reuses_layers_and_applies_isolation_settings_and_warnings(
                 }
                 run(
                     "git",
-                    &["add", "uv.lock", "source", ".gitignore", "index.html"],
+                    &["add", "fixture.sh", "uv.lock", "source", ".gitignore", "index.html"],
                     Some(&second),
                 )
                 .await?;
@@ -336,38 +336,14 @@ async fn live_project_reuses_layers_and_applies_isolation_settings_and_warnings(
                 anyhow::ensure!(expected_status == original_status, "initial status differs");
             }
         }
-        // Use a no-op install so missing settings do not require the forwarded port.
-        let script = worktree.join(".keek/setup.sh");
-        write(
-            &script,
-            "#!/bin/bash\nif [ \"$1\" = start ]; then exec python3 -m http.server 8000; fi\n",
-        )
-        .await?;
-        let (session, response) = project_open(&mut fixture, "proejct", &worktree).await?;
-        let warnings = response["warnings"]
-            .as_array()
-            .context("warnings missing")?;
+        let refusal = project_open(&mut fixture, "proejct", &worktree)
+            .await
+            .unwrap_err()
+            .to_string();
         anyhow::ensure!(
-            warnings.len() == 2
-                && warnings.iter().all(|w| w
-                    .as_str()
-                    .is_some_and(|s| s.contains("proejct") && s.contains("misspelled"))),
-            "misspelled Project warnings differ"
+            refusal.contains("proejct") && refusal.contains("set_project_profile"),
+            "a misspelled Project did not refuse with set_project_profile: {refusal}"
         );
-        // This session has no window, so its recording can end with no frames and no Raw Recording.
-        call(
-            &fixture.client,
-            "mark_check",
-            json!({"session":session,"check":1,"outcome":"passed"}),
-        )
-        .await?;
-        call(
-            &fixture.client,
-            "close_session",
-            json!({"session":session,"summary":"misspelled Project warned"}),
-        )
-        .await?;
-        fixture.sessions.retain(|name| name != &session);
         Ok::<(), anyhow::Error>(())
     }
     .await;
@@ -394,7 +370,9 @@ async fn live_project_failed_install_refuses_with_the_end_of_its_log() -> Result
     let mut fixture = Fixture::start().await?;
     let result=async {
         let worktree=fixture.worktree("failed-project").await?;
-        write(worktree.join(".keek/setup.sh"),"#!/bin/bash\nprintf 'head-token\\n'\npython3 -c 'print(\"x\" * 5000)'\nprintf 'tail-token\\n'\nexit 7\n").await?;
+        write(worktree.join("fixture.sh"),"#!/bin/bash\nprintf 'head-token\\n'\npython3 -c 'print(\"x\" * 5000)'\nprintf 'tail-token\\n'\nexit 7\n").await?;
+        run("git", &["add", "fixture.sh"], Some(&worktree)).await?;
+        write_profile(fixture.directory.path(), "failed-project", "install = \"bash fixture.sh\"\nstart = \"true\"\n").await?;
         let error=project_open(&mut fixture,"failed-project",&worktree).await.unwrap_err().to_string();
         anyhow::ensure!(error.contains("status 7")&&error.contains("tail-token")&&!error.contains("head-token")&&error.contains("install.log"),"install refusal did not quote only the log tail");
         Ok::<(),anyhow::Error>(())

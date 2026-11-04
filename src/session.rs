@@ -95,7 +95,7 @@ pub struct Opening {
     pub credentials: crate::credentials::Credentials,
     pub project: String,
     pub worktree: PathBuf,
-    pub settings: crate::project::Settings,
+    pub profile: crate::project::Profile,
     pub name: SessionName,
     pub progress: crate::open_progress::OpenProgress,
 }
@@ -134,7 +134,7 @@ pub struct Actor {
     pub credentials: crate::credentials::Credentials,
     pub project: String,
     pub worktree: PathBuf,
-    pub settings: crate::project::Settings,
+    pub profile: crate::project::Profile,
     pub goal: String,
     pub warnings: Vec<String>,
     pub revision: Revision,

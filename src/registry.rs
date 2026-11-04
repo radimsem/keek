@@ -84,7 +84,7 @@ struct Opening {
     checks: Vec<String>,
     catalog: Arc<Catalog>,
     revision: crate::revision::Revision,
-    settings: crate::project::Settings,
+    profile: crate::project::Profile,
     warnings: Vec<String>,
     progress: crate::open_progress::OpenProgress,
 }

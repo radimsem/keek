@@ -40,7 +40,7 @@ impl Registry {
                 project
                     .parse::<SessionName>()
                     .map_err(|e| SessionError::Refused(e.to_string()))?;
-                let (settings, mut warnings) = crate::project::read_project_settings(&project, &projects_config).await?;
+                let (profile, mut warnings) = crate::project::read_project_profile(&project, &projects_config).await?;
                 let credential_path = projects_config.join(format!("{project}.env"));
                 let (credentials, warning) = tokio::task::spawn_blocking(move || crate::credentials::Credentials::read(&credential_path)).await.map_err(|e| SessionError::Refused(e.to_string()))?.map_err(|e| SessionError::Refused(e.to_string()))?;
                 warnings.extend(warning);
@@ -86,7 +86,7 @@ impl Registry {
                     checks,
                     catalog,
                     revision,
-                    settings, warnings,
+                    profile, warnings,
                     progress,
                 })
             };
@@ -110,7 +110,7 @@ impl Registry {
             checks,
             catalog,
             revision,
-            settings,
+            profile,
             warnings,
             progress,
         } = opening;
@@ -153,7 +153,7 @@ impl Registry {
         let placement = self
             .dependencies
             .compositor
-            .slot(slot, self.dependencies.cap, settings.window)
+            .slot(slot, self.dependencies.cap, profile.window)
             .await
             .map_err(|e| SessionError::Refused(e.to_string()))?;
         let opened_at = self.dependencies.clock.now();
@@ -277,7 +277,7 @@ impl Registry {
                 credentials,
                 project,
                 worktree,
-                settings,
+                profile,
                 warnings,
                 goal,
                 revision,

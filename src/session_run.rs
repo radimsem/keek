@@ -45,7 +45,7 @@ impl Actor {
             credentials: self.credentials.clone(),
             project: self.project.clone(),
             worktree: self.worktree.clone(),
-            settings: self.settings.clone(),
+            profile: self.profile.clone(),
             name: self.name.clone(),
             progress: self.progress.clone(),
         };

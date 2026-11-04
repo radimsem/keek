@@ -7,7 +7,11 @@ fn spec() -> SandboxSpec {
         worktree: "/worktree".into(),
         tree: "/trees/demo".into(),
         layer: "/projects/key".into(),
-        ports: Vec::new(),
+        profile: crate::project::Profile {
+            install: "npm ci".into(),
+            start: "npm run dev".into(),
+            ..Default::default()
+        },
         home: "/home/test".into(),
         runtime_dir: "/run/user/42".into(),
         session_dir: "/cache/keek/sessions/demo_12-00-00".into(),
@@ -206,7 +210,7 @@ fn project_session_receives_the_project_name() {
 #[test]
 fn project_ports_are_forwarded_to_the_host() {
     let mut sandbox = spec();
-    sandbox.ports = vec![
+    sandbox.profile.ports = vec![
         crate::project::HostPort(5432.try_into().unwrap()),
         crate::project::HostPort(6379.try_into().unwrap()),
     ];
@@ -230,8 +234,9 @@ fn project_install_uses_the_tree_and_persistent_upper() {
         "/keek/worktree",
         "--chdir",
         "/keek/worktree",
-        "./.keek/setup.sh",
-        "install",
+        "/usr/bin/bash",
+        "-c",
+        "npm ci",
     ]
     .map(Into::into)
     .into();
@@ -363,4 +368,40 @@ fn install_carries_no_credential_value_in_arguments_or_environment() {
         !shown.contains(crate::credentials::SANDBOX_ENV),
         "install carries Test Credentials"
     );
+}
+#[test]
+fn the_session_carries_the_start_command_for_the_launcher() {
+    assert!(
+        spec()
+            .args()
+            .windows(3)
+            .any(|a| a == ["--setenv", "KEEK_START", "npm run dev"])
+    );
+    let launcher = include_str!("../assets/nested/start-app.sh");
+    assert!(launcher.contains("bash -c \"$KEEK_START\""), "{launcher}");
+    assert!(!launcher.contains("setup.sh"), "{launcher}");
+}
+#[test]
+fn profile_env_reaches_install_and_session_before_credentials_and_keek_variables() {
+    let mut spec = spec();
+    spec.profile.env.insert("APP_ENV".into(), "test".into());
+    let install = spec.args_for(SandboxMode::Install {
+        upper: Path::new("/build/upper"),
+        work: Path::new("/build/work"),
+        log: Path::new("/log"),
+    });
+    for args in [spec.args(), install] {
+        let env = args
+            .windows(3)
+            .position(|a| a == ["--setenv", "APP_ENV", "test"])
+            .unwrap_or_else(|| panic!("no APP_ENV in {args:?}"));
+        let home = args
+            .windows(2)
+            .position(|a| a == ["--setenv", "HOME"])
+            .unwrap();
+        assert!(env < home);
+        if let Some(file) = args.iter().position(|a| a == "--args") {
+            assert!(env < file);
+        }
+    }
 }

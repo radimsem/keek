@@ -26,12 +26,12 @@ _Avoid_: target, SUT
 The app whose Agent Sessions keek groups together, named by the coding agent for each verification. Its Agent Sessions can come from any worktree of its repository, and one repository can hold several Projects.
 _Avoid_: repo, workspace
 
-**Setup Script**:
-The instructions committed to a repository that install a Project's dependencies and start its App Under Test. One Setup Script serves every Project in the repository.
-_Avoid_: bootstrap, provisioning
+**Project Profile**:
+How keek builds, starts and reaches a Project's App Under Test on one machine: its install and start commands, pinned toolchains, environment, forwarded ports and window size. A coding agent writes it; the developer rarely edits it by hand.
+_Avoid_: settings, config, recipe, Setup Script
 
 **Project Layer**:
-A Project's installed dependencies, built once by its Setup Script and reused across Agent Sessions until the script or the lockfiles change.
+A Project's installed dependencies, built once by its Project Profile's install command and reused across Agent Sessions until the profile or the lockfiles change.
 _Avoid_: image, snapshot, cache
 
 **Test Credentials**:

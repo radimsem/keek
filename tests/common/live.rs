@@ -113,21 +113,11 @@ impl Fixture {
     }
 
     async fn worktree_with_start(&self, name: &str, start: &str) -> Result<PathBuf> {
-        let start = start.to_owned();
         let path = self.directory.path().join(name);
         let create = path.clone();
         tokio::task::spawn_blocking(move || std::fs::create_dir(create)).await??;
         run("git", &["init", "--quiet"], Some(&path)).await?;
-        let script_root=path.clone();
-        tokio::task::spawn_blocking(move || -> Result<()> {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::create_dir_all(script_root.join(".keek"))?;
-            let script=script_root.join(".keek/setup.sh");
-            std::fs::write(&script,format!("#!/bin/bash\ncase \"$1\" in\ninstall) exit 0 ;;\nstart) exec {start} ;;\nesac\n"))?;
-            std::fs::set_permissions(script,std::fs::Permissions::from_mode(0o755))?;
-            Ok(())
-        }).await??;
-        run("git", &["add",".keek/setup.sh"],Some(&path)).await?;
+        write_profile(self.directory.path(), name, &format!("start = {}\n", toml::Value::String(start.to_owned()))).await?;
         run(
             "git",
             &[
@@ -149,6 +139,17 @@ impl Fixture {
     }
 
     async fn open(&mut self, project: &str, worktree: &Path) -> Result<String> {
+        // A fixture worktree carries the profile written under its own name.
+        let profiles = self.directory.path().join("config/keek/projects");
+        let source = profiles.join(format!("{}.toml", worktree.file_name().context("worktree has no name")?.to_string_lossy()));
+        let target = profiles.join(format!("{project}.toml"));
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            if !target.exists() && source.exists() {
+                std::fs::copy(source, target)?;
+            }
+            Ok(())
+        })
+        .await??;
         let result = call(&self.client, "open_session", json!({"project":project,"worktree":worktree,"goal":"verify fixture clicks","checks":["fixture receives clicks"]})).await?;
         let name = result
             .get("session")
@@ -530,4 +531,17 @@ struct Records {
     actions: PathBuf,
     report: PathBuf,
     response: Value,
+}
+
+pub async fn write_profile(root: &Path, project: &str, text: &str) -> Result<()> {
+    let folder = root.join("config/keek/projects");
+    let path = folder.join(format!("{project}.toml"));
+    let text = text.to_owned();
+    tokio::task::spawn_blocking(move || -> Result<()> {
+        std::fs::create_dir_all(folder)?;
+        std::fs::write(path, text)?;
+        Ok(())
+    })
+    .await??;
+    Ok(())
 }

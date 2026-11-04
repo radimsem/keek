@@ -1,4 +1,4 @@
-fn setup_script(forwarded: u16, blocked: u16) -> String {
+fn fixture_script(forwarded: u16, blocked: u16) -> String {
     let lan_probe = include_str!("project_lan.py");
     format!(
         r#"#!/bin/bash

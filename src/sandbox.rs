@@ -31,7 +31,7 @@ pub struct SandboxSpec {
     pub worktree: PathBuf,
     pub tree: PathBuf,
     pub layer: PathBuf,
-    pub ports: Vec<crate::project::HostPort>,
+    pub profile: crate::project::Profile,
     pub home: PathBuf,
     pub runtime_dir: PathBuf,
     pub session_dir: PathBuf,
@@ -79,7 +79,7 @@ impl SandboxSpec {
             worktree: PathBuf::new(),
             tree: PathBuf::new(),
             layer: PathBuf::new(),
-            ports: Vec::new(),
+            profile: Default::default(),
             home,
             runtime_dir,
             session_dir: session_dir.to_owned(),
@@ -205,11 +205,7 @@ impl SandboxSpec {
     }
 
     fn args_for(&self, mode: SandboxMode<'_>) -> Vec<OsString> {
-        let ports = crate::project::Settings {
-            ports: self.ports.clone(),
-            window: None,
-        }
-        .pasta_ports();
+        let ports = self.profile.pasta_ports();
         let mut args: Vec<OsString> = [
             "-f",
             "-q",
@@ -248,6 +244,10 @@ impl SandboxSpec {
             ]
             .map(OsString::from),
         );
+        // Before the Test Credentials and keek's own variables, so both win a clashing name.
+        for (name, value) in &self.profile.env {
+            args.extend([OsString::from("--setenv"), name.into(), value.into()]);
+        }
         if matches!(mode, SandboxMode::Session) {
             // The file parses where this option stands, so the required variables below still win a clashing name.
             args.extend([
@@ -294,6 +294,13 @@ impl SandboxSpec {
             "KEEK_WORKTREE".into(),
             SANDBOX_WORKTREE.into(),
         ]);
+        if matches!(mode, SandboxMode::Session) {
+            args.extend([
+                OsString::from("--setenv"),
+                "KEEK_START".into(),
+                self.profile.start.clone().into(),
+            ]);
+        }
         args.extend(
             [
                 "--ro-bind",
@@ -356,8 +363,9 @@ impl SandboxSpec {
                 SANDBOX_WORKTREE.into(),
                 "--chdir".into(),
                 SANDBOX_WORKTREE.into(),
-                "./.keek/setup.sh".into(),
-                "install".into(),
+                "/usr/bin/bash".into(),
+                "-c".into(),
+                self.profile.install.clone().into(),
             ]);
             return args;
         }

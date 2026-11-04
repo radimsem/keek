@@ -19,9 +19,9 @@ async fn live_credentials_reach_the_app_and_leave_no_text_evidence() -> Result<(
         let path = config.join("credentials.env");
         std::fs::write(&path, format!("KEEK_TEST_PASSWORD={value}\n"))?;
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644))?;
-        std::fs::write(config.join("credentials.toml"), "[window]\nwidth=390\nheight=844\n")?;
+        std::fs::write(config.join("credentials.toml"), "install = \"bash fixture.sh install\"\nstart = \"bash fixture.sh start\"\n[window]\nwidth=390\nheight=844\n")?;
         std::fs::write(worktree.join("index.html"), "<title>keek fixture</title><input style='position:absolute;inset:0;width:100%;height:100%' oninput='console.log(this.value)'>")?;
-        std::fs::write(worktree.join(".keek/setup.sh"), r#"#!/bin/bash
+        std::fs::write(worktree.join("fixture.sh"), r#"#!/bin/bash
 case "$1" in
 install) exit 0 ;;
 start)
@@ -31,7 +31,7 @@ exec chromium --enable-logging=stderr --ozone-platform=wayland --kiosk --no-firs
 ;;
 esac
 "#)?;
-        run("git", &["add", "index.html", ".keek/setup.sh"], Some(&worktree)).await?;
+        run("git", &["add", "index.html", "fixture.sh"], Some(&worktree)).await?;
         let opened=call(&fixture.client,"open_session",json!({"project":"credentials","worktree":worktree,"goal":"verify Test Credentials","checks":["input receives Test Credentials"]})).await?;
         anyhow::ensure!(opened["credentials"]==json!(["KEEK_TEST_PASSWORD"]),"credential names differ");
         anyhow::ensure!(!opened.to_string().contains(value),"open result contains a value");
