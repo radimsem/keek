@@ -279,3 +279,16 @@ async fn a_cancelled_request_tells_the_daemon_and_drops_its_pending_reply() {
     assert_eq!(next, Some(Message::Cancel { id }));
     assert!(client.pending.lock().await.replies.is_empty());
 }
+
+#[tokio::test]
+async fn a_started_daemon_writes_its_stderr_to_the_daemon_log() {
+    let dir = tempfile::tempdir().unwrap();
+    let log = dir.path().join("state/daemon.log");
+    // `sh daemon` finds no script named daemon in `/` and says so on stderr.
+    let mut starter = ProcessStarter::new("/bin/sh".into(), log.clone());
+
+    starter.start().unwrap();
+    starter.child.as_mut().unwrap().wait().await.unwrap();
+
+    assert!(std::fs::read_to_string(&log).unwrap().contains("daemon"));
+}

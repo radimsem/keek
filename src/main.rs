@@ -176,7 +176,6 @@ async fn run_daemon(paths: Paths, viewer: std::sync::Arc<dyn keek::viewer::Viewe
             Ok(())
         }
         Err(error) => {
-            // The daemon's stderr is /dev/null, so the log is the only record of why.
             tracing::error!("keek daemon failed: {error:#}");
             Err(error)
         }

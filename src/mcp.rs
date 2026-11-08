@@ -20,7 +20,7 @@ pub async fn serve() -> Result<()> {
     let executable = std::env::current_exe().context("could not find the keek executable")?;
     let daemon = daemon_client::connect_or_start(
         &paths,
-        &mut ProcessStarter::new(executable),
+        &mut ProcessStarter::new(executable, paths.daemon_log()),
         DAEMON_START_TIMEOUT,
     )
     .await?;

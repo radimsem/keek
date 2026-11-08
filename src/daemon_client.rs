@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::io;
+use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -34,14 +35,16 @@ pub trait DaemonStarter {
 #[derive(Debug)]
 pub struct ProcessStarter {
     executable: PathBuf,
+    log: PathBuf,
     child: Option<tokio::process::Child>,
 }
 
 impl ProcessStarter {
     #[must_use]
-    pub fn new(executable: PathBuf) -> Self {
+    pub fn new(executable: PathBuf, log: PathBuf) -> Self {
         Self {
             executable,
+            log,
             child: None,
         }
     }
@@ -62,13 +65,22 @@ impl DaemonStarter for ProcessStarter {
                 }
             }
         }
+        // GTK and a panic report a fatal error only on stderr, then exit.
+        if let Some(folder) = self.log.parent() {
+            std::fs::create_dir_all(folder)?;
+        }
+        let log = std::fs::File::options()
+            .create(true)
+            .append(true)
+            .mode(0o600)
+            .open(&self.log)?;
         let mut command = std::process::Command::new(&self.executable);
         command
             .arg("daemon")
             .current_dir("/")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(log)
             .process_group(0);
         self.child = Some(tokio::process::Command::from(command).spawn()?);
         Ok(())
