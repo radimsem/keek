@@ -263,3 +263,70 @@ async fn a_withdrawn_help_request_restarts_the_idle_limit() {
         })
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn an_answered_help_request_is_recorded_until_take_control() {
+    let root = tempfile::tempdir().unwrap();
+    let actor = start_actor(root.path(), "help-answered", false).await;
+    let mut events = actor.events.clone();
+    let answer = raise_help(&actor).await;
+    wait_for(&mut events, |c| {
+        matches!(c, crate::ipc::ControlState::HelpRequest { .. })
+    })
+    .await;
+    actor.clock.elapsed.fetch_add(283_000, Ordering::SeqCst);
+    actor
+        .control
+        .commands
+        .send(control::Command::TakeControl)
+        .await
+        .unwrap();
+    wait_for(&mut events, |c| {
+        matches!(c, crate::ipc::ControlState::Takeover { .. })
+    })
+    .await;
+    actor.clock.elapsed.fetch_add(22_000, Ordering::SeqCst);
+    actor
+        .control
+        .commands
+        .send(control::Command::Done)
+        .await
+        .unwrap();
+    answer.await.unwrap();
+
+    let takeovers = actor.control.drain().await;
+    let help = actor.control.drain_help_requests().await;
+    assert_eq!(help.len(), 1);
+    assert_eq!(help[0].reason, "2FA code");
+    assert_eq!(help[0].outcome, crate::timeline::HelpOutcome::Answered);
+    assert_eq!(help[0].end, takeovers[0].start);
+    assert_eq!(help[0].end - help[0].start, Duration::from_millis(283_000));
+    drop(actor.sender);
+    actor.task.await.unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_withdrawn_help_request_is_recorded_as_withdrawn() {
+    let root = tempfile::tempdir().unwrap();
+    let actor = start_actor(root.path(), "help-withdrawn", false).await;
+    let mut events = actor.events.clone();
+    let answer = raise_help(&actor).await;
+    wait_for(&mut events, |c| {
+        matches!(c, crate::ipc::ControlState::HelpRequest { .. })
+    })
+    .await;
+    actor.clock.elapsed.fetch_add(60_000, Ordering::SeqCst);
+
+    drop(answer);
+    wait_for(&mut events, |c| {
+        matches!(c, crate::ipc::ControlState::Verifier)
+    })
+    .await;
+
+    let help = actor.control.drain_help_requests().await;
+    assert_eq!(help.len(), 1);
+    assert_eq!(help[0].outcome, crate::timeline::HelpOutcome::Withdrawn);
+    assert_eq!(help[0].end - help[0].start, Duration::from_millis(60_000));
+    drop(actor.sender);
+    actor.task.await.unwrap();
+}

@@ -53,7 +53,7 @@ The record of every Action in an Agent Session and what it returned.
 _Avoid_: trajectory, trace, history
 
 **Session Timeline**:
-The timed record of an Agent Session's calls, Actions, Check marks and Takeovers, counted from the start of its Raw Recording. Times in the Verification Video and Verdict Report come from it.
+The timed record of an Agent Session's calls, Actions, Check marks, Help Requests and Takeovers, counted from the start of its Raw Recording. Times in the Verification Video and Verdict Report come from it.
 _Avoid_: action history, activity graph, trace
 
 **Raw Recording**:
@@ -69,7 +69,7 @@ An Idle Stretch shown compressed in the Verification Video, labelled with the re
 _Avoid_: cut, trim, skip
 
 **Verification Video**:
-The edited video a reviewer watches: every Action with its effect at real speed, each Idle Stretch as a Fast-forward, and each Takeover as a title card.
+The edited video a reviewer watches: every Action with its effect at real speed, each Idle Stretch as a Fast-forward, and each Help Request, with the Takeover that answered it, as a title card.
 _Avoid_: final cut, reel, recording
 
 ## Watching
@@ -91,7 +91,7 @@ A Session Window and its Session Footer, seen as one card in a slot of the Agent
 _Avoid_: tile, panel, dashboard
 
 **Help Request**:
-A Verifier's signal that it cannot continue without the developer, with a short reason.
+A Verifier's signal that it cannot continue without the developer, with a short reason. It is open from when the Verifier raises it until the developer takes control or the Verifier withdraws it.
 _Avoid_: needs-you, escalation, blocker
 
 **Takeover**:

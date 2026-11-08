@@ -663,3 +663,59 @@ async fn closing_after_a_takeover_files_it_in_the_report() {
         "{report}"
     );
 }
+
+#[tokio::test]
+async fn closing_after_an_answered_help_request_files_the_wait_in_the_report() {
+    let root = tempfile::tempdir().unwrap();
+    let actor = start_actor(root.path(), "report-help", false).await;
+    actor.clock.elapsed.fetch_add(5000, Ordering::SeqCst);
+    let (reply, answer) = oneshot::channel();
+    actor
+        .sender
+        .send(ActorRequest::RequestHelp {
+            arrival: actor.control.gate.arrival(),
+            reason: "2FA code".into(),
+            reply,
+        })
+        .await
+        .unwrap();
+    let mut events = actor.events.clone();
+    while !matches!(
+        events.borrow_and_update().control,
+        crate::ipc::ControlState::HelpRequest { .. }
+    ) {
+        events.changed().await.unwrap();
+    }
+    actor.clock.elapsed.fetch_add(283_000, Ordering::SeqCst);
+    actor
+        .control
+        .commands
+        .send(control::Command::TakeControl)
+        .await
+        .unwrap();
+    while !matches!(
+        events.borrow_and_update().control,
+        crate::ipc::ControlState::Takeover { .. }
+    ) {
+        events.changed().await.unwrap();
+    }
+    actor.clock.elapsed.fetch_add(22_000, Ordering::SeqCst);
+    actor
+        .control
+        .commands
+        .send(control::Command::Done)
+        .await
+        .unwrap();
+    answer.await.unwrap();
+
+    let Response::Closed(value) = finish(actor).await else {
+        panic!("expected filed evidence")
+    };
+    let report = std::fs::read_to_string(value["evidence"]["report"].as_str().unwrap()).unwrap();
+    assert!(
+        report.contains(
+            "the developer answered a Help Request after 4:43 and was in control for 0:22: 2FA code."
+        ),
+        "{report}"
+    );
+}

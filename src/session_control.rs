@@ -4,7 +4,7 @@ use crate::{
     compositor::{Compositor, TakeoverEvents, WindowAddress},
     ipc::{ControlState, HostShortcuts, SessionSnapshot},
     process::{ProcessError, ProcessRunner},
-    timeline::Millis,
+    timeline::{HelpOutcome, Millis},
 };
 use std::{sync::Arc, time::Instant};
 use tokio::sync::{Mutex, mpsc, oneshot, watch};
@@ -21,11 +21,20 @@ pub enum Command {
     Withdraw(oneshot::Sender<()>),
     Stop(oneshot::Sender<()>),
 }
+/// A Help Request from when it was raised until Take control or withdrawal.
+#[derive(Debug, Clone)]
+pub struct HelpSpan {
+    pub reason: String,
+    pub start: Instant,
+    pub end: Instant,
+    pub outcome: HelpOutcome,
+}
 #[derive(Clone)]
 pub struct Control {
     pub gate: Gate,
     pub commands: mpsc::Sender<Command>,
     spans: Arc<Mutex<Vec<Span>>>,
+    help_requests: Arc<Mutex<Vec<HelpSpan>>>,
 }
 impl Control {
     pub fn new() -> (Self, mpsc::Receiver<Command>) {
@@ -35,12 +44,16 @@ impl Control {
                 gate: Gate::new(),
                 commands,
                 spans: Arc::new(Mutex::new(Vec::new())),
+                help_requests: Arc::new(Mutex::new(Vec::new())),
             },
             receiver,
         )
     }
     pub async fn drain(&self) -> Vec<Span> {
         std::mem::take(&mut *self.spans.lock().await)
+    }
+    pub async fn drain_help_requests(&self) -> Vec<HelpSpan> {
+        std::mem::take(&mut *self.help_requests.lock().await)
     }
     pub async fn stop(&self) {
         let (tx, rx) = oneshot::channel();
@@ -319,6 +332,22 @@ impl Controller {
         });
         span
     }
+    /// Records the open Help Request, if any, as ending at `end`.
+    async fn close_help(
+        &self,
+        open: &mut Option<(String, Instant)>,
+        end: Instant,
+        outcome: HelpOutcome,
+    ) {
+        if let Some((reason, start)) = open.take() {
+            self.control.help_requests.lock().await.push(HelpSpan {
+                reason,
+                start,
+                end,
+                outcome,
+            });
+        }
+    }
     async fn finish_on_end(&self, taking: &mut Taking) {
         if taking.shortcuts == HostShortcuts::Captured
             && let Err(error) = self.eval("hl.dispatch(hl.dsp.submap(\"reset\"))").await
@@ -340,7 +369,7 @@ impl Controller {
     ) {
         let mut taking: Option<Taking> = None;
         let mut lines: Option<Box<dyn TakeoverEvents>> = None;
-        let mut reason = None;
+        let mut help: Option<(String, Instant)> = None;
         let mut before_help = ControlState::default();
         let mut waiting: Vec<oneshot::Sender<Span>> = Vec::new();
         loop {
@@ -361,16 +390,23 @@ impl Controller {
             };
             let result = match command {
                 Some(Command::TakeControl) if taking.is_none() => {
-                    match self.take(reason.clone()).await {
+                    let reason = help.as_ref().map(|(reason, _)| reason.clone());
+                    match self.take(reason).await {
                         Ok((active, events)) => {
+                            self.close_help(&mut help, active.start, HelpOutcome::Answered)
+                                .await;
                             taking = Some(active);
-                            reason = None;
                             lines = events;
                             Ok(())
                         }
                         Err((error, active, span)) => {
-                            if active.is_some() || span.is_some() {
-                                reason = None;
+                            let started = active
+                                .as_ref()
+                                .map(|active| active.start)
+                                .or(span.as_ref().map(|span| span.start));
+                            if let Some(started) = started {
+                                self.close_help(&mut help, started, HelpOutcome::Answered)
+                                    .await;
                             }
                             taking = active;
                             if let Some(span) = span {
@@ -402,7 +438,7 @@ impl Controller {
                 }
                 Some(Command::Help {
                     arrival,
-                    reason: help,
+                    reason,
                     reply,
                 }) => {
                     if let Some(span) = self.control.gate.handed_back(arrival) {
@@ -411,21 +447,22 @@ impl Controller {
                     }
                     waiting.push(reply);
                     if taking.is_none() {
-                        reason = Some(help.clone());
+                        help = Some((reason.clone(), self.clock.now()));
                         before_help = self.events.borrow().control.clone();
-                        self.raise_help(&help).await
+                        self.raise_help(&reason).await
                     } else {
                         Ok(())
                     }
                 }
                 Some(Command::Withdraw(acknowledged)) => {
                     waiting.retain(|waiter| !waiter.is_closed());
-                    let result =
-                        if taking.is_none() && waiting.is_empty() && reason.take().is_some() {
-                            self.withdraw_help(before_help.clone()).await
-                        } else {
-                            Ok(())
-                        };
+                    let result = if taking.is_none() && waiting.is_empty() && help.is_some() {
+                        self.close_help(&mut help, self.clock.now(), HelpOutcome::Withdrawn)
+                            .await;
+                        self.withdraw_help(before_help.clone()).await
+                    } else {
+                        Ok(())
+                    };
                     let _ = acknowledged.send(());
                     result
                 }
@@ -433,6 +470,8 @@ impl Controller {
                     if let Some(mut active) = taking.take() {
                         self.finish_on_end(&mut active).await;
                     }
+                    self.close_help(&mut help, self.clock.now(), HelpOutcome::Withdrawn)
+                        .await;
                     let _ = reply.send(());
                     break;
                 }
@@ -440,6 +479,8 @@ impl Controller {
                     if let Some(mut active) = taking.take() {
                         self.finish_on_end(&mut active).await;
                     }
+                    self.close_help(&mut help, self.clock.now(), HelpOutcome::Withdrawn)
+                        .await;
                     break;
                 }
             };

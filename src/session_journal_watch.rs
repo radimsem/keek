@@ -23,7 +23,12 @@ pub(super) async fn watch_control(
         let state = events.borrow_and_update().control.clone();
         let mut data = handle.data.lock().await;
         let offset = handle.recording_offset.load(Ordering::SeqCst);
-        let changed = match state {
+        let now = Millis(
+            (clock.now().saturating_duration_since(opened).as_millis() as u64)
+                .saturating_sub(offset),
+        );
+        let help = track_help(&mut data.help_requests, &state, offset, now);
+        let takeover = match state {
             crate::ipc::ControlState::Takeover { start_ms, .. } => {
                 let start = Millis(start_ms.0.saturating_sub(offset));
                 if !data.takeovers.iter().any(|span| span.start == start) {
@@ -60,20 +65,17 @@ pub(super) async fn watch_control(
                 }
             }
             crate::ipc::ControlState::Verifier | crate::ipc::ControlState::HelpRequest { .. } => {
-                let end = Millis(
-                    (clock.now().saturating_duration_since(opened).as_millis() as u64)
-                        .saturating_sub(offset),
-                );
                 if let Some(span) = data.takeovers.last_mut()
                     && span.end.is_none()
                 {
-                    span.end = Some(end);
+                    span.end = Some(now);
                     true
                 } else {
                     false
                 }
             }
         };
+        let changed = help || takeover;
         if changed && let Err(error) = handle.write(&data).await {
             tracing::error!(%error, "could not save Takeover journal");
         }
@@ -82,6 +84,48 @@ pub(super) async fn watch_control(
             _ = &mut stop => break,
             changed = events.changed() => if changed.is_err() { break; },
         }
+    }
+}
+
+/// Opens a journaled Help Request when the card shows one and closes it on Take control or
+/// withdrawal. Returns whether the journal changed.
+fn track_help(
+    help: &mut Vec<crate::session_journal::HelpRequest>,
+    state: &crate::ipc::ControlState,
+    offset: u64,
+    now: Millis,
+) -> bool {
+    let open = help.last_mut().filter(|request| request.end.is_none());
+    match (state, open) {
+        (crate::ipc::ControlState::HelpRequest { reason, start_ms }, None) => {
+            help.push(crate::session_journal::HelpRequest {
+                reason: reason.clone(),
+                start: Millis(start_ms.0.saturating_sub(offset)),
+                end: None,
+            });
+            true
+        }
+        (crate::ipc::ControlState::Takeover { start_ms, .. }, Some(request)) => {
+            request.end = Some((
+                Millis(start_ms.0.saturating_sub(offset)),
+                crate::timeline::HelpOutcome::Answered,
+            ));
+            true
+        }
+        (
+            crate::ipc::ControlState::Verifier | crate::ipc::ControlState::HandBack { .. },
+            Some(request),
+        ) => {
+            request.end = Some((now, crate::timeline::HelpOutcome::Withdrawn));
+            true
+        }
+        (crate::ipc::ControlState::HelpRequest { .. }, Some(_))
+        | (
+            crate::ipc::ControlState::Verifier
+            | crate::ipc::ControlState::Takeover { .. }
+            | crate::ipc::ControlState::HandBack { .. },
+            None,
+        ) => false,
     }
 }
 
@@ -104,6 +148,7 @@ mod tests {
             checks: vec![],
             timeline: SessionTimeline::new(Millis(0)),
             takeovers: vec![],
+            help_requests: vec![],
             credentials_hash: None,
             profile: Default::default(),
         };
@@ -152,5 +197,74 @@ mod tests {
         .unwrap();
         let _ = stop.send(());
         task.await.unwrap();
+    }
+
+    fn journal_after(states: &[crate::ipc::ControlState]) -> crate::session_journal::Journal {
+        let mut journal = crate::session_journal::Journal {
+            project: "app".into(),
+            name: "app_12-00-00".parse().unwrap(),
+            started: String::new(),
+            revision: crate::revision::Revision {
+                branch: None,
+                commit: String::new(),
+                dirty: false,
+            },
+            goal: String::new(),
+            checks: vec![],
+            timeline: SessionTimeline::new(Millis(0)),
+            takeovers: vec![],
+            help_requests: vec![],
+            credentials_hash: None,
+            profile: Default::default(),
+        };
+        for state in states {
+            track_help(&mut journal.help_requests, state, 100, Millis(9_900));
+        }
+        journal
+    }
+
+    #[test]
+    fn a_journaled_help_request_ends_where_its_takeover_starts() {
+        let mut journal = journal_after(&[
+            crate::ipc::ControlState::HelpRequest {
+                reason: "2FA code".into(),
+                start_ms: Millis(1_100),
+            },
+            crate::ipc::ControlState::Takeover {
+                start_ms: Millis(5_100),
+                shortcuts: crate::ipc::HostShortcuts::Captured,
+            },
+        ]);
+        journal.takeovers.push(crate::session_journal::Takeover {
+            start: Millis(5_000),
+            end: Some(Millis(8_000)),
+        });
+
+        let cards =
+            crate::title_card::title_cards(journal.recovery_timeline(Millis(20_000)).events());
+
+        assert_eq!(cards.len(), 1);
+        assert_eq!(
+            cards[0].1.text(),
+            "Waited 0:04 · You were in control 0:03 · 2FA code"
+        );
+    }
+
+    #[test]
+    fn a_help_request_open_when_the_daemon_stopped_is_cut_to_the_end_of_the_recording() {
+        let journal = journal_after(&[crate::ipc::ControlState::HelpRequest {
+            reason: "2FA code".into(),
+            start_ms: Millis(1_100),
+        }]);
+
+        let timeline = journal.recovery_timeline(Millis(61_000));
+
+        assert_eq!(
+            crate::title_card::cut_spans(&timeline, Millis(61_000), Millis(1_500)),
+            [crate::title_card::Span {
+                start: Millis(1_000),
+                end: Millis(61_000),
+            }]
+        );
     }
 }

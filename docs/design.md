@@ -155,7 +155,7 @@ The first spike found the video running a steady 1.45 s behind Cua's turn times.
 
 - keek reads a monotonic clock just before it forwards `start_recording`, and counts every later time from there, less a constant of 116 ms, because the video's clock sits that far behind this zero ([`facts.md`](facts.md#sandbox-spike-results)).
 - Each forwarded call gets its start and end. A call is an Action when its tool isn't marked `readOnlyHint`, the same rule Cua uses for turns. One `run_steps` call is one active span, even though Cua logs a turn per step. A click's effect lands somewhere inside its call, up to 333 ms after its start, so nothing treats a call's start as the moment its effect shows.
-- Check marks and Takeovers go on the same timeline.
+- Check marks, Help Requests and Takeovers go on the same timeline. A Help Request records whether it was answered or withdrawn.
 
 It is data only in v1: the editor and the Verdict Report read it, and nothing draws it. Cua's `t_ms_from_session_start` stays in the Action Log as recorded, so on 0.38.0 it reads about 1.45 s behind the video.
 
@@ -164,11 +164,11 @@ It is data only in v1: the editor and the Verdict Report read it, and nothing dr
 The Verification Video ([ADR 0004](adr/0004-fast-forward-idle-instead-of-cutting.md)) comes from keek's ffmpeg editor until Cua Driver's `recording render` has the same edit:
 
 1. Keep a window from 0.3 s before each Action's start to 1.5 s after its end.
-2. Extend a window while the screen keeps changing (frame difference or ffmpeg `freezedetect`), so animations, loads and late toasts stay at real speed.
+2. Extend a window while the screen keeps changing (ffmpeg `freezedetect` at -55 dB over 0.5 s), so animations, loads and late toasts stay at real speed. A blinking caret, Cua's cursor and a small looping animation count as still ([`facts.md`](facts.md#still-screen-results)).
 3. Merge overlapping windows. Everything left is an Idle Stretch.
 4. Show each Idle Stretch as a Fast-forward of about 0.6 s, labelled with the real time it took (`+18 s`).
 
-keek splits the session at each Takeover, edits each part, and joins the parts with a title card in place of each Takeover ("You were in control · 0:42 · 2FA code"). Each cut reaches 150 ms past the Takeover on both sides, about twice the 65 ms the video varies against a page's own timestamps. A leaked frame could show a 2FA code, while a longer cut costs a moment beside a title card. The same split stays when Cua's render replaces the editor, because that render knows nothing of Takeovers. The Raw Recording keeps the footage.
+keek splits the session at each Help Request and Takeover, edits each part, and joins the parts with a title card in their place. A Help Request's wait is cut, not fast-forwarded, from the later of its start and the end of the last Action's window before it, because the wait is the developer's time, not the agent's ([ADR 0004](adr/0004-fast-forward-idle-instead-of-cutting.md)). An answered Help Request shares one card with its Takeover ("Waited 4:43 · You were in control 0:22 · 2FA code"), a withdrawn one gets its own ("Waited 4:43 · Help Request withdrawn · 2FA code"), and a Takeover without one keeps "You were in control · 0:42". Each cut reaches 150 ms past the Takeover on both sides, about twice the 65 ms the video varies against a page's own timestamps. A leaked frame could show a 2FA code, while a longer cut costs a moment beside a title card. The same split stays when Cua's render replaces the editor, because that render knows nothing of Takeovers. The Raw Recording keeps the footage.
 
 The margins are starting values to tune against real sessions. The spike's five Actions took 20.3 s raw and 8.9 s edited.
 
@@ -206,7 +206,7 @@ An Agent Session can also end in a `close_session` that cannot stop the recordin
 
 keek keeps an atomic, host-only journal for each open session under `$XDG_STATE_HOME/keek/sessions/`, because the sandbox can change files in the session folder and a retained folder may already be filed. After a daemon stops, the next daemon files the journaled session as incomplete and scrubs its Action Log only if the Project's Test Credentials file still has the same bytes, with both files absent counting as unchanged. If the file changed or was removed, keek withholds the Action Log and explains why in the Verdict Report.
 
-If a Takeover was still open when the daemon stopped, recovery cuts from the start of that Takeover to the end of the recording.
+If a Takeover or Help Request was still open when the daemon stopped, recovery cuts from its start to the end of the recording. The open Help Request counts as withdrawn.
 
 The spikes' results and the facts this design rests on are in [`facts.md`](facts.md).
 
@@ -219,6 +219,7 @@ The spikes' results and the facts this design rests on are in [`facts.md`](facts
 - Two fixed slots assume a wide monitor. On a 1920-pixel display each Session Window is under 960 pixels wide.
 - The 116 ms constant and 150 ms guard come from one machine, with a hidden window at 15 fps and a scripted Takeover. A busier machine or a visible window could move them, and a cut that lands late would leave Takeover footage in the Verification Video. #9 rechecks this live.
 - A Takeover cut removes time, not what is still on screen at Done. A code left visible in a field shows in the video after the title card.
+- The -55 dB still-screen level comes from one FlowChart session on one machine. A page whose meaningful change is fainter than a caret blink, such as a faint progress bar, would be fast-forwarded.
 - During a Takeover the nested desktop types as `us`, whatever the developer's layout is, because the plugin requires it. A password typed for another layout fails to sign in.
 - The editor seeks by time. On a recording with long gaps between frames, which a visible Session Window may produce, a segment starting inside a gap opens on the frame after the gap. Recordings with a hidden window had gaps of at most 71 ms. #8 shows a window to a person, so recheck this there.
 - keek carries an ffmpeg editor and a credential scrub until Cua releases their replacements, and a piece Cua declines stays keek's to carry.

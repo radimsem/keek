@@ -270,7 +270,7 @@ fn create(
                                 &end.folder
                             };
                             if let Some(path) = path {
-                                end_card::open(path, &card.footer);
+                                end_card::open(path);
                             }
                         }
                         return;

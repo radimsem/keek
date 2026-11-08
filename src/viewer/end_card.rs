@@ -327,9 +327,13 @@ fn check_icon(tick: Tick, theme: &Theme) -> gtk::DrawingArea {
     area
 }
 
-pub fn open(path: &std::path::Path, parent: &gtk::Window) {
-    gtk::FileLauncher::new(Some(&gtk::gio::File::for_path(path))).launch(
-        Some(parent),
+/// Opens Evidence in the default app straight from the host. A layer-shell parent makes
+/// Hyprland raise a protocol error that ends the daemon, and the portal never answers here
+/// (`docs/facts.md`).
+pub fn open(path: &std::path::Path) {
+    gtk::gio::AppInfo::launch_default_for_uri_async(
+        &gtk::gio::File::for_path(path).uri(),
+        None::<&gtk::gio::AppLaunchContext>,
         None::<&gtk::gio::Cancellable>,
         |result| {
             if let Err(error) = result {

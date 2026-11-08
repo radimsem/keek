@@ -80,7 +80,9 @@ pub fn freeze_args(raw: &Path) -> Vec<String> {
         "-i".into(),
         path(raw),
         "-vf".into(),
-        "freezedetect=n=-60dB:d=0.5".into(),
+        // -55 dB lets a caret blink, Cua's cursor and small looping animations count as
+        // still, while typing and a new message still count as change (`docs/facts.md`).
+        "freezedetect=n=-55dB:d=0.5".into(),
         "-f".into(),
         "null".into(),
         "-".into(),
@@ -109,7 +111,7 @@ pub fn segment_args(
     ]);
     // Cua Driver records full range yuvj420p, and format=yuv420p alone keeps that range.
     let filter = match &segment.kind {
-        SegmentKind::RealSpeed | SegmentKind::Takeover { .. } => {
+        SegmentKind::RealSpeed | SegmentKind::TitleCard(_) => {
             "fps=30:start_time=0,tpad=stop_mode=clone:stop_duration=1,scale=out_range=tv,format=yuv420p".into()
         }
         SegmentKind::FastForward { real_ms } => format!(

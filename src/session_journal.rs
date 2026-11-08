@@ -2,7 +2,7 @@ use crate::{
     checklist::Check,
     revision::Revision,
     session_folder::SessionName,
-    timeline::{Millis, SessionTimeline, TimelineEvent},
+    timeline::{HelpOutcome, Millis, SessionTimeline, TimelineEvent},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -21,6 +21,9 @@ pub struct Journal {
     pub checks: Vec<Check>,
     pub timeline: SessionTimeline,
     pub takeovers: Vec<Takeover>,
+    // A journal written before Help Requests were recorded has none.
+    #[serde(default)]
+    pub help_requests: Vec<HelpRequest>,
     pub credentials_hash: Option<String>,
     // A journal written before Project Profiles has none.
     #[serde(default)]
@@ -30,6 +33,13 @@ pub struct Journal {
 pub struct Takeover {
     pub start: Millis,
     pub end: Option<Millis>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub struct HelpRequest {
+    pub reason: String,
+    pub start: Millis,
+    /// `None` while the Help Request is open.
+    pub end: Option<(Millis, HelpOutcome)>,
 }
 #[derive(Clone)]
 pub struct Handle {
@@ -99,12 +109,22 @@ pub async fn remove(path: PathBuf) {
 impl Journal {
     pub fn recovery_timeline(&self, recording_end: Millis) -> SessionTimeline {
         let mut timeline = self.timeline.clone();
-        if timeline
-            .events()
-            .iter()
-            .any(|event| matches!(event, TimelineEvent::Takeover { .. }))
-        {
+        if timeline.events().iter().any(|event| {
+            matches!(
+                event,
+                TimelineEvent::Takeover { .. } | TimelineEvent::HelpRequest { .. }
+            )
+        }) {
             return timeline;
+        }
+        for help in &self.help_requests {
+            let (end, outcome) = help.end.unwrap_or((recording_end, HelpOutcome::Withdrawn));
+            timeline.push(TimelineEvent::HelpRequest {
+                reason: help.reason.clone(),
+                start_ms: help.start,
+                end_ms: end,
+                outcome,
+            });
         }
         for span in &self.takeovers {
             timeline.push(TimelineEvent::Takeover {

@@ -76,7 +76,9 @@ async fn refused_close_keeps_calls_and_check_marks_working() {
         .iter()
         .filter_map(|e| match e {
             TimelineEvent::CheckMark { check, outcome, .. } => Some((*check, *outcome)),
-            TimelineEvent::Call { .. } | TimelineEvent::Takeover { .. } => None,
+            TimelineEvent::Call { .. }
+            | TimelineEvent::Takeover { .. }
+            | TimelineEvent::HelpRequest { .. } => None,
         })
         .collect();
     assert_eq!(

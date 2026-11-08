@@ -125,25 +125,36 @@ pub fn render(input: &ReportInputs<'_>) -> String {
         ));
     }
     let mut takeovers = String::new();
-    for event in input.timeline_events {
-        match event {
-            crate::timeline::TimelineEvent::Takeover {
-                start_ms,
-                end_ms,
+    use crate::title_card::clock;
+    for (span, card) in crate::title_card::title_cards(input.timeline_events) {
+        let at = clock(input.time_map.video_time(span.start));
+        let ending = |reason: &str| {
+            let period = if reason.ends_with('.') { "" } else { "." };
+            format!(": {}{period}", one_line(reason))
+        };
+        let line = match &card {
+            crate::title_card::TitleCard::Takeover { in_control, reason } => format!(
+                "the developer was in control for {}{}",
+                clock(*in_control),
+                reason.as_deref().map_or_else(|| ".".to_owned(), ending)
+            ),
+            crate::title_card::TitleCard::Answered {
+                waited,
+                in_control,
                 reason,
-            } => {
-                let at = input.time_map.video_time(*start_ms).0 / 1000;
-                let length = end_ms.0.saturating_sub(start_ms.0) / 1000;
-                let reason = reason
-                    .as_deref()
-                    .map(|r| format!(": {}", one_line(r)))
-                    .unwrap_or_default();
-                let period = if reason.ends_with('.') { "" } else { "." };
-                takeovers.push_str(&format!("- At {}:{:02} in the video, the developer was in control for {}:{:02}{reason}{period}\n", at / 60, at % 60, length / 60, length % 60));
-            }
-            crate::timeline::TimelineEvent::Call { .. }
-            | crate::timeline::TimelineEvent::CheckMark { .. } => {}
-        }
+            } => format!(
+                "the developer answered a Help Request after {} and was in control for {}{}",
+                clock(*waited),
+                clock(*in_control),
+                ending(reason)
+            ),
+            crate::title_card::TitleCard::Withdrawn { waited, reason } => format!(
+                "a Help Request waited {} and was withdrawn{}",
+                clock(*waited),
+                ending(reason)
+            ),
+        };
+        takeovers.push_str(&format!("- At {at} in the video, {line}\n"));
     }
     if !takeovers.is_empty() {
         text.push_str("\n## Takeovers\n\n");

@@ -104,7 +104,7 @@ async fn edit_ending(
         timeline,
         &ffmpeg::parse_freezes(&freezes, duration),
         duration,
-        &takeover_spans(timeline, duration),
+        &cut_spans(timeline, duration, ACTION_AFTER),
         Margins {
             before: ACTION_BEFORE,
             after: ACTION_AFTER,
@@ -114,7 +114,7 @@ async fn edit_ending(
         || plan.segments().iter().any(|s| {
             matches!(
                 s.kind,
-                SegmentKind::FastForward { .. } | SegmentKind::Takeover { .. }
+                SegmentKind::FastForward { .. } | SegmentKind::TitleCard(_)
             )
         }) {
         let matched = runner
@@ -140,7 +140,7 @@ async fn edit_ending(
         || plan
             .segments()
             .iter()
-            .any(|s| matches!(s.kind, SegmentKind::Takeover { .. }))
+            .any(|s| matches!(s.kind, SegmentKind::TitleCard(_)))
     {
         let args = ffmpeg::size_args(raw);
         let refs: Vec<_> = args.iter().map(String::as_str).collect();
@@ -169,8 +169,8 @@ async fn edit_ending(
         for (i, segment) in plan.segments().iter().enumerate() {
             let output = parts.join(format!("{i:04}.mp4"));
             let args = match &segment.kind {
-                SegmentKind::Takeover { real_ms, reason } => {
-                    crate::title_card::card_args(*real_ms, reason.as_deref(), size, &font, &output)
+                SegmentKind::TitleCard(card) => {
+                    crate::title_card::card_args(card, size, &font, &output)
                 }
                 SegmentKind::RealSpeed | SegmentKind::FastForward { .. } => {
                     ffmpeg::segment_args(raw, segment, segment.frames(), &font, &output)

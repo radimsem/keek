@@ -160,6 +160,7 @@ impl Registry {
                     .to_vec(),
                 timeline: crate::timeline::SessionTimeline::new(crate::session::VIDEO_LEAD),
                 takeovers: vec![],
+                help_requests: vec![],
                 credentials_hash: credentials.fingerprint(),
                 profile: crate::report::ProfileSummary::new(
                     &profile,
