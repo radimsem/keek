@@ -20,6 +20,15 @@ pub enum CheckOutcome {
     Skipped,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HelpOutcome {
+    /// The developer took control. The Takeover starts at the Help Request's end.
+    Answered,
+    /// The Verifier withdrew it, or the session ended while it was open.
+    Withdrawn,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TimelineEvent {
@@ -41,6 +50,12 @@ pub enum TimelineEvent {
         reason: Option<String>,
         start_ms: Millis,
         end_ms: Millis,
+    },
+    HelpRequest {
+        reason: String,
+        start_ms: Millis,
+        end_ms: Millis,
+        outcome: HelpOutcome,
     },
 }
 
@@ -98,9 +113,9 @@ impl SessionTimeline {
     pub fn push(&mut self, event: TimelineEvent) {
         self.events.push(event);
         self.events.sort_by_key(|event| match event {
-            TimelineEvent::Call { start_ms, .. } | TimelineEvent::Takeover { start_ms, .. } => {
-                *start_ms
-            }
+            TimelineEvent::Call { start_ms, .. }
+            | TimelineEvent::Takeover { start_ms, .. }
+            | TimelineEvent::HelpRequest { start_ms, .. } => *start_ms,
             TimelineEvent::CheckMark { at_ms, .. } => *at_ms,
         });
     }

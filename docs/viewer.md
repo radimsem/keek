@@ -120,8 +120,9 @@ Recording during a Takeover:
 
 - The Raw Recording keeps running and keeps the footage locally.
 - The Session Timeline gets one Takeover entry: start, end and reason. keek reads the start before it clears `no_focus` and the end after it sets `no_focus` again, so the entry spans all of the developer's input. None of that input is logged.
-- The Verification Video replaces the Takeover with a title card: "You were in control · 0:42 · 2FA code". The cut removes time, not what is still on screen at Done, so a code left visible in a field shows after the card.
-- The Verdict Report lists each Takeover with its time and reason.
+- It also gets one Help Request entry: reason, start, end and whether it was answered or withdrawn. An answered Help Request ends where its Takeover starts. One still open when the session ends counts as withdrawn.
+- The Verification Video leaves out the Help Request's wait and the Takeover, and shows one title card in their place: "Waited 4:43 · You were in control 0:22 · 2FA code". A withdrawn Help Request gets "Waited 4:43 · Help Request withdrawn · 2FA code", and a Takeover without a Help Request keeps "You were in control · 0:42". The cut removes time, not what is still on screen at Done, so a code left visible in a field shows after the card.
+- The Verdict Report lists each card with its time, the wait and the reason.
 
 ### Session end
 

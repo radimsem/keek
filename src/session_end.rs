@@ -159,7 +159,7 @@ impl Actor {
                         Millis(
                             plan.output_length().0
                                 + if matches!(end, SessionEnd::Incomplete(_)) {
-                                    crate::title_card::TAKEOVER_CARD.0
+                                    crate::title_card::TITLE_CARD.0
                                 } else {
                                     0
                                 },

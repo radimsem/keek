@@ -118,6 +118,14 @@ Checked on 2026-11-08 with Hyprland 0.56.2, GTK 4.24.1, gtk4-layer-shell 1.3.0 a
 - With no parent, or from an ordinary toplevel, the process survives, but the launch through the portal neither completed nor failed within 15 s, and no player opened.
 - `gio::AppInfo::launch_default_for_uri` opened mpv, the default for `video/mp4`, at once.
 
+### Still-screen results
+
+Measured on 2026-11-08 with ffmpeg's `freezedetect` (`d=0.5`) on two Raw Recordings of the deployed FlowChart login page at 1440x960, from the flowchart trial.
+
+- During a 4:43 Help Request wait, the code field's blinking caret, Cua's agent cursor and the login page's animated chart changed about 100 pixels every 1 to 3 seconds. At -60 dB that split the wait into 102 frozen pieces, so the editor showed it at real speed. At -55, -50, -45 and -40 dB it was one frozen span.
+- At -55 dB the session with a wrong password still showed change while the Verifier typed and for 0.6 s as the error message appeared after the sign-in click.
+- Only one machine and one app were measured.
+
 ## Facts this design rests on
 
 Checked on 2026-10-31 in Cua Driver 0.38.0 and `trycua/cua` main `a9902d2`:

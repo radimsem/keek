@@ -15,7 +15,7 @@ impl Progress {
             .map(|s| s.frames() * 1_000_000 / OUTPUT_FPS)
             .collect();
         if incomplete.is_some() {
-            lengths.push(crate::title_card::TAKEOVER_CARD.0 * 1000);
+            lengths.push(crate::title_card::TITLE_CARD.0 * 1000);
         }
         Self {
             lengths,

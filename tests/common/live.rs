@@ -424,7 +424,8 @@ async fn assert_records(records: &Records, actions: usize, pid: u64) -> Result<(
                 } => Some(tool.as_str()),
                 TimelineEvent::Call { action: false, .. }
                 | TimelineEvent::CheckMark { .. }
-                | TimelineEvent::Takeover { .. } => None,
+                | TimelineEvent::Takeover { .. }
+                | TimelineEvent::HelpRequest { .. } => None,
             })
             .collect();
         assert!(

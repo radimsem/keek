@@ -325,5 +325,13 @@ impl Actor {
                 end_ms: timeline_time(zero, span.end),
             });
         }
+        for help in self.control.drain_help_requests().await {
+            timeline.push(TimelineEvent::HelpRequest {
+                reason: help.reason,
+                start_ms: timeline_time(zero, help.start),
+                end_ms: timeline_time(zero, help.end),
+                outcome: help.outcome,
+            });
+        }
     }
 }
