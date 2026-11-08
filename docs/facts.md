@@ -110,6 +110,14 @@ Checked on 2026-11-03 with Hyprland 0.56.2, over every live test file:
 - After each file, no keek daemon was left and the host had no `keek-footer` layer, so no Session Footer stayed on the Agents Workspace.
 - The host's focus, workspace and window count ended as they began.
 
+### Opening Evidence results
+
+Checked on 2026-11-08 with Hyprland 0.56.2, GTK 4.24.1, gtk4-layer-shell 1.3.0 and xdg-desktop-portal 1.22.1, from a gjs script outside keek. The daemon had exited with no log line and no core dump when Open video was pressed during the flowchart trial.
+
+- `gtk::FileLauncher::launch` with a gtk4-layer-shell window as parent gets `Error 71 (Protocol error) dispatching to Wayland display`, and GDK exits the process with status 1. A Session Footer is such a window, so the button ended the daemon and every open session.
+- With no parent, or from an ordinary toplevel, the process survives, but the launch through the portal neither completed nor failed within 15 s, and no player opened.
+- `gio::AppInfo::launch_default_for_uri` opened mpv, the default for `video/mp4`, at once.
+
 ## Facts this design rests on
 
 Checked on 2026-10-31 in Cua Driver 0.38.0 and `trycua/cua` main `a9902d2`:
