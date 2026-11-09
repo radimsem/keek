@@ -81,6 +81,13 @@ Probed live on 2026-11-03 from inside an Agent Session by `live_project`, which 
 
 Not run: a listener on a non-template interface such as a VPN or Docker bridge. This host had no such address and creating one required root. These results do not establish behaviour on other pasta versions.
 
+### Chromium phone-width pages
+
+Checked on 2026-11-09 with Chromium 155.0.8059.84 on the nested Hyprland:
+
+- A plain `--kiosk <url>` window will not lay out below 500 logical px. A 390x844 Session Window crops a 500 px page. `--force-device-scale-factor` does not help because the minimum is in logical px.
+- `--kiosk --app=<url>` opens an app window that takes the Session Window's exact size. The page reported `innerWidth` x `innerHeight` of 1280x800, 390x844 and 360x740 at those Session Window sizes, with no fullscreen exit bubble.
+
 ### Host window guard results
 
 Checked on 2026-11-03 with Hyprland 0.56.2 and aquamarine 0.15.1, by `live_a_second_host_window_ends_the_session_as_incomplete`:

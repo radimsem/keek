@@ -47,6 +47,7 @@ fn start_fake_daemon(
         connection
             .send(&Message::Hello {
                 version: version.to_owned(),
+                build: None,
             })
             .await?;
         let id = match connection.recv().await? {

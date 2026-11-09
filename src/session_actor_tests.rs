@@ -195,12 +195,15 @@ async fn start_configured(
         placement: crate::compositor::Placement {
             monitor: "fake".into(),
             origin: (0, 0),
-            slot: crate::slots::Slot {
-                x: 24,
-                y: 50,
-                width: 1280,
-                height: 800,
-            },
+            geometry: crate::slots::geometry(
+                crate::slots::Slot {
+                    x: 24,
+                    y: 50,
+                    width: 1280,
+                    height: 800,
+                },
+                None,
+            ),
         },
         credentials,
         project: "app".into(),

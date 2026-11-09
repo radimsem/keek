@@ -22,6 +22,7 @@ impl DaemonStarter for BrokenStarter {
 fn status() -> Response {
     Response::Status(DaemonStatus {
         version: VERSION.to_owned(),
+        build: None,
         pid: 1,
         open_sessions: 0,
     })
@@ -291,4 +292,139 @@ async fn a_started_daemon_writes_its_stderr_to_the_daemon_log() {
     starter.child.as_mut().unwrap().wait().await.unwrap();
 
     assert!(std::fs::read_to_string(&log).unwrap().contains("daemon"));
+}
+
+fn executable_build_nanos() -> u64 {
+    std::fs::metadata("/proc/self/exe")
+        .unwrap()
+        .modified()
+        .unwrap()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos()
+        .try_into()
+        .unwrap()
+}
+
+fn build_timestamp(nanos: u64) -> String {
+    chrono::DateTime::from_timestamp(
+        (nanos / 1_000_000_000) as i64,
+        (nanos % 1_000_000_000) as u32,
+    )
+    .unwrap()
+    .to_rfc3339_opts(chrono::SecondsFormat::Nanos, true)
+}
+
+async fn build_handshake(
+    build: Option<u64>,
+    response: Response,
+) -> (
+    Result<Option<Connection<tokio::io::DuplexStream>>, ConnectError>,
+    Connection<tokio::io::DuplexStream>,
+) {
+    let (near, far) = duplex(4096);
+    let mut daemon = Connection::new(far);
+    let mut hello = serde_json::json!({"type":"hello", "version":VERSION});
+    if let Some(build) = build {
+        hello["build"] = build.into();
+    }
+    daemon
+        .send(&serde_json::from_value(hello).unwrap())
+        .await
+        .unwrap();
+    daemon
+        .send(&Message::Response {
+            id: RequestId(0),
+            response,
+        })
+        .await
+        .unwrap();
+    let result = negotiate(Connection::new(near)).await;
+    assert!(matches!(
+        daemon.recv().await.unwrap(),
+        Some(Message::Hello { .. })
+    ));
+    (result, daemon)
+}
+
+#[tokio::test]
+async fn the_same_version_with_an_older_daemon_build_requests_shutdown() {
+    let (result, mut daemon) = build_handshake(
+        Some(executable_build_nanos() - 1_000_000_000),
+        Response::ShuttingDown,
+    )
+    .await;
+    assert!(matches!(result, Ok(None)), "{result:?}");
+    assert!(matches!(
+        daemon.recv().await.unwrap(),
+        Some(Message::Request {
+            request: Request::Shutdown,
+            ..
+        })
+    ));
+}
+
+#[tokio::test]
+async fn a_daemon_without_a_build_requests_shutdown() {
+    let (result, mut daemon) = build_handshake(None, Response::ShuttingDown).await;
+    assert!(matches!(result, Ok(None)), "{result:?}");
+    assert!(matches!(
+        daemon.recv().await.unwrap(),
+        Some(Message::Request {
+            request: Request::Shutdown,
+            ..
+        })
+    ));
+}
+
+#[tokio::test]
+async fn a_newer_daemon_build_is_refused_without_shutdown() {
+    let ours = executable_build_nanos();
+    let theirs = ours + 1_000_000_000;
+    let (result, mut daemon) = build_handshake(Some(theirs), Response::ShuttingDown).await;
+    assert!(
+        matches!(&result, Err(ConnectError::DaemonIsNewer { .. })),
+        "{result:?}"
+    );
+    let message = result.unwrap_err().to_string();
+    assert!(message.contains(&build_timestamp(ours)), "{message}");
+    assert!(message.contains(&build_timestamp(theirs)), "{message}");
+    assert_eq!(daemon.recv().await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn an_equal_daemon_build_connects() {
+    let (result, mut daemon) =
+        build_handshake(Some(executable_build_nanos()), Response::ShuttingDown).await;
+    assert!(matches!(&result, Ok(Some(_))), "{result:?}");
+    drop(result);
+    assert_eq!(daemon.recv().await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn an_older_build_with_a_session_open_is_refused_naming_both_builds() {
+    let ours = executable_build_nanos();
+    let theirs = ours - 1_000_000_000;
+    let (result, mut daemon) =
+        build_handshake(Some(theirs), Response::ShutdownRefused { open_sessions: 1 }).await;
+    assert!(
+        matches!(
+            &result,
+            Err(ConnectError::VersionMismatch {
+                open_sessions: 1,
+                ..
+            })
+        ),
+        "{result:?}"
+    );
+    let message = result.unwrap_err().to_string();
+    assert!(message.contains(&build_timestamp(ours)), "{message}");
+    assert!(message.contains(&build_timestamp(theirs)), "{message}");
+    assert!(matches!(
+        daemon.recv().await.unwrap(),
+        Some(Message::Request {
+            request: Request::Shutdown,
+            ..
+        })
+    ));
 }

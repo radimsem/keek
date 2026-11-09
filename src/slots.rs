@@ -5,6 +5,32 @@ pub struct Slot {
     pub width: i32,
     pub height: i32,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CardGeometry {
+    pub body: Slot,
+    pub window: Slot,
+    pub footer: Slot,
+}
+
+pub fn geometry(slot: Slot, size: Option<(i32, i32)>) -> CardGeometry {
+    let (width, height) = size.unwrap_or((slot.width, slot.height));
+    let window = Slot {
+        x: slot.x + (slot.width - width) / 2,
+        y: slot.y + (slot.height - height) / 2,
+        width,
+        height,
+    };
+    CardGeometry {
+        body: slot,
+        window,
+        footer: Slot {
+            y: slot.y + slot.height - FOOTER_OVERLAP,
+            height: FOOTER_HEIGHT,
+            ..slot
+        },
+    }
+}
+
 pub const MIN_COLUMN_WIDTH: i32 = 960;
 pub const FOOTER_HEIGHT: i32 = 76;
 pub const FOOTER_OVERLAP: i32 = 8;
@@ -136,6 +162,89 @@ mod tests {
                     height: 402
                 }
             ]
+        );
+    }
+    #[test]
+    fn a_phone_window_is_centred_above_a_full_width_footer() {
+        let body = Slot {
+            x: 24,
+            y: 50,
+            width: 1712,
+            height: 1300,
+        };
+        let card = geometry(body, Some((390, 844)));
+        assert_eq!(card.body, body);
+        assert_eq!(
+            card.window,
+            Slot {
+                x: 685,
+                y: 278,
+                width: 390,
+                height: 844
+            }
+        );
+        assert_eq!(
+            card.footer,
+            Slot {
+                x: 24,
+                y: 1342,
+                width: 1712,
+                height: 76
+            }
+        );
+    }
+
+    #[test]
+    fn a_window_that_fills_its_slot_keeps_its_placement_and_footer_overlap() {
+        let body = Slot {
+            x: 24,
+            y: 50,
+            width: 1712,
+            height: 1300,
+        };
+        let card = geometry(body, Some((1712, 1300)));
+        assert_eq!(card.body, body);
+        assert_eq!(card.window, body);
+        assert_eq!(
+            card.footer,
+            Slot {
+                x: 24,
+                y: 1342,
+                width: 1712,
+                height: 76
+            }
+        );
+        assert_eq!(geometry(body, None), card);
+    }
+
+    #[test]
+    fn odd_leftovers_split_without_overflowing_the_slot() {
+        let body = Slot {
+            x: 10,
+            y: 20,
+            width: 101,
+            height: 101,
+        };
+        let card = geometry(body, Some((98, 96)));
+        assert_eq!(
+            card.window,
+            Slot {
+                x: 11,
+                y: 22,
+                width: 98,
+                height: 96
+            }
+        );
+        assert_eq!(body.x + body.width - card.window.x - card.window.width, 2);
+        assert_eq!(body.y + body.height - card.window.y - card.window.height, 3);
+        assert_eq!(
+            card.footer,
+            Slot {
+                x: 10,
+                y: 113,
+                width: 101,
+                height: 76
+            }
         );
     }
 }

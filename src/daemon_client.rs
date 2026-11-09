@@ -18,6 +18,7 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use crate::VERSION;
+use crate::build_id::BuildId;
 use crate::ipc::{Connection, DaemonStatus, IpcError, Message, Request, RequestId, Response};
 use crate::ipc::{ConnectionReader, ConnectionWriter, Event};
 use crate::paths::Paths;
@@ -194,7 +195,7 @@ async fn retry_until_connected(
     }
 }
 
-/// Returns the connection when the daemon matches this version, and `None` when it
+/// Returns the connection when the daemon matches this build, and `None` when it
 /// has gone or agreed to exit, so the caller tries again. An idling daemon can close
 /// a connection it has just accepted, which is why a hang-up isn't an error here.
 async fn negotiate<S>(mut connection: Connection<S>) -> Result<Option<Connection<S>>, ConnectError>
@@ -206,23 +207,42 @@ where
         Err(RequestError::DaemonGone) => return Ok(None),
         Err(error) => return Err(error.into()),
     };
-    if theirs == VERSION {
+    let (theirs, their_build) = theirs;
+    let our_build = crate::build_id::current().await;
+    let order = if theirs == VERSION {
+        our_build.map_or(std::cmp::Ordering::Equal, |ours| {
+            their_build.cmp(&Some(ours))
+        })
+    } else if is_newer_than_this_build(&theirs) {
+        std::cmp::Ordering::Greater
+    } else {
+        std::cmp::Ordering::Less
+    };
+    if order == std::cmp::Ordering::Equal {
         return Ok(Some(connection));
     }
+    let (ours, theirs) = if theirs == VERSION {
+        let label = |build: Option<BuildId>| {
+            build.map_or_else(|| "unknown build".into(), |b| format!("build {b}"))
+        };
+        (
+            format!("{VERSION} ({})", label(our_build)),
+            format!("{theirs} ({})", label(their_build)),
+        )
+    } else {
+        (VERSION.to_owned(), theirs)
+    };
     // ADR 0015 replaces only an older daemon. Without this, two installed builds would
     // keep evicting each other's daemon.
-    if is_newer_than_this_build(&theirs) {
-        return Err(ConnectError::DaemonIsNewer {
-            ours: VERSION.to_owned(),
-            theirs,
-        });
+    if order == std::cmp::Ordering::Greater {
+        return Err(ConnectError::DaemonIsNewer { ours, theirs });
     }
 
     // The daemon decides, so whether a session is open is never read stale here.
     match exchange(&mut connection, RequestId(0), Request::Shutdown).await {
         Ok(Response::ShuttingDown) | Err(RequestError::DaemonGone) => Ok(None),
         Ok(Response::ShutdownRefused { open_sessions }) => Err(ConnectError::VersionMismatch {
-            ours: VERSION.to_owned(),
+            ours,
             theirs,
             open_sessions,
         }),
@@ -250,17 +270,18 @@ fn is_newer_than_this_build(theirs: &str) -> bool {
     }
 }
 
-async fn hello<S>(connection: &mut Connection<S>) -> Result<String, RequestError>
+async fn hello<S>(connection: &mut Connection<S>) -> Result<(String, Option<BuildId>), RequestError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     connection
         .send(&Message::Hello {
             version: VERSION.to_owned(),
+            build: crate::build_id::current().await,
         })
         .await?;
     match connection.recv().await? {
-        Some(Message::Hello { version }) => Ok(version),
+        Some(Message::Hello { version, build }) => Ok((version, build)),
         Some(other) => Err(RequestError::Unexpected(format!("{other:?}"))),
         None => Err(RequestError::DaemonGone),
     }

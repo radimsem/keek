@@ -5,6 +5,7 @@ mod end_card;
 mod events;
 pub mod footer_view;
 mod missing_card;
+mod style;
 pub mod theme;
 mod ui;
 pub mod verdict_view;
@@ -19,7 +20,7 @@ pub struct SessionInfo {
     pub goal: String,
     pub opened: chrono::DateTime<chrono::Utc>,
     pub slot: SlotId,
-    pub placement: crate::slots::Slot,
+    pub placement: crate::slots::CardGeometry,
     pub monitor: String,
 }
 pub type ViewerFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>;
