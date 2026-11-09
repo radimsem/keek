@@ -565,3 +565,23 @@ fn a_project_without_a_test_files_folder_gets_no_keek_files_bind() {
         assert!(!args.iter().any(|a| a == "/keek/files"));
     }
 }
+
+#[test]
+fn the_session_binds_its_own_toggles_folder_read_only_in_place_of_the_developers() {
+    let sandbox = spec();
+    let args = sandbox.args();
+    let host = sandbox.home.join(".local/state/omarchy/toggles");
+    assert!(args.windows(3).any(|a| a
+        == [
+            OsString::from("--ro-bind"),
+            sandbox.session_dir.join("toggles").into(),
+            host.clone().into()
+        ]));
+    assert!(
+        !args
+            .windows(3)
+            .any(|a| (a[0] == "--ro-bind" || a[0] == "--ro-bind-try") && a[1] == host.as_os_str())
+    );
+}
+
+include!("sandbox_preparation_tests.rs");

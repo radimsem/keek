@@ -40,10 +40,16 @@ height = 800
 
 - **install** runs once per Project Layer with `bash -c` from the worktree root. Only its writes inside the worktree are kept, such as `node_modules`, `.venv` or `target`; HOME and `/tmp` are thrown away. Use the lockfile's frozen install: `npm ci`, `pnpm install --frozen-lockfile`, `yarn install --immutable`, `uv sync --frozen`, `cargo build --locked`. Leave it out when nothing needs installing. It has 20 minutes and has internet access.
 - **start** runs in every Agent Session from the worktree root and keeps running. Bind the app to `127.0.0.1`, because the Session's browser runs in the same sandbox. A command that builds and then serves belongs in `start`; only the dependency install belongs in `install`. A script it calls is an ordinary repository file.
-- **Browser**: when `start` opens the App Under Test in Chromium, disable its password manager before launching it. Every Agent Session gets a fresh HOME, so after each sign-in Chromium otherwise offers to save the password in a bubble with the username over the page. An app window takes the Session Window's exact size, so a phone size gives a phone-width page. Use this recipe, replacing `<url>` with the app's URL:
+- **Browser**: when `start` opens the App Under Test in Chromium, disable its password manager before launching it. Every Agent Session gets a fresh HOME, so after each sign-in Chromium otherwise offers to save the password in a bubble with the username over the page. Use one of these recipes, replacing `<url>` with the app's URL. For a page that must be exactly `window`, such as a phone layout, use the kiosk app variant:
 
   ```sh
   mkdir -p "$HOME/chromium/Default" && printf '%s' '{"credentials_enable_service":false,"profile":{"password_manager_enabled":false}}' > "$HOME/chromium/Default/Preferences" && exec chromium --enable-logging=stderr --ozone-platform=wayland --kiosk --app=<url> --no-first-run --no-default-browser-check --password-store=basic --user-data-dir="$HOME/chromium"
+  ```
+
+  For an app that redirects after sign-in and needs the Verifier to type a URL, use the address-bar variant. Its page is `window` less Chromium's tab strip and toolbar:
+
+  ```sh
+  mkdir -p "$HOME/chromium/Default" && printf '%s' '{"credentials_enable_service":false,"profile":{"password_manager_enabled":false}}' > "$HOME/chromium/Default/Preferences" && exec chromium --enable-logging=stderr --ozone-platform=wayland --no-first-run --no-default-browser-check --password-store=basic --user-data-dir="$HOME/chromium" <url>
   ```
 
 - **toolchain** pins `node`, `rust`, `python`, `pnpm` and `yarn`, using the version the repository's own files name, such as `"24"` from an `.nvmrc` of `24` or `"1.90.0"` from `rust-toolchain.toml`. keek installs each pin once into a read-only store and puts it on `PATH`. Without a pin the sandbox uses `/usr/bin`, whose version may differ from what the repository expects.
@@ -51,4 +57,4 @@ height = 800
 - **Test Credentials** hold test-only usernames, passwords, tokens and keys. Copy them with `credentials: { "source": "<absolute path to the repository's .env>", "names": ["TEST_USER", "TEST_PASSWORD"] }`. keek copies the values into its own file and returns only the names; you never see a value, and the Verifier types `${TEST_USER}` or `${TEST_PASSWORD}`. Copied values are masked in results. If a username is an ordinary word that masking would blank out of the report, ask the developer to add the line `# keek: public TEST_USER` to `~/.config/keek/projects/<project>.env`; only the developer can make a credential public. Passwords, tokens and keys stay secret. A credential and an `[env]` entry with the same name: the credential wins.
 - **Test Files**: the developer, not `set_project_profile`, places sample inputs in `~/.config/keek/projects/<project>.files/`. Every Agent Session of the Project sees them read-only at `/keek/files`. Git-ignored worktree files stay absent, so do not point a Check at one or add an untracked folder as a workaround.
 - **ports** lists host loopback ports to forward into the sandbox, so the app reaches a host service such as Postgres on `127.0.0.1:5432`. An Agent Session blocks the LAN, so a service on another machine needs a host loopback tunnel and its port here.
-- **window** is the Session Window size, 1280x800 without it. Use a phone size such as 390x844 for a mobile layout, with the Browser recipe above.
+- **window** is the Session Window size, 1280x800 without it. One app window fills the Session Window with no bar, gap, border or rounding. Use a phone size such as 390x844 for a mobile layout, with the kiosk app variant above.

@@ -22,6 +22,11 @@ end
 
 dofile(os.getenv("HOME") .. "/.config/hypr/hyprland.lua")
 
+-- One app fills the Session Window, so Evidence shows only the app.
+hl.config({ general = { gaps_in = 0, gaps_out = 0, border_size = 0 }, decoration = { rounding = 0 } })
+-- The developer's window opacity would show their wallpaper through the app.
+hl.window_rule({ match = { class = ".*" }, opacity = "1.0 override 1.0 override" })
+
 hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
 -- Xwayland would set DISPLAY for every app, and the sandbox promises none.
 hl.config({ xwayland = { enabled = false } })

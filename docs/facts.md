@@ -81,6 +81,18 @@ Probed live on 2026-11-03 from inside an Agent Session by `live_project`, which 
 
 Not run: a listener on a non-template interface such as a VPN or Docker bridge. This host had no such address and creating one required root. These results do not establish behaviour on other pasta versions.
 
+### Bare nested desktop results
+
+Checked on 2026-11-09 with Hyprland 0.56.2, Omarchy 4.5.0-3, Quickshell 0.3.2 and Chromium 155.0.8059.84, by `live_session_shows_only_the_app`.
+
+- Trial measurement, before the change: a 1440x960 Session Window with the bar and gaps held a window of 1388x882 at 26,52.
+- With `bar-off` in the session's `toggles` and gaps, borders and rounding at 0, `list_windows` reported an ordinary Chromium window as 1440x960 at 0,0. Its page reported `innerWidth` x `innerHeight` of 1440x873, so Chromium's tab strip and toolbar take 87 px.
+- `--kiosk --app=<url>` reported 1440x960 for the page.
+- Omarchy's shell reads `bar-off` when it starts (`/usr/share/omarchy/shell/plugins/bar/Bar.qml`). A frame from the end of the Raw Recording showed no bar and no gap around the window.
+- A critical `notify-send` sent 6 s into `start` showed as a card at the top right of that frame. One sent as `start`'s first command showed in no frame of a 6.7 s Raw Recording. The cause wasn't checked.
+- The host's `toggles` folder listed the same entries before and after the session.
+- With the developer's `decoration.active_opacity` of 0.97, the page's white background showed the wallpaper faintly through the window. With a window rule of `opacity = "1.0 override 1.0 override"` on every class, a 1000x700 crop of the page had one luma value.
+
 ### Chromium phone-width pages
 
 Checked on 2026-11-09 with Chromium 155.0.8059.84 on the nested Hyprland:

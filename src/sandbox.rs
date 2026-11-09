@@ -149,6 +149,10 @@ impl SandboxSpec {
             self.session_dir.join("shell.json"),
             serde_json::to_vec_pretty(&shell)?,
         )?;
+        crate::omarchy_toggles::prepare_session_toggles(
+            &self.home.join(".local/state/omarchy/toggles"),
+            &self.session_dir.join("toggles"),
+        )?;
         std::fs::write(
             self.session_dir.join("resolv.conf"),
             format!("nameserver {DNS_FORWARDER}\n"),
@@ -440,7 +444,7 @@ impl SandboxSpec {
             self.session_dir.join("shell.json").into(),
             self.home.join(".config/omarchy/shell.json").into(),
         ]);
-        for path in ["current", "toggles", "settings"] {
+        for path in ["current", "settings"] {
             let path = self.home.join(".local/state/omarchy").join(path);
             args.extend([
                 OsString::from("--ro-bind-try"),
@@ -448,6 +452,11 @@ impl SandboxSpec {
                 path.into(),
             ]);
         }
+        args.extend([
+            OsString::from("--ro-bind"),
+            self.session_dir.join("toggles").into(),
+            self.home.join(".local/state/omarchy/toggles").into(),
+        ]);
         args.extend([
             OsString::from("--bind"),
             self.session_dir.as_os_str().to_owned(),
