@@ -46,7 +46,7 @@ The viewer fails, even if it works, if:
 ### Agents Workspace
 
 - keek uses one named Hyprland workspace, `keek`, for every Session Card.
-- The workspace has one slot per allowed open session: two by default, each half the monitor's width. A Session Card fills its slot; its Session Window floats in the slot above the Session Footer at a size fixed when the session opens. A Project's Project Profile can give it a different size, such as a phone-sized window for a mobile web app.
+- The workspace has one slot per allowed open session: two by default, each half the monitor's width. A Session Card fills its slot; its Session Window floats in the slot above the Session Footer at a size fixed when the session opens. A Project's Project Profile can give it a different size, such as a phone-sized window for a mobile web app. A Session Window smaller than its slot sits centred in it on both axes, and keek paints the rest of the slot black, so every Session Card has its slot's size. The agent's desktop and the Verification Video keep the Session Window's size.
 - A Session Window opens there silently: it never takes focus or switches the developer's workspace. It closes when its session ends. Its window rule includes `render_unfocused`, so the session keeps rendering and recording while the workspace is hidden.
 - keek ships no keybinding to reach the workspace. Its docs suggest one for the user's Hyprland config. *(my call)*
 
@@ -70,7 +70,7 @@ A gtk4-layer-shell surface per slot, shown only while the `keek` workspace is ac
 
 Once the session ends, the footer moves to the bottom layer with the rest of the card, so a window the developer opens on `keek` covers the whole Session Card.
 
-It sits flush under its Session Window and overlaps the window's bottom border by the Hyprland rounding (8 px), so window and footer read as one Session Card. The footer draws its own side and bottom border in the window's current border colour and rounds only its bottom corners. The nested desktop is sized so the overlap hides nothing but the border. A 2 px top edge in the session's cursor colour ties the card to its Cua cursor, on screen and in the video. *(my call)*
+It sits flush under its Session Window and overlaps the window's bottom border by the Hyprland rounding (8 px), so window and footer read as one Session Card. The footer always has its slot's width and sits at the slot's bottom. Around a Session Window smaller than its slot, the window floats centred above the footer instead of resting on it, and the black backdrop draws the card's outer edge in the window's current border colour and joins the footer's side borders; the window keeps its own border as a frame. The footer draws its own side and bottom border in the window's current border colour and rounds only its bottom corners. The nested desktop is sized so the overlap hides nothing but the border. A 2 px top edge in the session's cursor colour ties the card to its Cua cursor, on screen and in the video. *(my call)*
 
 It shows that session's:
 
@@ -79,7 +79,7 @@ It shows that session's:
 - Last Action in plain words (`click "Sign in"`) and the time since it, counting up.
 - The Verification Checklist's progress ("Checked 2 of 4", counting marked Checks) with one tick per Check: filled green for passed, filled red for failed, an outlined yellow dash for skipped, a dim outline for not yet marked.
 - Elapsed time since the session opened, so a stuck session stands out. Once the session ends it reads "Ran" with the total.
-- Help Request state: the whole card turns orange, the window border through a window rule and the footer with it, and the footer shows the Verifier's reason.
+- Help Request state: the whole card turns orange, the window border through a window rule and the footer and any black backdrop with it, and the footer shows the Verifier's reason.
 - During a Takeover: "You are in control" and its running time, with the window border in the active colour.
 - The **Take control** button, which becomes **Done** during a Takeover.
 
@@ -87,7 +87,7 @@ The keek daemon already sees every Action on its way to Cua Driver, so it pushes
 
 ### View-only hint
 
-Outside a Takeover, `no_focus` makes Hyprland skip the Session Window in pointer hit tests, so the pointer lands on whatever is beneath it. keek puts a layer-shell surface on the bottom layer under each slot to catch that hover. While the pointer is over the window, the footer's state column reads "View only" and "Use Take control to interact.", and the Take control button lights up. A click there does the same and nothing else. The footer shows the last Action again when the pointer leaves. *(my call)*
+Outside a Takeover, `no_focus` makes Hyprland skip the Session Window in pointer hit tests, so the pointer lands on whatever is beneath it. keek puts a layer-shell surface on the bottom layer under each slot to catch that hover. It covers the whole card body, including the black sides around a Session Window smaller than its slot, which stay inert during a Takeover. While the pointer is over the card body, the footer's state column reads "View only" and "Use Take control to interact.", and the Take control button lights up. A click there does the same and nothing else. The footer shows the last Action again when the pointer leaves. *(my call)*
 
 ### Help Request
 
@@ -130,7 +130,7 @@ Recording during a Takeover:
 
 ### Session end
 
-When the session closes (normally or as an Incomplete Session), the sandbox stops and the Session Window closes with it. The Session Card stays at full size: keek shows the session's last frame, dimmed, in the window's place, with one panel over it: "Rendering" and its percentage above a progress bar while the Verification Video is built, then the Verdict with the Verification Checklist. Each Check shows its outcome, Checks the Verifier added are tagged, and a failed or skipped Check shows its comment beneath it. A Needs fixes card also shows the attempt ("attempt 1 of 3"), counted from the Project's `index.md` for the same branch. The footer keeps the video length and gains buttons to open the Verification Video and the Evidence folder. The card stays until the developer dismisses it, which empties the slot. A new session that needs the slot replaces the card; the Verdict stays in the Evidence folder. *(my call)*
+When the session closes (normally or as an Incomplete Session), the sandbox stops and the Session Window closes with it. The Session Card stays at full size: keek shows the session's last frame, dimmed, in the window's place (centred on black when the window was smaller than its slot), with one panel over it, as wide as on a full-size card: "Rendering" and its percentage above a progress bar while the Verification Video is built, then the Verdict with the Verification Checklist. Each Check shows its outcome, Checks the Verifier added are tagged, and a failed or skipped Check shows its comment beneath it. A Needs fixes card also shows the attempt ("attempt 1 of 3"), counted from the Project's `index.md` for the same branch. The footer keeps the video length and gains buttons to open the Verification Video and the Evidence folder. The card stays until the developer dismisses it, which empties the slot. A new session that needs the slot replaces the card; the Verdict stays in the Evidence folder. *(my call)*
 
 ## Left to the builder
 
