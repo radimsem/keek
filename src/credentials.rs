@@ -128,6 +128,7 @@ pub(crate) const SANDBOX_ENV: &str = "KEEK_CREDENTIALS";
 impl Credentials {
     pub fn parse(path: &Path, text: &str) -> Result<Self, CredentialsError> {
         let mut pairs: BTreeMap<String, String> = BTreeMap::new();
+        let public: Vec<&str> = text.lines().filter_map(public_name).collect();
         for entry in entries(path, text)? {
             if pairs.contains_key(entry.name) {
                 return Err(CredentialsError::Duplicate {
@@ -136,11 +137,13 @@ impl Credentials {
                     name: entry.name.into(),
                 });
             }
-            check_length(path, entry.name, entry.value)?;
+            // A public value is never masked, so a short one can't corrupt other text.
+            if !public.contains(&entry.name) {
+                check_length(path, entry.name, entry.value)?;
+            }
             pairs.insert(entry.name.into(), entry.value.into());
         }
         let mut forms = Vec::new();
-        let public: Vec<&str> = text.lines().filter_map(public_name).collect();
         for (name, value) in &pairs {
             if public.contains(&name.as_str()) {
                 continue;
@@ -370,6 +373,18 @@ mod tests {
         assert_eq!(credentials.longest_form(), 0);
         let text = r#"public"user\name public\"user\\name public%22user%5Cname"#;
         assert_eq!(credentials.mask(text), text);
+    }
+
+    #[test]
+    fn a_short_public_value_is_accepted_while_a_short_secret_is_refused() {
+        let credentials = Credentials::parse(
+            Path::new("fixture.env"),
+            "# keek: public USER\nUSER=admin\nPASSWORD=made-up-password\n",
+        )
+        .unwrap();
+        assert_eq!(credentials.mask("admin made-up-password"), "admin [masked]");
+        let error = Credentials::parse(Path::new("fixture.env"), "USER=admin\n").unwrap_err();
+        assert!(matches!(error, CredentialsError::Short { .. }), "{error}");
     }
 
     #[test]

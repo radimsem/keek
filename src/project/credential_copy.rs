@@ -112,7 +112,9 @@ pub fn copy_credentials(
                 }
                 .into());
             }
-            check_length(source, entry.name, entry.value)?;
+            if !public.iter().any(|name| name == entry.name) {
+                check_length(source, entry.name, entry.value)?;
+            }
         }
     }
     let existing = match std::fs::read_to_string(target) {
@@ -456,6 +458,23 @@ mod tests {
             "{error}"
         );
         assert!(!target.exists());
+    }
+
+    #[test]
+    fn copying_accepts_a_short_public_value_and_refuses_a_short_secret_one() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("source.env");
+        let target = directory.path().join("project.env");
+        std::fs::write(&source, "USER=admin\nPIN=1234\n").unwrap();
+        let copied =
+            copy_credentials(&target, &source, &names(&["USER"]), &names(&["USER"])).unwrap();
+        assert_eq!(copied.copied, ["USER"]);
+        let (credentials, _) = crate::credentials::Credentials::read(&target).unwrap();
+        assert_eq!(credentials.mask("admin"), "admin");
+        let error = copy_credentials(&target, &source, &names(&["PIN"]), &[])
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("PIN") && !error.contains("1234"), "{error}");
     }
 
     #[test]
