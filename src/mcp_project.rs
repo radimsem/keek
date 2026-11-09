@@ -7,8 +7,7 @@ pub(super) fn project_tools() -> Vec<Tool> {
         "description":"Test Credentials to copy into the Project's .env file. keek copies the values and returns only the names.",
         "properties":{
             "source":{"type":"string","description":"Absolute host path of a dotenv file to copy from, such as the repository's .env."},
-            "names":{"type":"array","items":{"type":"string"},"description":"Names to copy. Names the source lacks are listed back."},
-            "public":{"type":"array","items":{"type":"string"},"description":"Names from names whose values may appear in Evidence without masking. Other copied names stay secret."}
+            "names":{"type":"array","items":{"type":"string"},"description":"Names to copy. Names the source lacks are listed back."}
         },
         "required":["source","names"]
     });
@@ -70,13 +69,6 @@ pub(super) fn parse_set_profile(value: Value) -> Result<Request, String> {
     let args: SetArguments = serde_json::from_value(value).map_err(|e| {
         format!("Cannot set the Project Profile: {e}. Pass project and profile, and credentials with source and names to copy Test Credentials.")
     })?;
-    if let Some(credentials) = &args.credentials {
-        for name in &credentials.public {
-            if !credentials.names.contains(name) {
-                return Err(crate::project::CopyError::UnrequestedPublic(name.clone()).to_string());
-            }
-        }
-    }
     Ok(Request::SetProjectProfile {
         project: args.project,
         profile: args.profile,
@@ -144,19 +136,6 @@ mod tests {
         assert_eq!(profile, json!({"start":"npm start"}));
         assert_eq!(credentials.unwrap().names, ["TEST_PASSWORD"]);
         assert!(parse_set_profile(json!({"project":"web"})).is_err());
-    }
-
-    #[test]
-    fn set_project_profile_refuses_a_public_name_outside_the_names_to_copy() {
-        let error = parse_set_profile(json!({
-            "project":"web", "profile":{"start":"npm start"},
-            "credentials":{"source":"/repo/.env", "names":["PASSWORD"], "public":["USER"]}
-        }))
-        .unwrap_err();
-        assert!(
-            error.contains("USER") && error.contains("names") && error.contains("public"),
-            "{error}"
-        );
     }
 
     #[test]

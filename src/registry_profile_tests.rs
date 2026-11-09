@@ -19,22 +19,13 @@ async fn set(
 async fn set_project_profile_writes_the_profile_and_copies_credentials_without_their_values() {
     let mut h = Harness::new(2);
     let source = h.directory.path().join("repo.env");
-    std::fs::write(
-        &source,
-        "TEST_PASSWORD=made-up-secret\nTEST_USER=operator\n",
-    )
-    .unwrap();
+    std::fs::write(&source, "TEST_PASSWORD=made-up-secret\n").unwrap();
     let response = set(
         &mut h,
         json!({"install":"npm ci","start":"npm start","env":{"APP_ENV":"test"}}),
         Some(crate::ipc::CredentialSource {
             source,
-            public: vec!["TEST_USER".into()],
-            names: vec![
-                "TEST_PASSWORD".into(),
-                "TEST_TOKEN".into(),
-                "TEST_USER".into(),
-            ],
+            names: vec!["TEST_PASSWORD".into(), "TEST_TOKEN".into()],
         }),
     )
     .await;
@@ -52,8 +43,7 @@ async fn set_project_profile_writes_the_profile_and_copies_credentials_without_t
     assert_eq!(path, config.join("web.toml"));
     assert!(profile.contains("npm ci"), "{profile}");
     let credentials = credentials.unwrap();
-    assert_eq!(credentials.copied, ["TEST_PASSWORD", "TEST_USER"]);
-    assert_eq!(credentials.public, ["TEST_USER"]);
+    assert_eq!(credentials.copied, ["TEST_PASSWORD"]);
     assert_eq!(credentials.missing, ["TEST_TOKEN"]);
     assert!(
         std::fs::read_to_string(config.join("web.env"))
@@ -87,7 +77,6 @@ async fn the_first_set_project_profile_with_credentials_creates_the_config_folde
         json!({"start":"npm start"}),
         Some(crate::ipc::CredentialSource {
             source,
-            public: vec![],
             names: vec!["TEST_PASSWORD".into()],
         }),
     )
@@ -113,7 +102,6 @@ fn concurrent_set_project_profile_calls_keep_every_copied_credential() {
             std::thread::spawn(move || {
                 let credentials = crate::ipc::CredentialSource {
                     source,
-                    public: vec![],
                     names: vec![format!("TEST_KEY_{index}")],
                 };
                 barrier.wait();
