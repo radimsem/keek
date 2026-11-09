@@ -57,7 +57,7 @@ where
     let (_alive, opener) = tokio::sync::watch::channel(());
     match connection.recv().await? {
         None => return Ok(ConnectionEnd::ClientLeft),
-        Some(Message::Hello { version }) => {
+        Some(Message::Hello { version, .. }) => {
             tracing::info!(client_version = %version, "client connected")
         }
         Some(other) => return Err(ConnectionError::Protocol(Box::new(other))),
@@ -65,6 +65,7 @@ where
     connection
         .send(&Message::Hello {
             version: VERSION.to_owned(),
+            build: crate::build_id::current().await,
         })
         .await?;
     let (mut reader, mut writer) = connection.split();
@@ -154,6 +155,7 @@ mod tests {
         client
             .send(&Message::Hello {
                 version: VERSION.into(),
+                build: None,
             })
             .await
             .unwrap();
@@ -198,6 +200,7 @@ mod tests {
         client
             .send(&Message::Hello {
                 version: VERSION.into(),
+                build: None,
             })
             .await
             .unwrap();
@@ -341,6 +344,7 @@ mod tests {
         client
             .send(&Message::Hello {
                 version: VERSION.into(),
+                build: None,
             })
             .await
             .unwrap();
@@ -385,6 +389,7 @@ mod tests {
         client
             .send(&Message::Hello {
                 version: VERSION.into(),
+                build: None,
             })
             .await
             .unwrap();

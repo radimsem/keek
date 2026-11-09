@@ -50,6 +50,7 @@ fn every_message() -> Result<Vec<Message>> {
     Ok(vec![
         Message::Hello {
             version: "0.1.0".to_owned(),
+            build: None,
         },
         Message::Request {
             id,
@@ -233,6 +234,7 @@ fn every_message() -> Result<Vec<Message>> {
             id,
             response: Response::Status(DaemonStatus {
                 version: "0.1.0".to_owned(),
+                build: None,
                 pid: 42,
                 open_sessions: 1,
             }),
@@ -285,6 +287,7 @@ async fn each_message_is_one_line_of_json() -> Result<()> {
     sender
         .send(&Message::Hello {
             version: "0.1.0".to_owned(),
+            build: None,
         })
         .await?;
     let mut line = String::new();
@@ -302,6 +305,7 @@ fn the_messages_that_replace_an_old_daemon_keep_their_exact_shape() -> Result<()
         (
             Message::Hello {
                 version: "0.1.0".to_owned(),
+                build: None,
             },
             r#"{"type":"hello","version":"0.1.0"}"#,
         ),

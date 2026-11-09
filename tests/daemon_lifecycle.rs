@@ -138,13 +138,21 @@ async fn a_daemon_with_no_sessions_accepts_a_shutdown_request() -> Result<()> {
     old_client
         .send(&Message::Hello {
             version: "0.0.1".to_owned(),
+            build: None,
         })
         .await?;
     let hello = old_client.recv().await?.context("no hello")?;
     assert_eq!(
         hello,
         Message::Hello {
-            version: env!("CARGO_PKG_VERSION").to_owned()
+            version: env!("CARGO_PKG_VERSION").to_owned(),
+            build: Some(keek::build_id::BuildId(
+                std::fs::metadata(env!("CARGO_BIN_EXE_keek"))?
+                    .modified()?
+                    .duration_since(std::time::UNIX_EPOCH)?
+                    .as_nanos()
+                    .try_into()?,
+            )),
         }
     );
     let id = RequestId(1);
@@ -183,6 +191,7 @@ async fn a_terminated_daemon_exits_and_removes_its_socket() -> Result<()> {
     client
         .send(&Message::Hello {
             version: env!("CARGO_PKG_VERSION").into(),
+            build: None,
         })
         .await?;
     assert!(matches!(client.recv().await?, Some(Message::Hello { .. })));

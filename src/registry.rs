@@ -349,6 +349,9 @@ impl Registry {
             Request::Status => {
                 let _ = reply.send(Response::Status(crate::ipc::DaemonStatus {
                     version: crate::VERSION.into(),
+                    build: crate::build_id::current()
+                        .await
+                        .map(|build| build.to_string()),
                     pid: std::process::id(),
                     open_sessions: self.len(),
                 }));

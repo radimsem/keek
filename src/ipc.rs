@@ -23,6 +23,8 @@ pub struct RequestId(pub u64);
 pub enum Message {
     Hello {
         version: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        build: Option<crate::build_id::BuildId>,
     },
     Request {
         id: RequestId,
@@ -239,6 +241,8 @@ impl SessionState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct DaemonStatus {
     pub version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<String>,
     pub pid: u32,
     pub open_sessions: usize,
 }
