@@ -42,6 +42,10 @@ _Avoid_: toolchain cache, runtime
 Smoke-test-only accounts and keys that a project grants to its Agent Sessions, kept outside the project and chosen so they are safe to appear in Evidence. A Verifier refers to them by name and never sees a secret one's value. A public one, such as a test username, may appear in Evidence.
 _Avoid_: secrets, env, .env
 
+**Test Files**:
+Sample inputs a Project grants to its Agent Sessions, such as a document to upload. They are kept outside the repository, placed there by hand, and chosen so they are safe to appear in Evidence.
+_Avoid_: fixtures, samples, shared files
+
 ## Recording
 
 **Action**:

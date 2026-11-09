@@ -79,6 +79,7 @@ pub struct Prepared {
     reply: oneshot::Sender<Response>,
 }
 struct Opening {
+    test_files: crate::test_files::TestFiles,
     credentials: crate::credentials::Credentials,
     project: String,
     worktree: PathBuf,

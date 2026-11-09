@@ -43,6 +43,8 @@ impl Registry {
                 let (profile, mut warnings) = crate::project::read_project_profile(&project, &projects_config).await?;
                 let credential_path = projects_config.join(format!("{project}.env"));
                 let (credentials, warning) = tokio::task::spawn_blocking(move || crate::credentials::Credentials::read(&credential_path)).await.map_err(|e| SessionError::Refused(e.to_string()))?.map_err(|e| SessionError::Refused(e.to_string()))?;
+                let test_files = crate::test_files::TestFiles::read(&projects_config, &project)
+                    .await.map_err(|e| SessionError::Refused(e.to_string()))?;
                 warnings.extend(warning);
                 let progress = crate::open_progress::OpenProgress::new(events, credentials.clone());
                 let goal = credentials.mask(&goal);
@@ -52,6 +54,7 @@ impl Registry {
                     .map_err(SessionError::Refused)?;
                 let (worktree, revision) = checked_worktree(runner.as_ref(), sessions_dir, worktree).await?;
                 Ok(Opening {
+                    test_files,
                     credentials,
                     project,
                     worktree,
@@ -76,6 +79,7 @@ impl Registry {
         opener: Option<watch::Receiver<()>>,
     ) -> Result<(Actor, Inbox), SessionError> {
         let Opening {
+            test_files,
             credentials,
             project,
             worktree,
@@ -166,6 +170,7 @@ impl Registry {
                     &profile,
                     &crate::toolchain::Toolchains::default(),
                 )
+                .with_test_files(&test_files.list)
                 .masked(&credentials),
             },
         )
@@ -244,6 +249,7 @@ impl Registry {
         );
         Ok((
             Actor {
+                test_files,
                 frames_dir: self.dependencies.frames_dir.clone(),
                 journal: Some(journal),
                 idle_limit: self.dependencies.session_idle_limit,

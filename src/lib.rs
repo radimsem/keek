@@ -52,3 +52,5 @@ pub mod attempts;
 pub mod session_frame;
 
 mod window_guard;
+
+pub mod test_files;

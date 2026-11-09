@@ -163,10 +163,14 @@ async fn prepare(
                 .await
                 .map_err(|e| SessionError::Refused(e.to_string()))?
                 .map_err(|e| SessionError::Refused(e.to_string()))?;
+        let test_files = crate::test_files::TestFiles::read(&projects_config, &project)
+            .await
+            .map_err(|e| SessionError::Refused(e.to_string()))?;
         credentials = read;
         warnings.extend(warning);
         let (worktree, _) = opening::checked_worktree(runner, sessions_dir, worktree).await?;
         let prep = crate::project_prepare::ProjectPrep {
+            test_files: test_files.folder,
             progress: crate::open_progress::OpenProgress::new(events, credentials.clone()),
             project,
             worktree,

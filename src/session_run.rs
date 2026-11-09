@@ -41,6 +41,7 @@ impl Actor {
     ) -> Finished {
         let mut opener = self.opener.take();
         let opening = Opening {
+            test_files: self.test_files.folder.clone(),
             placement: self.placement.clone(),
             credentials: self.credentials.clone(),
             project: self.project.clone(),
@@ -69,6 +70,7 @@ impl Actor {
         self.toolchains = mounts.toolchains.clone();
         if let Some(journal) = &self.journal {
             let profile = crate::report::ProfileSummary::new(&self.profile, &self.toolchains)
+                .with_test_files(&self.test_files.list)
                 .masked(&self.credentials);
             journal.data.lock().await.profile = profile;
             if let Err(error) = journal.save().await {
@@ -139,6 +141,7 @@ impl Actor {
             .map(|commands| tokio::spawn(controller.run(commands, controller_ended)));
         self.publish(SessionState::Open, &None);
         let _ = open_reply.send(Response::Opened {
+            files: self.test_files.list.clone(),
             credentials: self.credentials.names(),
             warnings: self.warnings.clone(),
             session: self.name.clone(),

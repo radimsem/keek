@@ -32,6 +32,10 @@ pub struct ProfileSummary {
     pub start: String,
     pub toolchains: Vec<ToolVersion>,
     pub env: Vec<String>,
+    #[serde(default)]
+    pub test_files: Vec<String>,
+    #[serde(default)]
+    pub test_files_more: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -57,12 +61,25 @@ impl ProfileSummary {
                 })
                 .collect(),
             env: profile.env.keys().cloned().collect(),
+            test_files: vec![],
+            test_files_more: 0,
         }
+    }
+
+    pub fn with_test_files(mut self, list: &crate::test_files::TestFileList) -> Self {
+        self.test_files = list.names.clone();
+        self.test_files_more = list.more;
+        self
     }
 
     pub fn masked(mut self, credentials: &crate::credentials::Credentials) -> Self {
         self.install = credentials.mask(&self.install);
         self.start = credentials.mask(&self.start);
+        self.test_files = self
+            .test_files
+            .iter()
+            .map(|name| credentials.mask(name))
+            .collect();
         self
     }
 }
@@ -183,8 +200,21 @@ pub fn render(input: &ReportInputs<'_>) -> String {
         } else {
             profile.env.join(", ")
         };
+        let mut files = if profile.test_files.is_empty() {
+            "none".to_owned()
+        } else {
+            profile
+                .test_files
+                .iter()
+                .map(|name| code(name))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        if profile.test_files_more > 0 {
+            files.push_str(&format!(" and {} more", profile.test_files_more));
+        }
         text.push_str(&format!(
-            "\n## Project Profile\n\n- Install: {install}\n- Start: {}\n- Toolchains: {toolchains}\n- Environment: {env}\n",
+            "\n## Project Profile\n\n- Install: {install}\n- Start: {}\n- Toolchains: {toolchains}\n- Environment: {env}\n- Test Files: {files}\n",
             code(&profile.start)
         ));
     }
@@ -230,4 +260,35 @@ pub fn index_line(
         revision.commit.get(..7).unwrap_or(&revision.commit),
         end.label()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_project_profile_summary_saved_before_test_files_loads_with_none() {
+        let summary: ProfileSummary =
+            serde_json::from_str(r#"{"install":"","start":"run","toolchains":[],"env":[]}"#)
+                .unwrap();
+        assert!(summary.test_files.is_empty());
+        assert_eq!(summary.test_files_more, 0);
+    }
+
+    #[test]
+    fn a_test_file_name_that_holds_a_secret_credential_value_is_masked_in_the_summary() {
+        let credentials = crate::credentials::Credentials::parse(
+            std::path::Path::new("app.env"),
+            "PASSWORD=made-up-password",
+        )
+        .unwrap();
+        let summary = ProfileSummary::default()
+            .with_test_files(&crate::test_files::TestFileList {
+                names: vec!["docs/made-up-password.pdf".into()],
+                more: 2,
+            })
+            .masked(&credentials);
+        assert_eq!(summary.test_files, ["docs/[masked].pdf"]);
+        assert_eq!(summary.test_files_more, 2);
+    }
 }

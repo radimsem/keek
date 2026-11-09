@@ -26,6 +26,7 @@ pub enum SandboxError {
 
 #[derive(Debug, Clone)]
 pub struct SandboxSpec {
+    pub test_files: Option<PathBuf>,
     pub credentials: crate::credentials::Credentials,
     pub project: String,
     pub worktree: PathBuf,
@@ -78,6 +79,7 @@ impl SandboxSpec {
         }
         nvidia_devices.sort();
         Ok(Self {
+            test_files: None,
             credentials: Default::default(),
             project: String::new(),
             worktree: PathBuf::new(),
@@ -384,6 +386,11 @@ impl SandboxSpec {
         if matches!(mode, SandboxMode::Session) {
             args.extend(["--perms", "0700", "--tmpfs"].map(OsString::from));
             args.push(self.runtime_dir.as_os_str().to_owned());
+        }
+        if matches!(mode, SandboxMode::Session | SandboxMode::Probe { .. })
+            && let Some(folder) = &self.test_files
+        {
+            args.extend(crate::test_files::bind_args(folder));
         }
         if let SandboxMode::Install { upper, work, .. } = mode {
             args.extend([

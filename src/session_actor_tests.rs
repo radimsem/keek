@@ -184,6 +184,7 @@ async fn start_configured(
     let (control, control_commands) = control::Control::new();
     let closing = Arc::new(AtomicBool::new(false));
     let actor = Actor {
+        test_files: Default::default(),
         frames_dir: root.join("frames"),
         journal: None,
         idle_limit,

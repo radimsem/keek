@@ -169,6 +169,7 @@ async fn credentials_names_and_mode_warning_reach_opened_and_goal_is_masked() {
         .await;
     let Response::Opened {
         session,
+        files: _,
         credentials,
         warnings,
         checks,
@@ -210,5 +211,71 @@ async fn short_credentials_refuse_open_session() {
         })
         .await;
     assert!(refused(response).contains("longer"));
+    assert!(h.calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn open_session_lists_the_test_files_names_next_to_the_credential_names() {
+    let mut h = Harness::new(2);
+    let config = h.registry.dependencies.projects_config.clone();
+    std::fs::create_dir(config.join("app.files")).unwrap();
+    std::fs::write(config.join("app.files/upload.pdf"), "input").unwrap();
+    std::fs::write(config.join("app.env"), "PASSWORD=made-up-value").unwrap();
+    let worktree = h.worktree("one");
+    let response = h
+        .request(Request::OpenSession {
+            project: "app".into(),
+            worktree,
+            goal: "goal".into(),
+            checks: vec!["check".into()],
+        })
+        .await;
+    let Response::Opened { session, .. } = &response else {
+        panic!("{response:?}")
+    };
+    let value = serde_json::to_value(&response).unwrap();
+    assert_eq!(value["files"]["names"], serde_json::json!(["upload.pdf"]));
+    assert_eq!(value["files"]["more"], 0);
+    assert_eq!(value["credentials"], serde_json::json!(["PASSWORD"]));
+    h.finish(session.clone()).await;
+}
+
+#[tokio::test]
+async fn a_project_without_the_files_folder_opens_with_an_empty_files_list() {
+    let mut h = Harness::new(2);
+    let worktree = h.worktree("one");
+    let response = h
+        .request(Request::OpenSession {
+            project: "app".into(),
+            worktree,
+            goal: "goal".into(),
+            checks: vec!["check".into()],
+        })
+        .await;
+    let Response::Opened { session, .. } = &response else {
+        panic!("{response:?}")
+    };
+    let value = serde_json::to_value(&response).unwrap();
+    assert_eq!(value["files"]["names"], serde_json::json!([]));
+    assert_eq!(value["files"]["more"], 0);
+    h.finish(session.clone()).await;
+}
+
+#[tokio::test]
+async fn a_files_folder_that_is_a_regular_file_refuses_open_session_and_names_the_path() {
+    let mut h = Harness::new(2);
+    let path = h.registry.dependencies.projects_config.join("app.files");
+    std::fs::write(&path, "input").unwrap();
+    let worktree = h.worktree("one");
+    let response = h
+        .request(Request::OpenSession {
+            project: "app".into(),
+            worktree,
+            goal: "goal".into(),
+            checks: vec![],
+        })
+        .await;
+    let message = refused(response);
+    assert!(message.contains(path.to_str().unwrap()), "{message}");
     assert!(h.calls.lock().unwrap().is_empty());
 }
