@@ -2,13 +2,14 @@ use crate::timeline::{HelpOutcome, Millis, SessionTimeline, TimelineEvent};
 use std::path::Path;
 pub const TAKEOVER_GUARD: Millis = Millis(150);
 pub const TITLE_CARD: Millis = Millis(2000);
+pub const TAKEOVER_SHOWN: Millis = Millis(2000);
 pub const OUTPUT_FPS: u64 = 30;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Span {
     pub start: Millis,
     pub end: Millis,
 }
-/// What the Verification Video shows in place of a Help Request's wait or a Takeover.
+/// A Help Request or Takeover summarized in the Verdict Report.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TitleCard {
     /// A Takeover the developer started without a Help Request.
@@ -27,36 +28,7 @@ pub enum TitleCard {
     },
 }
 impl TitleCard {
-    #[must_use]
-    pub fn text(&self) -> String {
-        let reason = |reason: &str| format!(" · {}", reason.replace(['\r', '\n'], " "));
-        match self {
-            Self::Takeover {
-                in_control,
-                reason: r,
-            } => format!(
-                "You were in control · {}{}",
-                clock(*in_control),
-                r.as_deref().map(reason).unwrap_or_default()
-            ),
-            Self::Answered {
-                waited,
-                in_control,
-                reason: r,
-            } => format!(
-                "Waited {} · You were in control {}{}",
-                clock(*waited),
-                clock(*in_control),
-                reason(r)
-            ),
-            Self::Withdrawn { waited, reason: r } => format!(
-                "Waited {} · Help Request withdrawn{}",
-                clock(*waited),
-                reason(r)
-            ),
-        }
-    }
-    /// The real time the card stands for.
+    /// The real time the report entry stands for.
     #[must_use]
     pub fn real_ms(&self) -> Millis {
         match self {
@@ -72,8 +44,8 @@ pub fn clock(time: Millis) -> String {
     let seconds = time.0 / 1000;
     format!("{}:{:02}", seconds / 60, seconds % 60)
 }
-/// Each title card with the raw span it stands for, in order. An answered Help Request and
-/// the Takeover that starts at its end share one card.
+/// Each report entry with its raw span, in order. An answered Help Request and
+/// the Takeover that starts at its end share one entry.
 pub fn title_cards(events: &[TimelineEvent]) -> Vec<(Span, TitleCard)> {
     let mut answered = Vec::new();
     let mut cards: Vec<(Span, TitleCard)> = events
@@ -263,9 +235,6 @@ pub fn encode_args(frames: u64, out: &Path) -> Vec<String> {
         out.to_string_lossy().into_owned(),
     ]
 }
-pub fn card_args(card: &TitleCard, size: (u32, u32), font: &str, out: &Path) -> Vec<String> {
-    text_card_args(&card.text(), size, font, out)
-}
 pub fn text_card_args(text: &str, size: (u32, u32), font: &str, out: &Path) -> Vec<String> {
     let fontsize =
         (size.1 as f64 / 28.0).min(size.0 as f64 * 0.9 / (0.6 * text.chars().count() as f64));
@@ -291,11 +260,8 @@ mod tests {
     use super::*;
     #[test]
     fn long_title_fits_a_small_frame() {
-        let card = TitleCard::Takeover {
-            in_control: Millis(1000),
-            reason: Some("x".repeat(40)),
-        };
-        let args = card_args(&card, (640, 480), "font", Path::new("card.mp4"));
+        let text = format!("Incomplete · {}", "x".repeat(80));
+        let args = text_card_args(&text, (640, 480), "font", Path::new("card.mp4"));
         let filter = args.iter().find(|arg| arg.contains("drawtext")).unwrap();
         let size: f64 = filter
             .split("fontsize=")
@@ -306,17 +272,13 @@ mod tests {
             .unwrap()
             .parse()
             .unwrap();
-        let chars = "You were in control · 0:01 · ".chars().count() + 40;
+        let chars = text.chars().count();
         assert!(size <= 480.0 / 28.0 && size * 0.6 * chars as f64 <= 640.0 * 0.9);
     }
     #[test]
     fn title_card_arguments_carry_the_copy_and_probed_size() {
-        let card = TitleCard::Takeover {
-            in_control: Millis(42000),
-            reason: Some("2FA code".into()),
-        };
-        let args = card_args(
-            &card,
+        let args = text_card_args(
+            "Incomplete · Desktop stopped",
             (1280, 800),
             "/fonts/JetBrainsMono.ttf",
             Path::new("part.mp4"),
@@ -326,7 +288,7 @@ mod tests {
                 .any(|arg| arg.contains("color=c=0x193e58:s=1280x800:r=30"))
         );
         assert!(args.iter().any(
-            |arg| arg.contains(r"You were in control · 0\\:42 · 2FA code")
+            |arg| arg.contains("Incomplete · Desktop stopped")
                 && arg.contains("0xeee2cc")
         ));
         assert!(args.windows(2).any(|a| a == ["-frames:v", "60"]));
@@ -380,8 +342,12 @@ mod tests {
 
         assert_eq!(cards.len(), 1);
         assert_eq!(
-            cards[0].1.text(),
-            "Waited 4:43 · You were in control 0:22 · 2FA code"
+            cards[0].1,
+            TitleCard::Answered {
+                waited: Millis(283_000),
+                in_control: Millis(22_000),
+                reason: "2FA code".into()
+            }
         );
         assert_eq!(cards[0].1.real_ms(), Millis(305_000));
     }
@@ -393,8 +359,11 @@ mod tests {
 
         assert_eq!(cards.len(), 1);
         assert_eq!(
-            cards[0].1.text(),
-            "Waited 4:43 · Help Request withdrawn · 2FA code"
+            cards[0].1,
+            TitleCard::Withdrawn {
+                waited: Millis(283_000),
+                reason: "2FA code".into()
+            }
         );
     }
     #[test]
@@ -408,16 +377,21 @@ mod tests {
             },
         ]);
 
-        let texts: Vec<_> = title_cards(t.events())
-            .iter()
-            .map(|(_, c)| c.text())
+        let cards: Vec<_> = title_cards(t.events())
+            .into_iter()
+            .map(|(_, card)| card)
             .collect();
-
         assert_eq!(
-            texts,
+            cards,
             [
-                "Waited 0:01 · Help Request withdrawn · 2FA code",
-                "You were in control · 0:42"
+                TitleCard::Withdrawn {
+                    waited: Millis(1000),
+                    reason: "2FA code".into()
+                },
+                TitleCard::Takeover {
+                    in_control: Millis(42_000),
+                    reason: None
+                },
             ]
         );
     }

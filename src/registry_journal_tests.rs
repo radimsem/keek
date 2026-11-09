@@ -374,6 +374,7 @@ async fn an_open_journal_takeover_excludes_the_rest_of_the_recording() {
         .filter(|args| {
             args.iter().any(|arg| arg.ends_with("recording.mp4"))
                 && args.contains(&"-ss".to_owned())
+                && !args.iter().any(|arg| arg.contains("gblur="))
         })
         .collect();
     assert!(!raw_segments.is_empty());

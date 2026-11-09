@@ -130,7 +130,7 @@ async fn run_edit(raw: PathBuf, timeline: PathBuf, out: PathBuf) -> Result<()> {
                     ("real_speed", segment.end.0 - segment.start.0)
                 }
                 keek::editor::SegmentKind::FastForward { real_ms } => ("fast_forward", real_ms.0),
-                keek::editor::SegmentKind::TitleCard(card) => ("title_card", card.real_ms().0),
+                keek::editor::SegmentKind::Takeover { real_ms } => ("takeover", real_ms.0),
             };
             serde_json::json!({
                 "start_ms": segment.start,

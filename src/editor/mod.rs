@@ -114,7 +114,7 @@ async fn edit_ending(
         || plan
             .segments()
             .iter()
-            .any(|s| matches!(s.kind, SegmentKind::TitleCard(_)))
+            .any(|s| matches!(s.kind, SegmentKind::Takeover { .. }))
     {
         let matched = runner
             .output(
@@ -139,7 +139,7 @@ async fn edit_ending(
         || plan
             .segments()
             .iter()
-            .any(|s| matches!(s.kind, SegmentKind::TitleCard(_)))
+            .any(|s| matches!(s.kind, SegmentKind::Takeover { .. }))
     {
         let args = ffmpeg::size_args(raw);
         let refs: Vec<_> = args.iter().map(String::as_str).collect();
@@ -167,14 +167,7 @@ async fn edit_ending(
     let result = async {
         for (i, segment) in plan.segments().iter().enumerate() {
             let output = parts.join(format!("{i:04}.mp4"));
-            let args = match &segment.kind {
-                SegmentKind::TitleCard(card) => {
-                    crate::title_card::card_args(card, size, &font, &output)
-                }
-                SegmentKind::RealSpeed | SegmentKind::FastForward { .. } => {
-                    ffmpeg::segment_args(raw, segment, segment.frames(), &output)
-                }
-            };
+            let args = ffmpeg::segment_args(raw, segment, segment.frames(), size, &font, &output);
             job(
                 runner,
                 &args,
@@ -363,13 +356,13 @@ mod takeover_tests {
         }
     }
     #[tokio::test]
-    async fn editing_a_takeover_uses_the_probed_recording_size_for_the_card() {
+    async fn a_takeover_blurs_raw_footage_before_drawing_only_its_label() {
         let dir = tempfile::tempdir().unwrap();
         let raw = dir.path().join("raw.mp4");
         std::fs::write(&raw, b"raw").unwrap();
         let mut timeline = SessionTimeline::new(Millis(0));
         timeline.push(crate::timeline::TimelineEvent::Takeover {
-            reason: None,
+            reason: Some("2FA code".into()),
             start_ms: Millis(1000),
             end_ms: Millis(4000),
         });
@@ -385,18 +378,34 @@ mod takeover_tests {
         .unwrap();
         assert_eq!(plan.segments().len(), 3);
         let calls = runner.0.lock().unwrap();
-        let card = calls
-            .iter()
-            .find(|args| {
-                args.iter()
-                    .any(|arg| arg.contains("color=c=0x193e58:s=640x480:r=30"))
-            })
-            .unwrap();
+        let takeover = &calls[2];
         assert!(
-            card.iter()
-                .any(|arg| arg.contains(r"You were in control · 0\\:03")
-                    && !arg.contains(" · 0\\\\:03 · "))
+            takeover
+                .windows(4)
+                .any(|v| v == ["-f", "mov", "-i", raw.to_str().unwrap()])
         );
+        assert!(takeover.windows(2).any(|v| v == ["-ss", "0.850"]));
+        assert!(takeover.windows(2).any(|v| v == ["-t", "3.300"]));
+        assert!(takeover.windows(2).any(|v| v == ["-frames:v", "60"]));
+        let filter = &takeover.windows(2).find(|v| v[0] == "-vf").unwrap()[1];
+        assert!(filter.find("gblur").unwrap() < filter.find("drawtext").unwrap());
+        assert!(filter.contains("gblur=sigma=20"));
+        assert!(filter.contains("setpts=PTS*0.606060606061"));
+        assert_eq!(filter.matches("drawtext=").count(), 1);
+        assert_eq!(
+            filter
+                .split(":text=")
+                .nth(1)
+                .unwrap()
+                .split(':')
+                .next()
+                .unwrap(),
+            "You were in control"
+        );
+        assert!(filter.contains("fontsize=17.142857142857142"));
+        assert!(filter.contains("fontcolor=0xeee2cc"));
+        assert!(filter.contains("box=1:boxcolor=0x193e58@0.85:boxborderw=6"));
+        assert!(filter.contains("x=(w-text_w)/2:y=(h-text_h)/2"));
     }
     #[tokio::test]
     async fn incomplete_video_appends_a_card_after_the_last_segment() {

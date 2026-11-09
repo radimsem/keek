@@ -6,7 +6,7 @@ Checked on 2026-10-30, Cua has no session that runs on the developer's own Omarc
 - Idle Fast-forward in `cua-driver recording render`, timed from the Action Log and labelled with real time ([ADR 0004](0004-fast-forward-idle-instead-of-cutting.md)).
 - Masking typed secrets in `action.json`, which stores them as plain text today.
 
-Each starts as an issue on `trycua/cua`. keek doesn't wait for them and runs no fork: it runs stock Cua Driver with its own stopgaps until a Cua release carries each piece ([ADR 0013](0013-keek-times-the-session-on-stock-cua-driver.md)). keek keeps the sandboxed nested session, the viewer, Takeovers (including their title cards in the Verification Video), its MCP tools and Evidence filing.
+Each starts as an issue on `trycua/cua`. keek doesn't wait for them and runs no fork: it runs stock Cua Driver with its own stopgaps until a Cua release carries each piece ([ADR 0013](0013-keek-times-the-session-on-stock-cua-driver.md)). keek keeps the sandboxed nested session, the viewer, Takeovers (including their blurred, compressed footage in the Verification Video), its MCP tools and Evidence filing.
 
 ## Considered Options
 
@@ -17,5 +17,5 @@ Each starts as an issue on `trycua/cua`. keek doesn't wait for them and runs no 
 
 - A piece Cua declines stays in keek.
 - Issue and pull request text is approved by the developer before it is posted.
-- Cua's render knows nothing of Takeovers. keek splits a session at each Takeover, edits each part, and joins the parts with its own title cards, and keeps doing so once Cua's render does the editing.
+- Cua's render knows nothing of Takeovers. keek splits a session at each Takeover, edits each part, and joins the parts with about 2 s of each Takeover's own footage, blurred, with "You were in control" centred on top. It keeps doing so once Cua's render does the editing.
 - Chromium on Hyprland stays outside the apps Cua has tested its Hyprland plugin with (LibreOffice Calc and Inkscape). The spike is keek's only evidence that it works.
