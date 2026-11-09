@@ -166,7 +166,7 @@ The Verification Video ([ADR 0004](adr/0004-fast-forward-idle-instead-of-cutting
 1. Keep a window from 0.3 s before each Action's start to 1.5 s after its end.
 2. Extend a window while the screen keeps changing (ffmpeg `freezedetect` at -55 dB over 0.5 s), so animations, loads and late toasts stay at real speed. A blinking caret, Cua's cursor and a small looping animation count as still ([`facts.md`](facts.md#still-screen-results)).
 3. Merge overlapping windows. Everything left is an Idle Stretch.
-4. Show each Idle Stretch as a Fast-forward of about 0.6 s, labelled with the real time it took (`+18 s`).
+4. Show each Idle Stretch as a Fast-forward of about 0.6 s.
 
 keek splits the session at each Help Request and Takeover, edits each part, and joins the parts with a title card in their place. A Help Request's wait is cut, not fast-forwarded, from the later of its start and the end of the last Action's window before it, because the wait is the developer's time, not the agent's ([ADR 0004](adr/0004-fast-forward-idle-instead-of-cutting.md)). An answered Help Request shares one card with its Takeover ("Waited 4:43 · You were in control 0:22 · 2FA code"), a withdrawn one gets its own ("Waited 4:43 · Help Request withdrawn · 2FA code"), and a Takeover without one keeps "You were in control · 0:42". Each cut reaches 150 ms past the Takeover on both sides, about twice the 65 ms the video varies against a page's own timestamps. A leaked frame could show a 2FA code, while a longer cut costs a moment beside a title card. The same split stays when Cua's render replaces the editor, because that render knows nothing of Takeovers. The Raw Recording keeps the footage.
 

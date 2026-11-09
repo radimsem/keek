@@ -65,7 +65,7 @@ A span with no Action nearby in which the screen is also still.
 _Avoid_: thinking time, dead time, gap
 
 **Fast-forward**:
-An Idle Stretch shown compressed in the Verification Video, labelled with the real time it took.
+An Idle Stretch shown compressed in the Verification Video.
 _Avoid_: cut, trim, skip
 
 **Verification Video**:

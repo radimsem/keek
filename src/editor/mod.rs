@@ -111,12 +111,11 @@ async fn edit_ending(
         },
     );
     let font = if incomplete.is_some()
-        || plan.segments().iter().any(|s| {
-            matches!(
-                s.kind,
-                SegmentKind::FastForward { .. } | SegmentKind::TitleCard(_)
-            )
-        }) {
+        || plan
+            .segments()
+            .iter()
+            .any(|s| matches!(s.kind, SegmentKind::TitleCard(_)))
+    {
         let matched = runner
             .output(
                 "fc-match",
@@ -173,7 +172,7 @@ async fn edit_ending(
                     crate::title_card::card_args(card, size, &font, &output)
                 }
                 SegmentKind::RealSpeed | SegmentKind::FastForward { .. } => {
-                    ffmpeg::segment_args(raw, segment, segment.frames(), &font, &output)
+                    ffmpeg::segment_args(raw, segment, segment.frames(), &output)
                 }
             };
             job(
