@@ -65,11 +65,11 @@ A span with no Action nearby in which the screen is also still.
 _Avoid_: thinking time, dead time, gap
 
 **Fast-forward**:
-An Idle Stretch shown compressed in the Verification Video, labelled with the real time it took.
+An Idle Stretch shown compressed in the Verification Video.
 _Avoid_: cut, trim, skip
 
 **Verification Video**:
-The edited video a reviewer watches: every Action with its effect at real speed, each Idle Stretch as a Fast-forward, and each Help Request, with the Takeover that answered it, as a title card.
+The edited video a reviewer watches: every Action with its effect at real speed, each Idle Stretch as a Fast-forward, and each Takeover as a short blurred stretch. A Help Request's wait is cut.
 _Avoid_: final cut, reel, recording
 
 ## Watching

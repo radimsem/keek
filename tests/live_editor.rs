@@ -221,7 +221,7 @@ fn live_editor_real_speed_segments_match_the_raw_video() -> Result<()> {
 
 #[test]
 #[ignore = "requires ffmpeg, ffprobe and JetBrains Mono"]
-fn live_editor_fast_forward_frame_shows_its_label() -> Result<()> {
+fn live_editor_fast_forward_frame_draws_no_label() -> Result<()> {
     let fixture = Fixture::new(8.0)?;
     let edit = fixture.edit()?;
     let mut output_frame = 0;
@@ -301,8 +301,8 @@ fn live_editor_fast_forward_frame_shows_its_label() -> Result<()> {
         target.display()
     );
     ensure!(
-        changed > 500,
-        "Fast-forward label did not change its region"
+        changed < 50,
+        "a Fast-forward frame changed {changed} pixels where a label would sit"
     );
     Ok(())
 }

@@ -126,6 +126,14 @@ Measured on 2026-11-08 with ffmpeg's `freezedetect` (`d=0.5`) on two Raw Recordi
 - At -55 dB the session with a wrong password still showed change while the Verifier typed and for 0.6 s as the error message appeared after the sign-in click.
 - Only one machine and one app were measured.
 
+### Takeover blur results
+
+Checked on 2026-11-09 with ffmpeg's `gblur` on a 1440x960 Raw Recording from the flowchart trial. The frame showed the FlowChart authenticator step after the developer had typed all six digits of the code into its boxes.
+
+- At `sigma=40` (height / 24, the editor's rule) no text on the page is readable, the six digits included. Only the page layout, the chart line and the button shapes remain.
+- At `sigma=20` the six code boxes show only grey blobs.
+- Only one app and one frame size were checked. Text larger than these 20 px digits needs a new check.
+
 ## Facts this design rests on
 
 Checked on 2026-10-31 in Cua Driver 0.38.0 and `trycua/cua` main `a9902d2`:

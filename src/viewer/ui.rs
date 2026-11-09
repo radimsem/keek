@@ -112,8 +112,9 @@ impl State {
                 card.hover = footer_view::Hover::Away;
                 card.draw();
             }
-            card.footer.set_visible(shown);
+            // Mapping the footer last keeps it above an ended card's surface on the bottom layer.
             card.surface.set_visible(shown);
+            card.footer.set_visible(shown);
         }
         let ticking = data
             .cards
@@ -337,6 +338,9 @@ fn create(
     };
     card.surface
         .set_child(card.end_card.as_ref().map(|end| &end.overlay));
+    if card.end_card.is_some() {
+        card.footer.set_layer(Layer::Bottom);
+    }
     card.draw();
     Some(card)
 }
@@ -422,6 +426,9 @@ pub fn run(
                                     &snapshot,
                                     card.info.placement.width,
                                 );
+                                if card.end_card.is_some() {
+                                    card.footer.set_layer(Layer::Bottom);
+                                }
                                 card.snapshot = snapshot;
                                 card.draw();
                             }

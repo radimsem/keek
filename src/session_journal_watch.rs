@@ -245,8 +245,12 @@ mod tests {
 
         assert_eq!(cards.len(), 1);
         assert_eq!(
-            cards[0].1.text(),
-            "Waited 0:04 · You were in control 0:03 · 2FA code"
+            cards[0].1,
+            crate::title_card::TitleCard::Answered {
+                waited: Millis(4000),
+                in_control: Millis(3000),
+                reason: "2FA code".into(),
+            }
         );
     }
 

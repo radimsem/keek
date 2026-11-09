@@ -1,6 +1,6 @@
 // Every read of the Raw Recording forces the mov demuxer. The sandbox can write the session folder,
 // and a planted playlist would otherwise make host ffmpeg open other files.
-use super::plan::{FAST_FORWARD, Segment, SegmentKind, Span};
+use super::plan::{FAST_FORWARD, Segment, SegmentKind, Span, TAKEOVER_SHOWN};
 use crate::timeline::Millis;
 use std::path::Path;
 
@@ -89,11 +89,16 @@ pub fn freeze_args(raw: &Path) -> Vec<String> {
     ]);
     args
 }
-use crate::title_card::{encode_args, escape_font};
+use crate::title_card::encode_args;
+// The blur must leave typed digits unreadable.
+fn takeover_sigma(height: u32) -> u32 {
+    (height as f64 / 24.0).round().max(1.0) as u32
+}
 pub fn segment_args(
     raw: &Path,
     segment: &Segment,
     frames: u64,
+    size: (u32, u32),
     font: &str,
     out: &Path,
 ) -> Vec<String> {
@@ -111,14 +116,24 @@ pub fn segment_args(
     ]);
     // Cua Driver records full range yuvj420p, and format=yuv420p alone keeps that range.
     let filter = match &segment.kind {
-        SegmentKind::RealSpeed | SegmentKind::TitleCard(_) => {
+        SegmentKind::RealSpeed => {
             "fps=30:start_time=0,tpad=stop_mode=clone:stop_duration=1,scale=out_range=tv,format=yuv420p".into()
         }
+        SegmentKind::Takeover { real_ms } => {
+            let text = "You were in control";
+            let fontsize = (size.1 as f64 / 28.0)
+                .min(size.0 as f64 * 0.9 / (0.6 * text.chars().count() as f64));
+            let border = (fontsize / 3.0).round().max(1.0);
+            format!(
+                "fps=30:start_time=0,setpts=PTS*{:.12},fps=30,tpad=stop_mode=clone:stop_duration=1,gblur=sigma={},drawtext=fontfile={}:text={text}:expansion=none:fontcolor=0xeee2cc:fontsize={fontsize}:box=1:boxcolor=0x193e58@0.85:boxborderw={border}:x=(w-text_w)/2:y=(h-text_h)/2,scale=out_range=tv,format=yuv420p",
+                TAKEOVER_SHOWN.0 as f64 / real_ms.0 as f64,
+                takeover_sigma(size.1),
+                crate::title_card::escape_font(font),
+            )
+        }
         SegmentKind::FastForward { real_ms } => format!(
-            "fps=30:start_time=0,setpts=PTS*{:.12},fps=30,tpad=stop_mode=clone:stop_duration=1,drawtext=fontfile={}:text='+{} s':expansion=none:fontcolor=white:fontsize=h/14:box=1:boxcolor=black@0.6:boxborderw=12:x=(w-text_w)/2:y=h-text_h-h/12,scale=out_range=tv,format=yuv420p",
-            FAST_FORWARD.0 as f64 / real_ms.0 as f64,
-            escape_font(font),
-            ((real_ms.0 + 500) / 1000).max(1)
+            "fps=30:start_time=0,setpts=PTS*{:.12},fps=30,tpad=stop_mode=clone:stop_duration=1,scale=out_range=tv,format=yuv420p",
+            FAST_FORWARD.0 as f64 / real_ms.0 as f64
         ),
     };
     args.extend(["-vf".into(), filter]);
@@ -205,9 +220,30 @@ mod tests {
     #[test]
     fn font_paths_survive_both_escaping_levels() {
         assert_eq!(
-            escape_font(r"a\b'c:d,e[f];g"),
+            crate::title_card::escape_font(r"a\b'c:d,e[f];g"),
             r"a\\\\b\\\'c\\:d\,e\[f\]\;g"
         );
+    }
+    #[test]
+    fn fast_forward_segments_compress_without_drawing_text() {
+        let segment = Segment {
+            start: Millis(0),
+            end: Millis(18000),
+            kind: SegmentKind::FastForward {
+                real_ms: Millis(18000),
+            },
+        };
+        let args = segment_args(
+            Path::new("raw"),
+            &segment,
+            18,
+            (0, 0),
+            "",
+            Path::new("part"),
+        );
+        let filter = args.windows(2).find(|v| v[0] == "-vf").unwrap();
+        assert!(filter[1].contains("setpts=PTS*0.033333333333"));
+        assert!(!filter[1].contains("drawtext"));
     }
     #[test]
     fn raw_reads_force_mov_and_segments_have_exact_frames() {
@@ -216,7 +252,7 @@ mod tests {
             end: Millis(1123),
             kind: SegmentKind::RealSpeed,
         };
-        let a = segment_args(Path::new("raw"), &s, 30, "", Path::new("part"));
+        let a = segment_args(Path::new("raw"), &s, 30, (0, 0), "", Path::new("part"));
         assert!(a.windows(4).any(|v| v == ["-f", "mov", "-i", "raw"]));
         assert!(a.windows(2).any(|v| v == ["-frames:v", "30"]));
         assert!(a.iter().position(|v| v == "-ss") < a.iter().position(|v| v == "-i"));
