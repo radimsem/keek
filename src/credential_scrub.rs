@@ -134,6 +134,30 @@ mod tests {
         );
         assert_eq!(std::fs::read(turn.join("image.png")).unwrap(), [0xff, 0, 1]);
     }
+
+    #[test]
+    fn scrubbing_keeps_a_public_value_and_removes_a_secret_one() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("fixture.env");
+        std::fs::write(
+            &path,
+            "# keek: public USER\nUSER=operator\nPASSWORD=made-up-password\n",
+        )
+        .unwrap();
+        let (credentials, _) = Credentials::read(&path).unwrap();
+        let turn = root.path().join("turn-00001");
+        std::fs::create_dir(&turn).unwrap();
+        let action = turn.join("action.json");
+        let timeline = root.path().join("timeline.json");
+        for path in [&action, &timeline] {
+            std::fs::write(path, "operator made-up-password").unwrap();
+        }
+        scrub_folder(&credentials, root.path()).unwrap();
+        for path in [&action, &timeline] {
+            assert_eq!(std::fs::read_to_string(path).unwrap(), "operator [masked]");
+        }
+    }
+
     #[test]
     fn symlinks_leave_outside_files_unchanged() {
         let root = tempfile::tempdir().unwrap();

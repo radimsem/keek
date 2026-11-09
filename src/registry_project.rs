@@ -48,6 +48,7 @@ pub(super) fn write_profile(
                 &directory.join(format!("{project}.env")),
                 &credentials.source,
                 &credentials.names,
+                &credentials.public,
             )
             .map_err(|e| e.to_string())?,
         ),

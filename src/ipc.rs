@@ -171,6 +171,8 @@ pub enum StartProbe {
 pub struct CredentialSource {
     pub source: PathBuf,
     pub names: Vec<String>,
+    #[serde(default)]
+    pub public: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

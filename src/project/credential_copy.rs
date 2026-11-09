@@ -1,4 +1,4 @@
-use crate::credentials::{CredentialsError, check_length, entries, valid_name};
+use crate::credentials::{CredentialsError, check_length, entries, public_name, valid_name};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -12,6 +12,7 @@ pub struct CopiedCredentials {
     pub kept: Vec<String>,
     /// Not in the source and not in the file, so the developer fills them in.
     pub missing: Vec<String>,
+    pub public: Vec<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -24,6 +25,10 @@ pub enum CopyError {
         "{0:?} is not a valid Test Credential name. Use letters, digits and _, not starting with a digit."
     )]
     InvalidName(String),
+    #[error(
+        "Public Test Credential {0} is not in names. Add it to names or remove it from public."
+    )]
+    UnrequestedPublic(String),
     #[error("Cannot read the credentials source {path}: {source}. Check the path and try again.", path = .path.display())]
     ReadSource {
         path: PathBuf,
@@ -43,11 +48,12 @@ pub enum CopyError {
     },
 }
 
-/// Copies `names` from `source` into `target`, keeping every other line of `target`.
+/// Copies `names` and replaces their public markers, keeping other names and their markers.
 pub fn copy_credentials(
     target: &Path,
     source: &Path,
     names: &[String],
+    public: &[String],
 ) -> Result<CopiedCredentials, CopyError> {
     if !source.is_absolute() {
         return Err(CopyError::RelativeSource(source.to_owned()));
@@ -59,6 +65,11 @@ pub fn copy_credentials(
         }
         if !requested.contains(&name.as_str()) {
             requested.push(name);
+        }
+    }
+    for name in public {
+        if !requested.contains(&name.as_str()) {
+            return Err(CopyError::UnrequestedPublic(name.clone()));
         }
     }
     let text = std::fs::read_to_string(source).map_err(|error| CopyError::ReadSource {
@@ -123,6 +134,11 @@ pub fn copy_credentials(
         copied: vec![],
         kept: vec![],
         missing: vec![],
+        public: requested
+            .iter()
+            .filter(|name| public.iter().any(|public| public == **name))
+            .map(|name| (*name).to_owned())
+            .collect(),
     };
     for name in &requested {
         let list = if values.contains_key(name) {
@@ -134,12 +150,15 @@ pub fn copy_credentials(
         };
         list.push((*name).to_owned());
     }
-    if values.is_empty() {
+    if requested.is_empty() {
         return Ok(copied);
     }
     let mut lines = Vec::new();
     let mut written = Vec::new();
     for line in existing.lines() {
+        if public_name(line).is_some_and(|name| requested.contains(&name)) {
+            continue;
+        }
         let defined = entries(target, line)?.first().map(|entry| entry.name);
         match defined.and_then(|name| values.get_key_value(name)) {
             Some((name, value)) => {
@@ -154,7 +173,17 @@ pub fn copy_credentials(
             lines.push(line_for(name, value));
         }
     }
-    write_private(target, &(lines.join("\n") + "\n")).map_err(|error| CopyError::Write {
+    for name in &copied.public {
+        lines.push(format!("# keek: public {name}"));
+    }
+    if lines.is_empty() && existing.is_empty() {
+        return Ok(copied);
+    }
+    let mut text = lines.join("\n");
+    if !lines.is_empty() {
+        text.push('\n');
+    }
+    write_private(target, &text).map_err(|error| CopyError::Write {
         path: target.to_owned(),
         source: error,
     })?;
@@ -217,8 +246,13 @@ mod tests {
         )
         .unwrap();
         let target = directory.path().join("demo.env");
-        let copied =
-            copy_credentials(&target, &source, &names(&["TEST_PASSWORD", "TEST_USER"])).unwrap();
+        let copied = copy_credentials(
+            &target,
+            &source,
+            &names(&["TEST_PASSWORD", "TEST_USER"]),
+            &[],
+        )
+        .unwrap();
         assert_eq!(copied.copied, ["TEST_PASSWORD", "TEST_USER"]);
         assert!(copied.kept.is_empty() && copied.missing.is_empty());
         let reply = serde_json::to_string(&copied).unwrap();
@@ -247,6 +281,7 @@ mod tests {
             &target,
             &source,
             &names(&["TEST_PASSWORD", "TEST_TOKEN", "TEST_CODE"]),
+            &[],
         )
         .unwrap();
         assert_eq!(copied.copied, ["TEST_PASSWORD"]);
@@ -268,13 +303,13 @@ mod tests {
     fn copy_refuses_a_relative_source_and_a_short_value_without_echoing_it() {
         let directory = tempfile::tempdir().unwrap();
         let target = directory.path().join("demo.env");
-        let error = copy_credentials(&target, Path::new(".env"), &names(&["A"]))
+        let error = copy_credentials(&target, Path::new(".env"), &names(&["A"]), &[])
             .unwrap_err()
             .to_string();
         assert!(error.contains("absolute"), "{error}");
         let source = directory.path().join(".env");
         std::fs::write(&source, "PIN=1234\n").unwrap();
-        let error = copy_credentials(&target, &source, &names(&["PIN"]))
+        let error = copy_credentials(&target, &source, &names(&["PIN"]), &[])
             .unwrap_err()
             .to_string();
         assert!(error.contains("PIN") && !error.contains("1234"), "{error}");
@@ -291,7 +326,7 @@ mod tests {
         )
         .unwrap();
         let target = directory.path().join("demo.env");
-        let copied = copy_credentials(&target, &source, &names(&["TEST_PASSWORD"])).unwrap();
+        let copied = copy_credentials(&target, &source, &names(&["TEST_PASSWORD"]), &[]).unwrap();
         assert_eq!(copied.copied, ["TEST_PASSWORD"]);
     }
 
@@ -301,7 +336,7 @@ mod tests {
         let source = directory.path().join(".env");
         std::fs::write(&source, "PORT=3000\nTEST_PASSWORD = made-up-secret\n").unwrap();
         let target = directory.path().join("demo.env");
-        let error = copy_credentials(&target, &source, &names(&["TEST_PASSWORD"]))
+        let error = copy_credentials(&target, &source, &names(&["TEST_PASSWORD"]), &[])
             .unwrap_err()
             .to_string();
         assert!(
@@ -322,7 +357,7 @@ mod tests {
         .unwrap();
         let target = directory.path().join("demo.env");
         std::fs::write(&target, "TEST_KEY='working-made-up'\n").unwrap();
-        let error = copy_credentials(&target, &source, &names(&["TEST_KEY"]))
+        let error = copy_credentials(&target, &source, &names(&["TEST_KEY"]), &[])
             .unwrap_err()
             .to_string();
         assert!(
@@ -334,8 +369,93 @@ mod tests {
             "TEST_KEY='working-made-up'\n"
         );
         std::fs::write(&source, "TEST_QUOTED='\"made-up-quoted\"'\n").unwrap();
-        let copied = copy_credentials(&target, &source, &names(&["TEST_QUOTED"])).unwrap();
+        let copied = copy_credentials(&target, &source, &names(&["TEST_QUOTED"]), &[]).unwrap();
         assert_eq!(copied.copied, ["TEST_QUOTED"]);
+    }
+
+    #[test]
+    fn copying_marks_public_names_and_keeps_markers_for_other_names() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("source.env");
+        let target = directory.path().join("project.env");
+        std::fs::write(&source, "USER=operator\nPASSWORD=made-up-password\n").unwrap();
+        std::fs::write(&target, "# keek: public OTHER\nOTHER=other-user\n").unwrap();
+        let copied = copy_credentials(
+            &target,
+            &source,
+            &names(&["USER", "PASSWORD", "USER"]),
+            &names(&["USER", "USER"]),
+        )
+        .unwrap();
+        let text = std::fs::read_to_string(&target).unwrap();
+        assert_eq!(
+            text.lines()
+                .filter(|line| *line == "# keek: public USER")
+                .count(),
+            1
+        );
+        assert!(text.starts_with("# keek: public OTHER\nOTHER=other-user\n"));
+        assert!(!text.contains("# keek: public PASSWORD"));
+        assert_eq!(copied.public, ["USER"]);
+        let (credentials, _) = crate::credentials::Credentials::read(&target).unwrap();
+        assert_eq!(
+            credentials.mask("operator other-user made-up-password"),
+            "operator other-user [masked]"
+        );
+    }
+
+    #[test]
+    fn copying_removes_a_requested_secret_names_marker_even_if_the_source_lacks_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("source.env");
+        let target = directory.path().join("project.env");
+        std::fs::write(&source, "").unwrap();
+        std::fs::write(&target, "# keek: public USER\nUSER=operator\n").unwrap();
+        let copied = copy_credentials(&target, &source, &names(&["USER"]), &[]).unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "USER=operator\n");
+        assert_eq!(copied.kept, ["USER"]);
+        assert!(copied.public.is_empty());
+        let (credentials, _) = crate::credentials::Credentials::read(&target).unwrap();
+        assert_eq!(credentials.mask("operator"), "[masked]");
+    }
+
+    #[test]
+    fn copying_marks_a_public_name_even_if_its_value_is_kept_or_missing() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("source.env");
+        let target = directory.path().join("project.env");
+        std::fs::write(&source, "").unwrap();
+        std::fs::write(&target, "USER=operator\n").unwrap();
+        let copied = copy_credentials(
+            &target,
+            &source,
+            &names(&["USER", "MISSING"]),
+            &names(&["USER", "MISSING"]),
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "USER=operator\n# keek: public USER\n# keek: public MISSING\n"
+        );
+        assert_eq!(copied.public, ["USER", "MISSING"]);
+        assert_eq!(copied.kept, ["USER"]);
+        assert_eq!(copied.missing, ["MISSING"]);
+    }
+
+    #[test]
+    fn copying_refuses_a_public_name_that_was_not_requested() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("source.env");
+        let target = directory.path().join("project.env");
+        std::fs::write(&source, "PASSWORD=made-up-password\n").unwrap();
+        let error = copy_credentials(&target, &source, &names(&["PASSWORD"]), &names(&["USER"]))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("USER") && error.contains("Add it to names or remove it from public"),
+            "{error}"
+        );
+        assert!(!target.exists());
     }
 
     #[test]
@@ -344,7 +464,7 @@ mod tests {
         let source = directory.path().join(".env");
         std::fs::write(&source, "A=' padded \"quoted\" '\n").unwrap();
         let target = directory.path().join("demo.env");
-        copy_credentials(&target, &source, &names(&["A"])).unwrap();
+        copy_credentials(&target, &source, &names(&["A"]), &[]).unwrap();
         let (credentials, _) = crate::credentials::Credentials::read(&target).unwrap();
         let mut value = serde_json::json!("${A}");
         credentials.substitute(&mut value).unwrap();
