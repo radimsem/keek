@@ -68,6 +68,8 @@ keek's host rule matches class alone, so a nested Hyprland the developer starts 
 
 A gtk4-layer-shell surface per slot, shown only while the `keek` workspace is active. keek follows Hyprland's workspace events to show and hide it.
 
+Once the session ends, the footer moves to the bottom layer with the rest of the card, so a window the developer opens on `keek` covers the whole Session Card.
+
 It sits flush under its Session Window and overlaps the window's bottom border by the Hyprland rounding (8 px), so window and footer read as one Session Card. The footer draws its own side and bottom border in the window's current border colour and rounds only its bottom corners. The nested desktop is sized so the overlap hides nothing but the border. A 2 px top edge in the session's cursor colour ties the card to its Cua cursor, on screen and in the video. *(my call)*
 
 It shows that session's:
