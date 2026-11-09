@@ -142,6 +142,14 @@ Checked on 2026-11-09 with ffmpeg's `gblur` on a 1440x960 Raw Recording from the
 - At `sigma=20` the six code boxes show only grey blobs.
 - Only one app and one frame size were checked. Text larger than these 20 px digits needs a new check.
 
+### Recording idle results
+
+Checked on 2026-11-09 with Cua Driver 0.38.0 and `trycua/cua` at `b5adb8a35`, from the agent-control trial, where a Verification Video ended 7.5 minutes before its session.
+
+- Cua Driver stops its recording once 300 s pass without a tool call (`CUA_DRIVER_RS_RECORDING_IDLE_TTL_SECS`, `cua-driver-sdk/src/runtime.rs`). A thread checks every 30 s, so the cut lands 300 to 330 s after the last call. Any tool call resets it, `get_recording_state` included.
+- The cut finalises a playable `recording.mp4`, and a later `stop_recording` still reports success, so nothing tells keek the recording ended early.
+- A live session holding a Help Request with no Takeover recorded 329.8 s of 428.8 s. With Cua's TTL set to 5 s, a 60 s Help Request recorded 29.7 s of 68.6 s without a keepalive and 70.4 s of 69.0 s with a keepalive each second.
+
 ## Facts this design rests on
 
 Checked on 2026-10-31 in Cua Driver 0.38.0 and `trycua/cua` main `a9902d2`:

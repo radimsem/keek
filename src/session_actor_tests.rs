@@ -523,6 +523,9 @@ mod credentials;
 #[path = "session_actor_tests/takeover.rs"]
 mod takeover;
 
+#[path = "session_actor_tests/recording_keepalive.rs"]
+mod recording_keepalive;
+
 #[path = "session_actor_tests/queued_help.rs"]
 mod queued_help;
 

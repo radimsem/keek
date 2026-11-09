@@ -320,6 +320,8 @@ mod journal_watch;
 mod call;
 #[path = "session_help.rs"]
 mod help;
+#[path = "session_keepalive.rs"]
+mod keepalive;
 
 impl Actor {
     async fn opener_gone(&self, opener: &mut Option<watch::Receiver<()>>) {

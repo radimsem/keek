@@ -17,9 +17,13 @@ impl Actor {
         arguments: Value,
         reply: oneshot::Sender<Response>,
     ) -> CallEnd {
-        let entry = tokio::select! {
-            entry = self.control.gate.enter_for(arrival) => entry,
-            () = self.opener_gone(&mut state.opener) => return CallEnd::End(IncompleteReason::OpenerLeft),
+        let mut keepalive = keepalive::timer();
+        let entry = loop {
+            tokio::select! {
+                entry = self.control.gate.enter_for(arrival) => break entry,
+                () = self.opener_gone(&mut state.opener) => return CallEnd::End(IncompleteReason::OpenerLeft),
+                _ = keepalive.tick() => keepalive::keep_recording(state.driver.as_mut()).await,
+            }
         };
         let _permit = match entry {
             gate::Entry::Run(permit) => permit,
