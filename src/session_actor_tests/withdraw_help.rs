@@ -75,6 +75,15 @@ async fn a_cancelled_help_request_returns_the_card_to_the_verifier_and_clears_th
     settle().await;
 
     assert!(border_values(&actor).last().unwrap().contains("unset"));
+    assert!(
+        actor
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|(program, _)| program != "omarchy-notification-dismiss"),
+        "a withdrawn Help Request leaves its notification up"
+    );
     assert!(!actor.task.is_finished());
     drop(actor.sender);
     actor.task.await.unwrap();

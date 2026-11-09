@@ -73,7 +73,7 @@ async fn a_forwarded_call_during_takeover_returns_a_note_and_fresh_screenshot_wi
     );
 }
 #[tokio::test(start_paused = true)]
-async fn a_help_request_notifies_once_and_waits_for_done_without_a_timeout() {
+async fn a_help_request_notifies_once_until_take_control_and_waits_for_done_without_a_timeout() {
     let root = tempfile::tempdir().unwrap();
     let actor = start_actor(root.path(), "help", false).await;
     let (reply, mut answer) = oneshot::channel();
@@ -128,6 +128,18 @@ async fn a_help_request_notifies_once_and_waits_for_done_without_a_timeout() {
         .collect();
     assert_eq!(notifications.len(), 1);
     assert!(notifications[0].1.to_string().contains("2FA code · app"));
+    assert!(
+        notifications[0]
+            .1
+            .to_string()
+            .contains(r#""-u","critical","Agent needs you""#)
+    );
+    let dismissed: Vec<_> = calls
+        .iter()
+        .filter(|(tool, _)| tool == "omarchy-notification-dismiss")
+        .collect();
+    assert_eq!(dismissed.len(), 1);
+    assert_eq!(dismissed[0].1, json!(["Agent needs you"]));
     drop(actor.sender);
     actor.task.await.unwrap();
 }
@@ -145,7 +157,10 @@ impl crate::process::ProcessRunner for Runner {
         cwd: Option<&'a Path>,
     ) -> crate::process::ProcessFuture<'a> {
         Box::pin(async move {
-            if program == "hyprctl" || program == "omarchy-notification-send" {
+            if program == "hyprctl"
+                || program == "omarchy-notification-send"
+                || program == "omarchy-notification-dismiss"
+            {
                 self.calls
                     .lock()
                     .unwrap()

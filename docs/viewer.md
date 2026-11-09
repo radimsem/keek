@@ -92,7 +92,7 @@ Outside a Takeover, `no_focus` makes Hyprland skip the Session Window in pointer
 ### Help Request
 
 - The Verifier calls `request_help(session, reason)`. The call blocks until a Takeover on that session ends, sending progress notifications while it waits.
-- That session's Session Card turns orange (the Omarchy needs-you colour) and its footer shows the reason. keek sends one desktop notification ("Agent needs you: 2FA code · myapp") through `omarchy-notification-send`. Activating the notification switches to the `keek` workspace. *(my call)*
+- That session's Session Card turns orange (the Omarchy needs-you colour) and its footer shows the reason. keek sends one critical desktop notification ("Agent needs you: 2FA code · myapp") through `omarchy-notification-send`, so it stays on screen until the developer acts, and dismisses it when the developer presses Take control. The shell dismisses by summary, so this also clears a second waiting session's notification; that session's card stays orange. Activating the notification switches to the `keek` workspace. *(my call)*
 - If the agent cancels the `request_help` call before the developer presses Take control (Esc in the coding agent, or a client timeout such as Codex's 5 minutes of active time), keek withdraws the Help Request: the card and footer return to their earlier state, the orange border clears and the Verifier's next call runs at once. The notification stays. A Takeover already running when the cancel arrives continues until Done. Only `request_help` is withdrawn, not a forwarded Cua call or `close_session`.
 - There is no timeout while a Help Request waits for the developer. The 5-minute idle timeout (see [`design.md`](design.md#abnormal-end)) pauses during a Help Request and a Takeover.
 
