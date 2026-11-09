@@ -1,4 +1,4 @@
-use crate::credentials::{CredentialsError, check_length, entries, valid_name};
+use crate::credentials::{CredentialsError, check_length, entries, public_name, valid_name};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -61,6 +61,18 @@ pub fn copy_credentials(
             requested.push(name);
         }
     }
+    let existing = match std::fs::read_to_string(target) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => {
+            return Err(CopyError::ReadTarget {
+                path: target.to_owned(),
+                source: error,
+            });
+        }
+    };
+    // Only the developer marks a name public, by editing this file; copying keeps the markers.
+    let public: Vec<&str> = existing.lines().filter_map(public_name).collect();
     let text = std::fs::read_to_string(source).map_err(|error| CopyError::ReadSource {
         path: source.to_owned(),
         source: error,
@@ -101,19 +113,11 @@ pub fn copy_credentials(
                 }
                 .into());
             }
-            check_length(source, entry.name, entry.value)?;
+            if !public.contains(&entry.name) {
+                check_length(source, entry.name, entry.value)?;
+            }
         }
     }
-    let existing = match std::fs::read_to_string(target) {
-        Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(error) => {
-            return Err(CopyError::ReadTarget {
-                path: target.to_owned(),
-                source: error,
-            });
-        }
-    };
     let held: Vec<&str> = entries(target, &existing)?
         .into_iter()
         .map(|entry| entry.name)
@@ -336,6 +340,27 @@ mod tests {
         std::fs::write(&source, "TEST_QUOTED='\"made-up-quoted\"'\n").unwrap();
         let copied = copy_credentials(&target, &source, &names(&["TEST_QUOTED"])).unwrap();
         assert_eq!(copied.copied, ["TEST_QUOTED"]);
+    }
+
+    #[test]
+    fn copying_keeps_a_public_marker_and_accepts_its_short_value() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("source.env");
+        let target = directory.path().join("project.env");
+        std::fs::write(&source, "USER=admin\nPIN=1234\n").unwrap();
+        std::fs::write(&target, "# keek: public USER\nUSER=old-user\n").unwrap();
+        let copied = copy_credentials(&target, &source, &names(&["USER"])).unwrap();
+        assert_eq!(copied.copied, ["USER"]);
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "# keek: public USER\nUSER='admin'\n"
+        );
+        let (credentials, _) = crate::credentials::Credentials::read(&target).unwrap();
+        assert_eq!(credentials.mask("admin"), "admin");
+        let error = copy_credentials(&target, &source, &names(&["PIN"]))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("PIN") && !error.contains("1234"), "{error}");
     }
 
     #[test]

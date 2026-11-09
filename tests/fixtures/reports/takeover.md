@@ -9,8 +9,8 @@ Agent Session: app
 
 ## Takeovers
 
-- At 1:05 in the video, the developer was in control for 0:42: 2FA code.
-- At 1:30 in the video, the developer was in control for 0:01.
+- At 1:05 in the video, the developer stepped in and was in control for 0:42: 2FA code.
+- At 1:30 in the video, the developer stepped in and was in control for 0:01.
 
 ## Verdict
 

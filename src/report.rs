@@ -134,7 +134,7 @@ pub fn render(input: &ReportInputs<'_>) -> String {
         };
         let line = match &card {
             crate::title_card::TitleCard::Takeover { in_control, reason } => format!(
-                "the developer was in control for {}{}",
+                "the developer stepped in and was in control for {}{}",
                 clock(*in_control),
                 reason.as_deref().map_or_else(|| ".".to_owned(), ending)
             ),

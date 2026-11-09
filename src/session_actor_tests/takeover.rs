@@ -678,7 +678,7 @@ async fn closing_after_a_takeover_files_it_in_the_report() {
     let report = std::fs::read_to_string(value["evidence"]["report"].as_str().unwrap()).unwrap();
     assert!(report.contains("## Takeovers"));
     assert!(
-        report.contains("the developer was in control for 0:42."),
+        report.contains("the developer stepped in and was in control for 0:42."),
         "{report}"
     );
 }

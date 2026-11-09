@@ -39,7 +39,7 @@ The toolchains keek installs on the host for Project Profiles that pin a version
 _Avoid_: toolchain cache, runtime
 
 **Test Credentials**:
-Smoke-test-only accounts and keys that a project grants to its Agent Sessions, kept outside the project and chosen so they are safe to appear in Evidence. A Verifier refers to them by name and never sees their values.
+Smoke-test-only accounts and keys that a project grants to its Agent Sessions, kept outside the project and chosen so they are safe to appear in Evidence. A Verifier refers to them by name and never sees a secret one's value. A public one, such as a test username, may appear in Evidence.
 _Avoid_: secrets, env, .env
 
 ## Recording
