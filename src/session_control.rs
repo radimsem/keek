@@ -340,6 +340,10 @@ impl Controller {
         outcome: HelpOutcome,
     ) {
         if let Some((reason, start)) = open.take() {
+            // A withdrawn Help Request leaves its notification up (docs/viewer.md).
+            if outcome == HelpOutcome::Answered {
+                self.dismiss_help_notification().await;
+            }
             self.control.help_requests.lock().await.push(HelpSpan {
                 reason,
                 start,

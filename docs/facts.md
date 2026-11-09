@@ -110,6 +110,14 @@ Checked on 2026-11-03 with Hyprland 0.56.2, over every live test file:
 - After each file, no keek daemon was left and the host had no `keek-footer` layer, so no Session Footer stayed on the Agents Workspace.
 - The host's focus, workspace and window count ended as they began.
 
+### Notification results
+
+Checked on 2026-11-09 in the Omarchy shell's notification plugin (`/usr/share/omarchy/shell/plugins/notifications`).
+
+- A low urgency notification shows for 5 s and a normal one for 8 s, stretched to at most 30 s when the sender asks. A critical one stays until it is clicked or closed. In the flowchart trial a normal "Agent needs you" notification expired after 7.4 s while the Help Request waited 3:12.
+- `org.freedesktop.Notifications.CloseNotification` returns success but leaves a card on screen, because the shell keeps a visible card after its sender closes it. `omarchy-notification-dismiss <summary>` takes off every card whose summary contains that text.
+- Do not disturb doesn't silence `omarchy-notification-send`, whose app name is `omarchy-action`.
+
 ### Opening Evidence results
 
 Checked on 2026-11-08 with Hyprland 0.56.2, GTK 4.24.1, gtk4-layer-shell 1.3.0 and xdg-desktop-portal 1.22.1, from a gjs script outside keek. The daemon had exited with no log line and no core dump when Open video was pressed during the flowchart trial.

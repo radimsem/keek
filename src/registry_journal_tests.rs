@@ -375,6 +375,8 @@ async fn an_open_journal_takeover_excludes_the_rest_of_the_recording() {
             args.iter().any(|arg| arg.ends_with("recording.mp4"))
                 && args.contains(&"-ss".to_owned())
                 && !args.iter().any(|arg| arg.contains("gblur="))
+                // The brightness probe reads the Takeover but writes no video.
+                && !args.iter().any(|arg| arg.contains("signalstats"))
         })
         .collect();
     assert!(!raw_segments.is_empty());
