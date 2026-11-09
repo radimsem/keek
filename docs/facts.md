@@ -229,3 +229,20 @@ Checked on 2026-11-04 with `/usr/bin/mise` 2026.10.25 linux-x64 (2026-10-31), ag
 - mise's rust backend uses `RUSTUP_HOME` and `CARGO_HOME`; the settings `rust.rustup_home` and `rust.cargo_home`, or `MISE_RUSTUP_HOME` and `MISE_CARGO_HOME`, take precedence, and with explicit homes mise runs its own rustup-init. Toolchains live in `RUSTUP_HOME`. A rust pin inside the sandbox has not run.
 - The registry maps node to `core:node`, python to `core:python`, rust to `core:rust`, pnpm to `aqua:pnpm/pnpm` and yarn to `vfox:jdx/vfox-yarn`.
 - On this host `/usr/bin/node` is v26.12.0, and there is no `/usr/bin/cargo`, `pnpm` or `yarn`. The developer's `~/.config/mise/config.toml` and `~/.local/share/mise/installs` exist and were left unchanged.
+
+## Cua Driver refusal texts
+
+Checked on 2026-11-09 with Cua Driver 0.38.0, from the craftsoft trial. Each arrives as text content with `isError` true.
+
+- `click` without a pid: `Missing required integer field: pid`
+- `get_window_state` for a pid that owns no window: `No windows found for pid 158. Provide window_id.`
+- `click` with an unknown capture: `capture-bound click refused: capture id is unknown`
+
+The three texts were seen in the craftsoft trial. `live_click_with_only_window_id_lists_the_windows` measured the first on 2026-11-09, and that `list_windows` called with `{}` returns its list as one text item in this shape:
+
+```
+Found 1 windows:
+  window_id=94036789428144 pid=158 "keek fixture - Chromium" 1691x1298+0+0 app=chromium
+```
+
+That `list_windows` is read-only, so Cua records no turn for it, is read from source. A Cua Driver version change rechecks these texts.

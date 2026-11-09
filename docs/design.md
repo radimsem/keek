@@ -27,13 +27,14 @@ Out of scope:
 
 keek is an Omarchy layer on Cua Driver ([ADR 0009](adr/0009-shared-pieces-go-to-cua-driver.md)). Cua Driver performs Actions and records them. keek adds the sandboxed nested session on the developer's own Omarchy, the viewer and Takeover, its MCP tools and Evidence filed by Project.
 
-keek runs stock Cua Driver 0.38.0 and doesn't wait for upstream changes ([ADR 0013](adr/0013-keek-times-the-session-on-stock-cua-driver.md)). Three pieces still belong in Cua Driver. Until a Cua release carries them:
+keek runs stock Cua Driver 0.38.0 and doesn't wait for upstream changes ([ADR 0013](adr/0013-keek-times-the-session-on-stock-cua-driver.md)). Four pieces still belong in Cua Driver. Until a Cua release carries them:
 
 | Piece | Today in Cua Driver 0.38.0 | Upstream | keek meanwhile |
 | --- | --- | --- | --- |
 | Hyprland video aligned with the Action Log | Turn times read about 1.45 s behind the video. | [#6210](https://github.com/trycua/cua/issues/6210), [PR #6239](https://github.com/trycua/cua/pull/6239) | The Session Timeline times Actions itself. This stays after the fix. |
 | Idle Fast-forward in `cua-driver recording render` | `render` zooms around each Action; it has no Fast-forward. | [#6211](https://github.com/trycua/cua/issues/6211) | Its own ffmpeg editor (`stopgap`), removed once a release carries #6211 and the #6239 fix. |
 | Masking typed secrets in `action.json` | Typed text is stored in plain text. | [#6250](https://github.com/trycua/cua/issues/6250) | Scrubs Test Credentials when filing Evidence (`stopgap`), removed once a release carries masking. |
+| Resolving pid from window_id and re-reading a capture after a refusal | click and get_window_state refuse with the texts in facts.md | draft issue, not yet filed | Appends a window list or a get_window_state instruction under Cua's refusal (`stopgap`), removed once a release carries it. |
 
 Issue and pull request text is approved by the developer before it is posted.
 
@@ -133,7 +134,7 @@ The host MCP server exposes these to the Verifier. MCP calls carry no caller ide
   - keek owns the driver session, whose end stops the recording: `start_session`, `end_session`, `escalate_session`.
   - keek owns the driver's setup: `set_config`, `check_for_update`, `install_extension`, `install_ffmpeg`, `set_agent_cursor_enabled`, `set_agent_cursor_motion`, `set_agent_cursor_theme`.
 
-  A forwarded tool with a `delivery_mode` argument defaults to `foreground`, in its schema and when keek forwards the call. Cua's default is `background`, which Chromium refuses, and foreground input stays inside the nested desktop, so it can't disturb the developer.
+  A forwarded tool with a `delivery_mode` argument defaults to `foreground`, in its schema and when keek forwards the call. Cua's default is `background`, which Chromium refuses, and foreground input stays inside the nested desktop, so it can't disturb the developer. For the three refusals in `facts.md`, keek appends recovery guidance. For the two pid refusals it calls `list_windows` once, outside the Session Timeline and the Action Log.
 - `request_help(session, reason)`: raises a Help Request and blocks until the developer finishes a Takeover; see [`viewer.md`](viewer.md#takeover). While it waits it sends progress notifications, because Claude Code aborts a local MCP call after 30 minutes with no response or progress. If the coding agent cancels the call, keek withdraws the Help Request; see [`viewer.md`](viewer.md#help-request).
 - `add_check(session, text)`: adds a Check the Verifier found worth checking while testing. It is marked as added in the Verdict Report and on the card.
 - `mark_check(session, check, outcome, comment)`: marks a Check passed, failed or skipped; failed and skipped need a one-line comment. A Check can be marked again until the session closes. keek pushes each mark to the Session Footer and logs it in the Session Timeline with its time.

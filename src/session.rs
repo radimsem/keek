@@ -324,6 +324,8 @@ mod call;
 mod help;
 #[path = "session_keepalive.rs"]
 mod keepalive;
+#[path = "session_refusal_hint.rs"]
+mod refusal_hint;
 
 impl Actor {
     async fn opener_gone(&self, opener: &mut Option<watch::Receiver<()>>) {
