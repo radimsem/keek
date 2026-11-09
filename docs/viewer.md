@@ -124,7 +124,7 @@ Recording during a Takeover:
 - The Session Timeline gets one Takeover entry: start, end and reason. keek reads the start before it clears `no_focus` and the end after it sets `no_focus` again, so the entry spans all of the developer's input. None of that input is logged.
 - It also gets one Help Request entry: reason, start, end and whether it was answered or withdrawn. An answered Help Request ends where its Takeover starts. One still open when the session ends counts as withdrawn.
 - The Verification Video cuts the Help Request's wait with nothing in its place.
-- Each Takeover shows as about 2 s of its own footage, blurred, with "You were in control" centred on top.
+- Each Takeover shows as about 2 s of its own footage, blurred, with "You were in control" centred on top. The text has no box: it is navy on light footage and cream on dark footage, picked from the footage's mean brightness.
 - What stays on screen after Done shows unblurred in the video, so a code left visible in a field still shows after the Takeover.
 - The Verdict Report keeps the wait, the time in control and the reason.
 

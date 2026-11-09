@@ -90,6 +90,59 @@ pub fn freeze_args(raw: &Path) -> Vec<String> {
     args
 }
 use crate::title_card::encode_args;
+/// The colour of the Takeover label, picked so it reads on the blurred footage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextTone {
+    Light,
+    Dark,
+}
+impl TextTone {
+    /// Light footage (mean luma at least half of 255) gets dark text. Unknown footage gets light
+    /// text.
+    pub fn for_luma(luma: Option<f64>) -> Self {
+        if luma.is_some_and(|luma| luma >= 128.0) {
+            Self::Dark
+        } else {
+            Self::Light
+        }
+    }
+    fn color(self) -> &'static str {
+        match self {
+            Self::Light => "0xeee2cc",
+            Self::Dark => "0x193e58",
+        }
+    }
+}
+/// Measures a segment's mean brightness at two small frames a second.
+pub fn luma_args(raw: &Path, segment: &Segment) -> Vec<String> {
+    let mut args = common();
+    args.extend([
+        "-ss".into(),
+        seconds(segment.start),
+        "-t".into(),
+        seconds(Millis(segment.end.0 - segment.start.0)),
+        "-f".into(),
+        "mov".into(),
+        "-i".into(),
+        path(raw),
+        "-an".into(),
+        "-vf".into(),
+        "fps=2,scale=64:-2,signalstats,metadata=print:key=lavfi.signalstats.YAVG".into(),
+        "-f".into(),
+        "null".into(),
+        "-".into(),
+    ]);
+    args
+}
+pub fn parse_luma(stderr: &str) -> Option<f64> {
+    let values: Vec<f64> = stderr
+        .lines()
+        .filter_map(|line| line.split_once("lavfi.signalstats.YAVG="))
+        .filter_map(|(_, value)| value.trim().parse::<f64>().ok())
+        .filter(|value| value.is_finite())
+        .collect();
+    (!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64)
+}
 // The blur must leave typed digits unreadable.
 fn takeover_sigma(height: u32) -> u32 {
     (height as f64 / 24.0).round().max(1.0) as u32
@@ -100,6 +153,7 @@ pub fn segment_args(
     frames: u64,
     size: (u32, u32),
     font: &str,
+    tone: TextTone,
     out: &Path,
 ) -> Vec<String> {
     let mut args = quiet();
@@ -123,12 +177,12 @@ pub fn segment_args(
             let text = "You were in control";
             let fontsize = (size.1 as f64 / 28.0)
                 .min(size.0 as f64 * 0.9 / (0.6 * text.chars().count() as f64));
-            let border = (fontsize / 3.0).round().max(1.0);
             format!(
-                "fps=30:start_time=0,setpts=PTS*{:.12},fps=30,tpad=stop_mode=clone:stop_duration=1,gblur=sigma={},drawtext=fontfile={}:text={text}:expansion=none:fontcolor=0xeee2cc:fontsize={fontsize}:box=1:boxcolor=0x193e58@0.85:boxborderw={border}:x=(w-text_w)/2:y=(h-text_h)/2,scale=out_range=tv,format=yuv420p",
+                "fps=30:start_time=0,setpts=PTS*{:.12},fps=30,tpad=stop_mode=clone:stop_duration=1,gblur=sigma={},drawtext=fontfile={}:text={text}:expansion=none:fontcolor={}:fontsize={fontsize}:x=(w-text_w)/2:y=(h-text_h)/2,scale=out_range=tv,format=yuv420p",
                 TAKEOVER_SHOWN.0 as f64 / real_ms.0 as f64,
                 takeover_sigma(size.1),
                 crate::title_card::escape_font(font),
+                tone.color(),
             )
         }
         SegmentKind::FastForward { real_ms } => format!(
@@ -225,6 +279,23 @@ mod tests {
         );
     }
     #[test]
+    fn dark_footage_gets_light_text_and_light_footage_gets_dark_text() {
+        let luma = |values: &str| parse_luma(values);
+        assert_eq!(
+            TextTone::for_luma(luma(
+                "x lavfi.signalstats.YAVG=30.5\ny lavfi.signalstats.YAVG=41.5"
+            )),
+            TextTone::Light
+        );
+        assert_eq!(
+            TextTone::for_luma(luma(
+                "lavfi.signalstats.YAVG=200\nlavfi.signalstats.YAVG=nan"
+            )),
+            TextTone::Dark
+        );
+        assert_eq!(TextTone::for_luma(luma("no stats")), TextTone::Light);
+    }
+    #[test]
     fn fast_forward_segments_compress_without_drawing_text() {
         let segment = Segment {
             start: Millis(0),
@@ -239,6 +310,7 @@ mod tests {
             18,
             (0, 0),
             "",
+            TextTone::Light,
             Path::new("part"),
         );
         let filter = args.windows(2).find(|v| v[0] == "-vf").unwrap();
@@ -252,7 +324,15 @@ mod tests {
             end: Millis(1123),
             kind: SegmentKind::RealSpeed,
         };
-        let a = segment_args(Path::new("raw"), &s, 30, (0, 0), "", Path::new("part"));
+        let a = segment_args(
+            Path::new("raw"),
+            &s,
+            30,
+            (0, 0),
+            "",
+            TextTone::Light,
+            Path::new("part"),
+        );
         assert!(a.windows(4).any(|v| v == ["-f", "mov", "-i", "raw"]));
         assert!(a.windows(2).any(|v| v == ["-frames:v", "30"]));
         assert!(a.iter().position(|v| v == "-ss") < a.iter().position(|v| v == "-i"));

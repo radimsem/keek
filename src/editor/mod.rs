@@ -167,7 +167,16 @@ async fn edit_ending(
     let result = async {
         for (i, segment) in plan.segments().iter().enumerate() {
             let output = parts.join(format!("{i:04}.mp4"));
-            let args = ffmpeg::segment_args(raw, segment, segment.frames(), size, &font, &output);
+            let tone = match segment.kind {
+                SegmentKind::Takeover { .. } => {
+                    let luma =
+                        job(runner, &ffmpeg::luma_args(raw, segment), i, 0, &mut |_| {}).await?;
+                    ffmpeg::TextTone::for_luma(ffmpeg::parse_luma(&luma))
+                }
+                SegmentKind::RealSpeed | SegmentKind::FastForward { .. } => ffmpeg::TextTone::Light,
+            };
+            let args =
+                ffmpeg::segment_args(raw, segment, segment.frames(), size, &font, tone, &output);
             job(
                 runner,
                 &args,
@@ -351,12 +360,16 @@ mod takeover_tests {
                 if !args.contains(&"null") {
                     std::fs::write(args.last().unwrap(), b"video").unwrap();
                 }
-                Ok(String::new())
+                Ok(if args.iter().any(|arg| arg.contains("signalstats")) {
+                    "lavfi.signalstats.YAVG=221.5\nlavfi.signalstats.YAVG=218.5\n".into()
+                } else {
+                    String::new()
+                })
             })
         }
     }
     #[tokio::test]
-    async fn a_takeover_blurs_raw_footage_before_drawing_only_its_label() {
+    async fn a_takeover_blurs_raw_footage_before_drawing_only_its_label_in_a_tone_that_reads() {
         let dir = tempfile::tempdir().unwrap();
         let raw = dir.path().join("raw.mp4");
         std::fs::write(&raw, b"raw").unwrap();
@@ -378,7 +391,10 @@ mod takeover_tests {
         .unwrap();
         assert_eq!(plan.segments().len(), 3);
         let calls = runner.0.lock().unwrap();
-        let takeover = &calls[2];
+        let probe = &calls[2];
+        assert!(probe.windows(2).any(|v| v == ["-ss", "0.850"]));
+        assert!(probe.iter().any(|arg| arg.contains("signalstats")));
+        let takeover = &calls[3];
         assert!(
             takeover
                 .windows(4)
@@ -403,8 +419,11 @@ mod takeover_tests {
             "You were in control"
         );
         assert!(filter.contains("fontsize=17.142857142857142"));
-        assert!(filter.contains("fontcolor=0xeee2cc"));
-        assert!(filter.contains("box=1:boxcolor=0x193e58@0.85:boxborderw=6"));
+        assert!(
+            filter.contains("fontcolor=0x193e58"),
+            "light footage gets dark text"
+        );
+        assert!(!filter.contains("box="));
         assert!(filter.contains("x=(w-text_w)/2:y=(h-text_h)/2"));
     }
     #[tokio::test]
