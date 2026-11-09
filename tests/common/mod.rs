@@ -95,7 +95,9 @@ pub fn process_is_gone(pid: u32) -> bool {
 }
 
 pub async fn wait_until(what: &str, mut condition: impl FnMut() -> bool) -> Result<()> {
-    for _ in 0..200 {
+    // A daemon binds its socket in about 25 ms; a loaded machine once took over 5 s.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    while tokio::time::Instant::now() < deadline {
         if condition() {
             return Ok(());
         }
