@@ -142,7 +142,7 @@ The coding agent sets up a Project with these, which take no session ([ADR 0016]
 
 Recording starts in `open_session` and stops in `close_session`; the Verifier has no recording tool. Cua Driver's `start_recording` with `record_video:true` writes, per session:
 
-- `recording.mp4`: the Raw Recording (wf-recorder on the nested output, CPU encoded). While the Session Window is hidden on the Agents Workspace, it records at the host's `misc:render_unfocused_fps`, 15 by default. keek leaves that setting alone.
+- `recording.mp4`: the Raw Recording (wf-recorder on the nested output, CPU encoded). While the Session Window is hidden on the Agents Workspace, it records at the host's `misc:render_unfocused_fps`, 15 by default. keek leaves that setting alone. Cua Driver stops a recording after 300 s without a tool call, so while a Help Request or Takeover holds the Verifier's calls, keek sends Cua a read-only `get_recording_state` each minute ([`facts.md`](facts.md#recording-idle-results)). It enters neither the Session Timeline nor the Action Log.
 - `turn-NNNNN/action.json` per Action: tool, arguments, result, click point, and `t_ms_from_session_start`.
 
 Read-only calls (snapshots, accessibility trees) are not Actions and leave no turn, so the gaps between turns are where the Verifier was reasoning.

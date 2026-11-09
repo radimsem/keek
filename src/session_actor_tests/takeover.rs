@@ -243,7 +243,11 @@ async fn a_call_in_flight_finishes_before_takeover_changes_host_focus() {
     actor.task.await.unwrap();
 }
 
-async fn forward(sender: &mpsc::Sender<ActorRequest>, gate: &gate::Gate, tool: &str) -> Response {
+pub(super) async fn forward(
+    sender: &mpsc::Sender<ActorRequest>,
+    gate: &gate::Gate,
+    tool: &str,
+) -> Response {
     let (reply, response) = oneshot::channel();
     sender
         .send(ActorRequest::Call {

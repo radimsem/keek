@@ -163,6 +163,7 @@ impl Actor {
             zero,
         };
         let mut control_events = self.events.subscribe();
+        let mut keepalive = keepalive::timer();
         let reason = 'requests: loop {
             let paused = control_events.borrow().control.pauses_idle();
             let request = tokio::select! { biased;
@@ -180,6 +181,7 @@ impl Actor {
                     if paused && !now_paused { state.deadline = tokio::time::Instant::now() + self.idle_limit; }
                     continue;
                 }
+                _ = keepalive.tick(), if paused => { keepalive::keep_recording(state.driver.as_mut()).await; continue; }
                 () = tokio::time::sleep_until(state.deadline), if !paused && !self.closing.load(Ordering::SeqCst) => { if !self.closing.load(Ordering::SeqCst) { break 'requests Some(crate::checklist::IncompleteReason::Idle { limit: self.idle_limit }); } continue; },
                 request = Inbox::next_request(&mut inbox.requests, &mut inbox.deferred) => { let Some(request) = request else { break 'requests None; }; request }
             };
