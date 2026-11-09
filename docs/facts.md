@@ -169,6 +169,16 @@ Checked on 2026-11-09 with Cua Driver 0.38.0 and `trycua/cua` at `b5adb8a35`, fr
 - The cut finalises a playable `recording.mp4`, and a later `stop_recording` still reports success, so nothing tells keek the recording ended early.
 - A live session holding a Help Request with no Takeover recorded 329.8 s of 428.8 s. With Cua's TTL set to 5 s, a 60 s Help Request recorded 29.7 s of 68.6 s without a keepalive and 70.4 s of 69.0 s with a keepalive each second.
 
+### Craftsoft trial results
+
+Checked on 2026-11-09 with Cua Driver 0.38.0, Hyprland 0.56.2 and Chromium 155.0.8059.84, from the craftsoft trial.
+
+- `drag` with `delivery_mode` set to `foreground` drew a precise rectangle on a pdf.js canvas on the first try, at 305 % zoom on an unrotated page and at 244 % on a view rotated 90 degrees.
+- Chromium's GTK file dialog (xdg-desktop-portal-gtk) accepted Ctrl+L, a typed absolute sandbox path and Enter. A .pdf filter did not block a typed .txt path.
+- `${NAME}` substitution ran in four sessions, and a grep of all Evidence and logs for the value found nothing.
+- `type_text` into a password field returns `effect: unverifiable`, and the field can't be read back.
+- `get_window_state` on the portal's file dialog failed once with `surface_identity_unproven` and worked in another session. Seen once, not reproduced.
+
 ## Facts this design rests on
 
 Checked on 2026-10-31 in Cua Driver 0.38.0 and `trycua/cua` main `a9902d2`:
