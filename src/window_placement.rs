@@ -94,12 +94,12 @@ pub async fn slot(
         gap: inner,
         count,
     });
-    let Some(mut slot) = slots.get(index.0).copied() else {
+    let Some(slot) = slots.get(index.0).copied() else {
         return Err(refused(
             "The monitor has no room for this Session Card. Use a larger monitor or reduce the session cap",
         ));
     };
-    if let Some(size) = size {
+    let size = if let Some(size) = size {
         let w = i32::try_from(size.width.get())
             .map_err(|_| refused("WindowSize width is too large. Reduce it and retry"))?;
         let h = i32::try_from(size.height.get())
@@ -109,11 +109,12 @@ pub async fn slot(
                 "The Project WindowSize exceeds its Session Card slot. Reduce WindowSize or use a larger monitor",
             ));
         }
-        slot.width = w;
-        slot.height = h;
-    }
+        Some((w, h))
+    } else {
+        None
+    };
     Ok(Placement {
-        slot,
+        geometry: slots::geometry(slot, size),
         origin: (number(monitor, "x"), number(monitor, "y")),
         monitor: monitor["name"].as_str().unwrap_or_default().into(),
     })
@@ -171,7 +172,7 @@ pub async fn place(
         Some(events) => events,
         None => hypr::subscribe().await?,
     };
-    let mut slot = placement.slot;
+    let mut slot = placement.geometry.window;
     slot.x += placement.origin.0;
     slot.y += placement.origin.1;
     tokio::time::timeout(

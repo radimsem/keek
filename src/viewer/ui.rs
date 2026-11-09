@@ -16,6 +16,7 @@ struct Card {
     hover: footer_view::Hover,
     footer: gtk::Window,
     surface: gtk::Window,
+    body: gtk::Overlay,
     state_label: gtk::Label,
     detail: gtk::Label,
     checked: gtk::Box,
@@ -43,6 +44,8 @@ impl Card {
             classes.push(class);
         }
         self.footer.set_css_classes(&classes);
+        classes[0] = "hover-surface";
+        self.surface.set_css_classes(&classes);
         self.state_label.set_text(view.label.text());
 
         self.detail.set_text(&view.detail);
@@ -174,24 +177,14 @@ fn surface(
     window.set_anchor(Edge::Top, true);
     window.set_anchor(Edge::Left, true);
     window.set_monitor(Some(monitor));
-    let rect = info.placement;
+    let rect = if footer {
+        info.placement.footer
+    } else {
+        info.placement.body
+    };
     window.set_margin(Edge::Left, rect.x);
-    window.set_margin(
-        Edge::Top,
-        if footer {
-            rect.y + rect.height - crate::slots::FOOTER_OVERLAP
-        } else {
-            rect.y
-        },
-    );
-    window.set_default_size(
-        rect.width,
-        if footer {
-            crate::slots::FOOTER_HEIGHT
-        } else {
-            rect.height
-        },
-    );
+    window.set_margin(Edge::Top, rect.y);
+    window.set_default_size(rect.width, rect.height);
     window.set_resizable(false);
     window.add_css_class(if footer { "footer" } else { "hover-surface" });
     window.add_css_class(footer_view::SessionColour::for_slot(info.slot).css_class());
@@ -217,6 +210,12 @@ fn create(
     };
     let footer = surface(&info, &monitor, Layer::Top, true);
     let surface = surface(&info, &monitor, Layer::Bottom, false);
+    let body = gtk::Overlay::new();
+    let edge = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    edge.add_css_class("card-edge");
+    edge.set_can_target(false);
+    body.add_overlay(&edge);
+    surface.set_child(Some(&body));
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 24);
     row.set_margin_start(16);
     row.set_margin_end(16);
@@ -319,7 +318,7 @@ fn create(
             .num_seconds()
             .max(0) as u64
     });
-    let end_card = end_card::EndCard::new(&snapshot, info.placement.width);
+    let end_card = end_card::EndCard::new(&snapshot, info.placement);
     let card = Card {
         info,
         snapshot,
@@ -327,6 +326,7 @@ fn create(
         hover: footer_view::Hover::Away,
         footer,
         surface,
+        body,
         state_label,
         detail,
         checked,
@@ -336,7 +336,7 @@ fn create(
         watcher: None,
         end_card,
     };
-    card.surface
+    card.body
         .set_child(card.end_card.as_ref().map(|end| &end.overlay));
     if card.end_card.is_some() {
         card.footer.set_layer(Layer::Bottom);
@@ -358,7 +358,7 @@ pub fn run(
     mut receiver: tokio::sync::mpsc::Receiver<ViewerMessage>,
     handle: tokio::runtime::Handle,
 ) {
-    end_card::install_style();
+    super::style::install_style();
     let main_loop = glib::MainLoop::new(None, false);
     let state = Rc::new(RefCell::new(State {
         cards: HashMap::new(),
@@ -422,9 +422,9 @@ pub fn run(
                                 }
                                 end_card::update_slot(
                                     &mut card.end_card,
-                                    &card.surface,
+                                    &card.body,
                                     &snapshot,
-                                    card.info.placement.width,
+                                    card.info.placement,
                                 );
                                 if card.end_card.is_some() {
                                     card.footer.set_layer(Layer::Bottom);

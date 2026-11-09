@@ -142,12 +142,15 @@ impl crate::compositor::Compositor for Compositor {
     ) -> crate::compositor::SlotFuture<'_> {
         Box::pin(async move {
             Ok(crate::compositor::Placement {
-                slot: crate::slots::Slot {
-                    x: index.0 as i32 * 1701 + 24,
-                    y: 50,
-                    width: 1691,
-                    height: 1298,
-                },
+                geometry: crate::slots::geometry(
+                    crate::slots::Slot {
+                        x: index.0 as i32 * 1701 + 24,
+                        y: 50,
+                        width: 1691,
+                        height: 1298,
+                    },
+                    None,
+                ),
                 monitor: "fake".into(),
                 origin: (0, 0),
             })

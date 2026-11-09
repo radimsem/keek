@@ -51,12 +51,15 @@ async fn project_prepare_can_outlast_the_desktop_handshake_limit() {
         placement: crate::compositor::Placement {
             monitor: "fake".into(),
             origin: (0, 0),
-            slot: crate::slots::Slot {
-                x: 24,
-                y: 50,
-                width: 1280,
-                height: 800,
-            },
+            geometry: crate::slots::geometry(
+                crate::slots::Slot {
+                    x: 24,
+                    y: 50,
+                    width: 1280,
+                    height: 800,
+                },
+                None,
+            ),
         },
         credentials: Default::default(),
         project: "app".into(),

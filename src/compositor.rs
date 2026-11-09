@@ -51,7 +51,7 @@ pub type SlotFuture<'a> =
     Pin<Box<dyn Future<Output = Result<Placement, ProcessError>> + Send + 'a>>;
 #[derive(Debug, Clone)]
 pub struct Placement {
-    pub slot: crate::slots::Slot,
+    pub geometry: crate::slots::CardGeometry,
     pub monitor: String,
     pub origin: (i32, i32),
 }

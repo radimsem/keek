@@ -222,7 +222,7 @@ impl Registry {
                     goal: goal.clone(),
                     opened: started.with_timezone(&chrono::Utc),
                     slot,
-                    placement: placement.slot,
+                    placement: placement.geometry,
                     monitor: placement.monitor.clone(),
                 },
                 event_receiver.clone(),

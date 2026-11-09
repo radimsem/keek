@@ -22,7 +22,7 @@ pub struct EndCard {
     frame_loader: Option<gtk::glib::JoinHandle<()>>,
 }
 impl EndCard {
-    pub fn new(snapshot: &SessionSnapshot, width: i32) -> Option<Self> {
+    pub fn new(snapshot: &SessionSnapshot, geometry: crate::slots::CardGeometry) -> Option<Self> {
         let frame = match &snapshot.state {
             SessionState::Rendering { frame, .. } => frame,
             SessionState::Ended(end) => &end.frame,
@@ -30,10 +30,9 @@ impl EndCard {
         };
         let overlay = gtk::Overlay::new();
         let picture = gtk::Picture::new();
-        picture.set_content_fit(gtk::ContentFit::Cover);
+        picture.set_content_fit(gtk::ContentFit::Contain);
         picture.set_can_shrink(true);
-        picture.set_hexpand(true);
-        picture.set_vexpand(true);
+        picture.set_size_request(geometry.window.width, geometry.window.height);
         let frame_loader = frame.clone().map(|path| {
             let weak = picture.downgrade();
             gtk::glib::spawn_future_local(async move {
@@ -67,19 +66,33 @@ impl EndCard {
                 }
             })
         });
-        overlay.set_child(Some(&picture));
+        let frame = gtk::Fixed::new();
+        frame.put(
+            &picture,
+            f64::from(geometry.window.x - geometry.body.x),
+            f64::from(geometry.window.y - geometry.body.y),
+        );
+        overlay.set_child(Some(&frame));
         let scrim = gtk::Box::new(gtk::Orientation::Vertical, 0);
         scrim.add_css_class("end-scrim");
+        scrim.set_margin_start(geometry.window.x - geometry.body.x);
+        scrim.set_margin_top(geometry.window.y - geometry.body.y);
+        scrim.set_margin_end(
+            geometry.body.x + geometry.body.width - geometry.window.x - geometry.window.width,
+        );
+        scrim.set_margin_bottom(
+            geometry.body.y + geometry.body.height - geometry.window.y - geometry.window.height,
+        );
         overlay.add_overlay(&scrim);
         let view = verdict_view::for_snapshot(snapshot)?;
-        let (panel, progress, tally) = panel(view, width);
+        let (panel, progress, tally) = panel(view, geometry.body.width);
         overlay.add_overlay(&panel);
         Some(Self {
             overlay,
             panel,
             progress,
             tally,
-            width,
+            width: geometry.body.width,
             frame_loader,
         })
     }
@@ -116,15 +129,15 @@ impl Drop for EndCard {
 }
 pub fn update_slot(
     card: &mut Option<EndCard>,
-    surface: &gtk::Window,
+    body: &gtk::Overlay,
     snapshot: &SessionSnapshot,
-    width: i32,
+    geometry: crate::slots::CardGeometry,
 ) {
     match card {
         Some(end) => end.update(snapshot),
         None => {
-            *card = EndCard::new(snapshot, width);
-            surface.set_child(card.as_ref().map(|end| &end.overlay));
+            *card = EndCard::new(snapshot, geometry);
+            body.set_child(card.as_ref().map(|end| &end.overlay));
         }
     }
 }
@@ -420,48 +433,5 @@ impl FooterActions {
         for (kind, button) in &self.ended {
             button.set_visible(view.buttons.contains(kind));
         }
-    }
-}
-
-pub fn style(theme: &Theme) -> String {
-    format!(
-        ".end-scrim {{background:alpha({ink},0.86);}} .verdict-panel {{background:{background};color:{foreground};font-family:'JetBrains Mono';border:1px solid {border};border-radius:8px;padding:28px 32px;}} .verdict-title {{font-size:22px;font-weight:700;}} .panel-title {{font-size:18px;font-weight:700;font-feature-settings:'tnum';}} .panel-meta {{font-size:13px;color:{dim};}} .check-text {{font-size:14px;}} .check-comment {{font-size:13px;color:mix({foreground},{dim},0.5);}} .added-tag {{color:{dim};font-size:11px;border:1px solid {border};border-radius:4px;padding:1px 6px;}} .verdict-panel separator {{background:{border};min-height:1px;}} .verdict-panel progressbar trough {{min-height:6px;background:alpha({foreground},0.2);}} .verdict-panel progressbar progress {{min-height:6px;background:{accent};}} label.passed {{color:{green};background:transparent;}} label.failed {{color:{red};background:transparent;}} label.skipped {{color:{yellow};border:0;}} .tick.passed {{background:{green};}} .tick.failed {{background:{red};}} button.secondary {{background:alpha({foreground},0.04);color:{foreground};border:1px solid alpha({foreground},0.4);padding:0 16px;}} button.dismiss {{background:transparent;color:{dim};border:0;padding:0;}}",
-        ink = theme.ink,
-        background = theme.background,
-        foreground = theme.foreground,
-        border = theme.border,
-        dim = theme.dim,
-        accent = theme.accent,
-        green = theme.green,
-        red = theme.red,
-        yellow = theme.yellow
-    )
-}
-
-pub fn install_style() {
-    let t = super::theme::load();
-    let provider = gtk::CssProvider::new();
-    provider.load_from_data(&format!("window.footer {{ background: {}; color: {}; font-family: 'JetBrains Mono'; font-size: 12px; border: 2px solid {}; border-top: 2px solid {}; border-radius: 0 0 8px 8px; }} window.violet {{border-top-color:{};}} .violet .cursor {{color:{};}} .cyan .cursor {{color:{};}} .dim {{color:{};}} .hint {{color:{};}} .value {{font-weight:700; font-feature-settings: 'tnum';}} button {{background:alpha({},0.10);color:{};border:1px solid {};border-radius:8px;font-weight:700;padding:0 18px;}} button:hover,button.hinted {{background:alpha({},0.22);}} window.hover-surface {{background:transparent;}} .tick {{min-width:10px;min-height:10px;border-radius:2px;}} .tick.passed {{background:{};}} .tick.failed {{background:{};}} .tick.skipped {{border:1px solid {};color:{};}} .tick.unmarked {{border:1px solid {};}}",t.background,t.foreground,t.border,super::footer_view::SessionColour::Cyan.color(),super::footer_view::SessionColour::Violet.color(),super::footer_view::SessionColour::Violet.color(),super::footer_view::SessionColour::Cyan.color(),t.dim,t.accent,t.accent,t.accent,t.accent,t.accent,t.green,t.red,t.yellow,t.yellow,t.dim));
-    let controls = gtk::CssProvider::new();
-    controls.load_from_data(&format!("window.needs-you {{border-left-color:{0};border-right-color:{0};border-bottom-color:{0};}} .needs-you .state {{color:{0};}} .needs-you button {{background:{0};color:{3};}} window.takeover {{background:{4};border-left-color:{1};border-right-color:{1};border-bottom-color:{1};}} .takeover .state {{color:{5};}} .hand-back .state {{color:{5};}} .takeover button {{background:{6};color:{3};}} .keycap {{border:1px solid {2};border-radius:4px;padding:4px;}}", t.orange, t.active_border, t.border, t.ink, t.control, t.blue_text, t.accent));
-    let end_style = gtk::CssProvider::new();
-    end_style.load_from_data(&style(&t));
-    // GTK breaks ties between equal-priority providers by the order they were added, so `controls` goes last.
-    if let Some(display) = gtk::gdk::Display::default() {
-        gtk::style_context_add_provider_for_display(
-            &display,
-            &provider,
-            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
-        gtk::style_context_add_provider_for_display(
-            &display,
-            &end_style,
-            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
-        gtk::style_context_add_provider_for_display(
-            &display,
-            &controls,
-            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
     }
 }

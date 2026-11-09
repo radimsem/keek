@@ -180,12 +180,15 @@ mod tests {
             goal: "verify login".into(),
             opened: chrono::DateTime::from_timestamp(0, 0).unwrap(),
             slot: super::super::super::SlotId(1),
-            placement: crate::slots::Slot {
-                x: 0,
-                y: 0,
-                width: 1000,
-                height: 800,
-            },
+            placement: crate::slots::geometry(
+                crate::slots::Slot {
+                    x: 0,
+                    y: 0,
+                    width: 1000,
+                    height: 800,
+                },
+                None,
+            ),
             monitor: "DP-1".into(),
         }
     }
