@@ -175,6 +175,12 @@ impl crate::compositor::Compositor for Compositor {
             }
         })
     }
+    fn release_caught_windows(&self) -> CompositorFuture<'_> {
+        Box::pin(async {
+            self.0.lock().unwrap().push("release");
+            Ok(())
+        })
+    }
 }
 struct FixedClock;
 impl Clock for FixedClock {
@@ -352,7 +358,10 @@ async fn calls_reach_only_the_named_sessions_driver() {
     assert_eq!(*h.compositor.0.lock().unwrap(), ["install"]);
     h.finish(first).await;
     h.finish(second).await;
-    assert_eq!(*h.compositor.0.lock().unwrap(), ["install", "remove"]);
+    assert_eq!(
+        *h.compositor.0.lock().unwrap(),
+        ["install", "remove", "release"]
+    );
 }
 
 #[tokio::test]
@@ -524,7 +533,10 @@ async fn a_recording_stop_failure_still_releases_the_slot_and_writes_timeline() 
     assert!(value.get("verdict").is_none());
     assert!(h.registry.is_empty());
     assert!(Path::new(value["evidence"]["timeline"].as_str().unwrap()).exists());
-    assert_eq!(*h.compositor.0.lock().unwrap(), ["install", "remove"]);
+    assert_eq!(
+        *h.compositor.0.lock().unwrap(),
+        ["install", "remove", "release"]
+    );
 }
 
 #[tokio::test]

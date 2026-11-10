@@ -285,21 +285,24 @@ fn host_runtime() -> Result<PathBuf> {
     ))
 }
 
-/// The daemon inherits this environment from the first `keek mcp` that starts it.
-fn mcp_command(root: &Path, extra_env: &[(&str, &str)]) -> Result<Command> {
+fn host_display() -> Result<PathBuf> {
     let display = PathBuf::from(
         std::env::var_os("WAYLAND_DISPLAY").context("WAYLAND_DISPLAY is missing")?,
     );
-    let display = if display.is_absolute() {
+    Ok(if display.is_absolute() {
         display
     } else {
         host_runtime()?.join(display)
-    };
+    })
+}
+
+/// The daemon inherits this environment from the first `keek mcp` that starts it.
+fn mcp_command(root: &Path, extra_env: &[(&str, &str)]) -> Result<Command> {
     let mut command = Command::new(env!("CARGO_BIN_EXE_keek"));
     command
         .arg("mcp")
         .env("XDG_RUNTIME_DIR", root.join("run"))
-        .env("WAYLAND_DISPLAY", display)
+        .env("WAYLAND_DISPLAY", host_display()?)
         .env("XDG_CACHE_HOME", root.join("cache"))
         .env("XDG_STATE_HOME", root.join("state"))
         .env("XDG_CONFIG_HOME", root.join("config"))

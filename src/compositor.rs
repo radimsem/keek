@@ -46,6 +46,10 @@ pub trait Compositor: Send + Sync {
     fn window_events(&self) -> EventsFuture<'_>;
     fn install(&self) -> CompositorFuture<'_>;
     fn remove(&self) -> CompositorFuture<'_>;
+    /// Moves a nested Hyprland the developer started, which the host rule caught, back to their active workspace.
+    fn release_caught_windows(&self) -> CompositorFuture<'_> {
+        Box::pin(async { Ok(()) })
+    }
 }
 pub type SlotFuture<'a> =
     Pin<Box<dyn Future<Output = Result<Placement, ProcessError>> + Send + 'a>>;
@@ -64,6 +68,16 @@ pub struct HostCompositor {
 impl HostCompositor {
     pub fn new(runner: Arc<dyn ProcessRunner>) -> Self {
         Self { runner }
+    }
+    async fn host_json(&self, request: &str) -> Result<serde_json::Value, ProcessError> {
+        let reply = self
+            .runner
+            .output("hyprctl", &[request, "-j"], None)
+            .await?;
+        serde_json::from_str(&reply).map_err(|error| ProcessError::Failed {
+            program: format!("hyprctl {request}"),
+            message: format!("the reply is not JSON: {error}"),
+        })
     }
 }
 impl Compositor for HostCompositor {
@@ -108,6 +122,62 @@ impl Compositor for HostCompositor {
                     ],
                     None,
                 )
+                .await?;
+            check_eval(output)
+        })
+    }
+    fn release_caught_windows(&self) -> CompositorFuture<'_> {
+        Box::pin(async move {
+            let clients = self.host_json("clients").await?;
+            let mut caught = Vec::new();
+            for client in clients.as_array().into_iter().flatten() {
+                if client["class"] != SESSION_WINDOW_CLASS || client["workspace"]["name"] != "keek"
+                {
+                    continue;
+                }
+                let (Some(address), Some(pid)) =
+                    (client["address"].as_str(), client["pid"].as_u64())
+                else {
+                    continue;
+                };
+                // A Session Window belongs to a keek process, so this leaves another daemon's alone.
+                let owner = self
+                    .runner
+                    .output("ps", &["-o", "comm=", "-p", &pid.to_string()], None)
+                    .await;
+                if owner.is_ok_and(|name| name.trim() == "Hyprland") {
+                    caught.push(address);
+                }
+            }
+            if caught.is_empty() {
+                return Ok(());
+            }
+            let active = self.host_json("activeworkspace").await?;
+            let name = active["name"].as_str().unwrap_or_default();
+            // A window tiled on the Agents Workspace would cover its Session Cards.
+            if name == "keek" {
+                return Ok(());
+            }
+            // A named workspace has a negative id and is selected as name:<name>.
+            let workspace = match active["id"].as_i64() {
+                Some(id) if id > 0 => id.to_string(),
+                Some(_) | None => {
+                    format!("name:{}", name.replace('\\', "\\\\").replace('\'', "\\'"))
+                }
+            };
+            // Disabling the rule undoes no_focus but not float, size or workspace, which Hyprland applies once at open.
+            let script = caught
+                .iter()
+                .map(|address| {
+                    format!(
+                        "hl.dispatch(hl.dsp.window.move({{ window = 'address:{address}', workspace = '{workspace}', follow = false }})); hl.dispatch(hl.dsp.window.float({{ window = 'address:{address}', action = 'disable' }}))"
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            let output = self
+                .runner
+                .output("hyprctl", &["eval", &script], None)
                 .await?;
             check_eval(output)
         })
@@ -197,6 +267,124 @@ mod tests {
         }
         assert!(!install.contains("submap"));
         assert!(calls[1][2].contains(":set_enabled(false)"));
+    }
+    struct Host {
+        hyprctl: Mutex<Vec<Vec<String>>>,
+        clients: &'static str,
+        active: &'static str,
+    }
+    impl ProcessRunner for Host {
+        fn output<'a>(
+            &'a self,
+            program: &'a str,
+            args: &'a [&'a str],
+            _: Option<&'a std::path::Path>,
+        ) -> Pin<Box<dyn Future<Output = Result<String, ProcessError>> + Send + 'a>> {
+            Box::pin(async move {
+                if program == "ps" {
+                    // Pid 7 is a Hyprland the developer started, pid 8 a keek process, and any other pid has exited.
+                    return match args[3] {
+                        "7" => Ok("Hyprland\n".into()),
+                        "8" => Ok("keek\n".into()),
+                        _ => Err(ProcessError::Failed {
+                            program: "ps".into(),
+                            message: "exit status: 1".into(),
+                        }),
+                    };
+                }
+                self.hyprctl
+                    .lock()
+                    .unwrap()
+                    .push(args.iter().map(|arg| (*arg).to_owned()).collect());
+                Ok(match args[0] {
+                    "clients" => self.clients,
+                    "activeworkspace" => self.active,
+                    _ => "ok",
+                }
+                .into())
+            })
+        }
+    }
+    const CAUGHT: &str =
+        r#"[{"address":"0xaaa","pid":7,"class":"aquamarine","workspace":{"name":"keek"}}]"#;
+    async fn release(
+        clients: &'static str,
+        active: &'static str,
+    ) -> (Result<(), ProcessError>, Vec<Vec<String>>) {
+        let host = Arc::new(Host {
+            hyprctl: Mutex::new(Vec::new()),
+            clients,
+            active,
+        });
+        let result = HostCompositor::new(host.clone())
+            .release_caught_windows()
+            .await;
+        let calls = host.hyprctl.lock().unwrap().clone();
+        (result, calls)
+    }
+    #[tokio::test]
+    async fn releasing_tiles_only_caught_windows_on_the_active_workspace() {
+        let (result, calls) = release(
+            r#"[{"address":"0xaaa","pid":7,"class":"aquamarine","workspace":{"name":"keek"}},
+                {"address":"0xbbb","pid":7,"class":"aquamarine","workspace":{"name":"2"}},
+                {"address":"0xccc","pid":7,"class":"kitty","workspace":{"name":"keek"}},
+                {"address":"0xddd","pid":7,"class":"aquamarine","workspace":{"name":"keek"}}]"#,
+            r#"{"id":3,"name":"3"}"#,
+        )
+        .await;
+        result.unwrap();
+        assert_eq!(calls.len(), 3);
+        assert_eq!(
+            calls[2],
+            [
+                "eval",
+                "hl.dispatch(hl.dsp.window.move({ window = 'address:0xaaa', workspace = '3', follow = false })); hl.dispatch(hl.dsp.window.float({ window = 'address:0xaaa', action = 'disable' })); hl.dispatch(hl.dsp.window.move({ window = 'address:0xddd', workspace = '3', follow = false })); hl.dispatch(hl.dsp.window.float({ window = 'address:0xddd', action = 'disable' }))"
+            ]
+        );
+    }
+    #[tokio::test]
+    async fn only_a_window_owned_by_a_hyprland_process_is_released() {
+        let (result, calls) = release(
+            r#"[{"address":"0xaaa","pid":8,"class":"aquamarine","workspace":{"name":"keek"}},
+                {"address":"0xbbb","pid":9,"class":"aquamarine","workspace":{"name":"keek"}}]"#,
+            r#"{"id":3,"name":"3"}"#,
+        )
+        .await;
+        result.unwrap();
+        assert_eq!(calls, [["clients", "-j"]]);
+    }
+    #[tokio::test]
+    async fn releasing_with_nothing_caught_dispatches_nothing() {
+        let (result, calls) = release(
+            r#"[{"address":"0xccc","pid":7,"class":"kitty","workspace":{"name":"keek"}}]"#,
+            r#"{"id":3,"name":"3"}"#,
+        )
+        .await;
+        result.unwrap();
+        assert_eq!(calls, [["clients", "-j"]]);
+    }
+    #[tokio::test]
+    async fn a_caught_window_stays_put_while_the_agents_workspace_is_active() {
+        let (result, calls) = release(CAUGHT, r#"{"id":-98,"name":"keek"}"#).await;
+        result.unwrap();
+        assert_eq!(calls, [["clients", "-j"], ["activeworkspace", "-j"]]);
+    }
+    #[tokio::test]
+    async fn a_named_active_workspace_is_selected_by_its_quoted_name() {
+        let (result, calls) = release(CAUGHT, r#"{"id":-97,"name":"d\\e's"}"#).await;
+        result.unwrap();
+        assert!(
+            calls[2][1].contains(r"workspace = 'name:d\\e\'s', follow = false"),
+            "{}",
+            calls[2][1]
+        );
+    }
+    #[tokio::test]
+    async fn an_unreadable_window_list_is_reported() {
+        let (result, calls) = release("no socket", "{}").await;
+        let error = result.unwrap_err().to_string();
+        assert!(error.contains("hyprctl clients"), "{error}");
+        assert_eq!(calls.len(), 1);
     }
     #[tokio::test]
     async fn a_rejected_rule_is_reported() {

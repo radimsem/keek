@@ -203,10 +203,13 @@ impl Registry {
             Ok(Err(error)) => tracing::error!(%error, "could not remove the worktree's copy"),
             Err(error) => tracing::error!(%error, "could not finish removing the worktree's copy"),
         }
-        if self.sessions.is_empty()
-            && let Err(error) = self.dependencies.compositor.remove().await
-        {
-            tracing::error!(%error,"could not disable Session Window rule");
+        if self.sessions.is_empty() {
+            if let Err(error) = self.dependencies.compositor.remove().await {
+                tracing::error!(%error,"could not disable Session Window rule");
+            }
+            if let Err(error) = self.dependencies.compositor.release_caught_windows().await {
+                tracing::warn!(%error, "could not return a window the Session Window rule caught");
+            }
         }
         if let Some(reply) = finished.reply {
             let _ = reply.send(finished.response);
