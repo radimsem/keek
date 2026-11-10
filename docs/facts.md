@@ -109,6 +109,18 @@ Checked on 2026-11-03 with Hyprland 0.56.2 and aquamarine 0.15.1, by `live_a_sec
 - The gap from `openwindow` to `closewindow` for the second window was 32.9 ms, 59.3 ms and 46.7 ms in three runs.
 - keek filed the session as an Incomplete Session for a host window, with no Verdict. No sandbox process was left.
 
+### Caught window results
+
+Checked on 2026-11-10 with Hyprland 0.56.2 and aquamarine 0.15.1, by `live_a_developers_nested_hyprland_returns_when_the_last_session_closes`. The test starts a nested Hyprland with a bare config from workspace 1 while one session is open:
+
+- With the session open, the window was floating at 1280x800 on `keek` with `no_focus` true.
+- Disabling the host rule alone turned `no_focus` false and left the window floating at 1280x800 on `keek`. The Hyprland wiki (read on 2026-11-10) lists `float`, `size` and `workspace` as static effects, evaluated once when the window opens, and `no_focus` as a dynamic one.
+- With keek moving the window to the active workspace and tiling it after the last session closed, it ended tiled on workspace 1 at the size the layout gave it. The host's active window and workspace ended as they began.
+- `ps -o comm=` names the Session Window's client process `keek` and the developer's `Hyprland`, which is how keek tells them apart.
+- Not covered: whether the tiled window takes focus when the pointer rests where it lands. The host has `input:follow_mouse = 1`.
+
+Seen once on the same day, with an earlier form of the test that sent SIGTERM: the nested Hyprland left its instance folder in `$XDG_RUNTIME_DIR/hypr`, holding `.socket2.sock` and `hyprland.log`. The test gives its nested Hyprland a runtime directory of its own.
+
 ### Takeover clipboard results
 
 Read on 2026-11-03 at the aquamarine v0.15.1 and Hyprland v0.56.2 tags, with wl-clipboard 2.3.0 installed. The installed `0.15.1-1` and `0.56.2-4` builds were not compared with those tags.
