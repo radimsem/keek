@@ -91,6 +91,7 @@ pub type OpenDriverFuture<'a> = std::pin::Pin<
     Box<dyn std::future::Future<Output = Result<Box<dyn Driver>, SessionError>> + Send + 'a>,
 >;
 pub struct Opening {
+    pub test_files: Option<PathBuf>,
     pub placement: crate::compositor::Placement,
     pub credentials: crate::credentials::Credentials,
     pub project: String,
@@ -133,6 +134,7 @@ pub trait DriverFactory: Send + Sync {
     }
 }
 pub struct Actor {
+    pub test_files: crate::test_files::TestFiles,
     pub frames_dir: PathBuf,
     pub journal: Option<crate::session_journal::Handle>,
     pub idle_limit: Duration,
@@ -322,6 +324,8 @@ mod call;
 mod help;
 #[path = "session_keepalive.rs"]
 mod keepalive;
+#[path = "session_refusal_hint.rs"]
+mod refusal_hint;
 
 impl Actor {
     async fn opener_gone(&self, opener: &mut Option<watch::Receiver<()>>) {

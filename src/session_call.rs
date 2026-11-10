@@ -121,6 +121,14 @@ impl Actor {
         }
         self.persist(&state.timeline).await;
         state.deadline = tokio::time::Instant::now() + self.idle_limit;
+        let result = if interrupted.is_none() && accepted_close.is_none() {
+            match result {
+                Ok(value) => Ok(refusal_hint::add(state.driver.as_mut(), value).await),
+                Err(error) => Err(error),
+            }
+        } else {
+            result
+        };
         let _ = reply.send(self.mask_reply(if accepted_close.is_some() {
             refusal(format!(
                 "Agent Session {} is closing, so {tool} was stopped. Open a new Agent Session.",

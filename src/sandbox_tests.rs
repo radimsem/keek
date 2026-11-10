@@ -2,6 +2,7 @@ use super::*;
 
 fn spec() -> SandboxSpec {
     SandboxSpec {
+        test_files: None,
         credentials: Default::default(),
         project: "demo".into(),
         worktree: "/worktree".into(),
@@ -508,3 +509,79 @@ fn the_start_probe_runs_start_with_the_lan_block_and_credentials_but_no_desktop(
             .any(|a| a == ["--setenv", "OMARCHY_PATH", "/usr/share/omarchy"])
     );
 }
+
+#[test]
+fn the_session_sandbox_binds_the_test_files_folder_read_only_at_keek_files_after_keek_is_created() {
+    let mut sandbox = spec();
+    sandbox.test_files = Some("/config/app.files".into());
+    let args = sandbox.args();
+    let created = args
+        .windows(2)
+        .position(|a| a == ["--dir", "/keek"])
+        .unwrap();
+    let bound = args
+        .windows(3)
+        .position(|a| a == ["--ro-bind", "/config/app.files", "/keek/files"])
+        .expect("Test Files bind missing");
+    assert!(created < bound);
+}
+
+#[test]
+fn the_start_probe_binds_the_test_files_folder_read_only_at_keek_files() {
+    let mut sandbox = spec();
+    sandbox.test_files = Some("/config/app.files".into());
+    let args = sandbox.args_for(SandboxMode::Probe {
+        log: Path::new("/log"),
+    });
+    assert!(
+        args.windows(3)
+            .any(|a| a == ["--ro-bind", "/config/app.files", "/keek/files"])
+    );
+}
+
+#[test]
+fn the_install_sandbox_arguments_are_the_same_with_and_without_a_test_files_folder() {
+    let mut sandbox = spec();
+    let mode = SandboxMode::Install {
+        upper: Path::new("/upper"),
+        work: Path::new("/work"),
+        log: Path::new("/log"),
+    };
+    let without = sandbox.args_for(mode);
+    sandbox.test_files = Some("/config/app.files".into());
+    let with = sandbox.args_for(mode);
+    assert_eq!(without, with);
+    assert!(!with.iter().any(|a| a == "/keek/files"));
+}
+
+#[test]
+fn a_project_without_a_test_files_folder_gets_no_keek_files_bind() {
+    for args in [
+        spec().args(),
+        spec().args_for(SandboxMode::Probe {
+            log: Path::new("/log"),
+        }),
+    ] {
+        assert!(!args.iter().any(|a| a == "/keek/files"));
+    }
+}
+
+#[test]
+fn the_session_binds_its_own_toggles_folder_read_only_in_place_of_the_developers() {
+    let sandbox = spec();
+    let args = sandbox.args();
+    let host = sandbox.home.join(".local/state/omarchy/toggles");
+    assert!(args.windows(3).any(|a| a
+        == [
+            OsString::from("--ro-bind"),
+            sandbox.session_dir.join("toggles").into(),
+            host.clone().into()
+        ]));
+    assert!(
+        !args
+            .windows(3)
+            .any(|a| (a[0] == "--ro-bind" || a[0] == "--ro-bind-try") && a[1] == host.as_os_str())
+    );
+}
+
+include!("sandbox_preparation_tests.rs");

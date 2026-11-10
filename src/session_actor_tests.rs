@@ -70,6 +70,7 @@ impl DriverFactory for FakeFactory {
     }
 }
 struct RunningActor {
+    windows: Arc<Mutex<fake_driver::WindowsReply>>,
     cause: Arc<Mutex<Option<IncompleteReason>>>,
     screenshot: Arc<Mutex<fake_driver::Screenshot>>,
     ended: watch::Sender<()>,
@@ -147,7 +148,9 @@ async fn start_configured(
     let (ended, end_receiver) = watch::channel(());
     let screenshot = Arc::new(Mutex::new(fake_driver::Screenshot::Ready));
     let cause = Arc::new(Mutex::new(None));
+    let windows = Arc::new(Mutex::new(fake_driver::WindowsReply::Listed));
     let driver = FakeDriver {
+        windows: windows.clone(),
         cause: cause.clone(),
         screenshot: screenshot.clone(),
         ended: end_receiver,
@@ -162,7 +165,7 @@ async fn start_configured(
         entered: entered.clone(),
         release: release.clone(),
     };
-    let tools = ["read", "run_steps", "slow", "click"]
+    let tools = ["read", "run_steps", "slow", "click", "get_window_state"]
         .into_iter()
         .map(|tool| {
             let schema = json!({"type":"object","properties":{"session":{"type":"string"}}});
@@ -184,6 +187,7 @@ async fn start_configured(
     let (control, control_commands) = control::Control::new();
     let closing = Arc::new(AtomicBool::new(false));
     let actor = Actor {
+        test_files: Default::default(),
         frames_dir: root.join("frames"),
         journal: None,
         idle_limit,
@@ -250,6 +254,7 @@ async fn start_configured(
     let response = opened.await.unwrap();
     (
         RunningActor {
+            windows,
             cause,
             screenshot,
             ended,
@@ -321,6 +326,8 @@ async fn finish(actor: RunningActor) -> Response {
     response.await.unwrap()
 }
 
+#[path = "session_actor_tests/refusal_hint.rs"]
+mod refusal_hint;
 #[path = "session_actor_tests/timeline.rs"]
 mod timeline;
 

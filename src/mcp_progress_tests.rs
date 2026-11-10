@@ -263,6 +263,7 @@ async fn open_session_lines(token: Option<&str>) -> Vec<Value> {
             .send(&crate::ipc::Message::Response {
                 id,
                 response: Response::Opened {
+                    files: Default::default(),
                     credentials: vec![],
                     session: "app_12-00-00".parse().unwrap(),
                     checks: vec![],

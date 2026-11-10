@@ -28,6 +28,7 @@ impl From<&Actor> for Inputs {
             goal: actor.goal.clone(),
             revision: actor.revision.clone(),
             profile: crate::report::ProfileSummary::new(&actor.profile, &actor.toolchains)
+                .with_test_files(&actor.test_files.list)
                 .masked(&actor.credentials),
             checks: actor.checklist.checks().to_vec(),
             credentials: actor.credentials.clone(),

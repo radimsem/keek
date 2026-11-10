@@ -13,6 +13,7 @@ pub mod evidence;
 pub mod ipc;
 pub mod lan_block;
 pub mod mcp;
+pub mod omarchy_toggles;
 pub mod paths;
 pub mod process;
 pub mod project;
@@ -52,3 +53,5 @@ pub mod attempts;
 pub mod session_frame;
 
 mod window_guard;
+
+pub mod test_files;

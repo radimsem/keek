@@ -40,6 +40,7 @@ async fn project_prepare_can_outlast_the_desktop_handshake_limit() {
     });
     let (control, control_commands) = control::Control::new();
     let actor = Actor {
+        test_files: Default::default(),
         frames_dir: root.path().join("frames"),
         journal: None,
         idle_limit: Duration::from_secs(300),

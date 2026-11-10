@@ -4,7 +4,7 @@ keek's implementation shouldn't wait on upstream reviews, and Cua Driver 0.38.0'
 
 The spike's flip minus click start spread 314 ms, over the 200 ms limit it set for itself. keek judges alignment against the page's own timestamp instead, where the spread is 65 ms. A click call takes 250 to 620 ms and its effect lands at varying points inside it, so the larger spread describes the call, not the clock. Takeover cuts are what a wrong clock would break, and they use keek's own times for the Takeover's edges, not a call's start. The editor keeps each whole call plus margins, and every measured effect fell inside its call.
 
-Until a Cua release carries them, keek also carries two stopgaps: an ffmpeg editor for the Verification Video in place of Fast-forward in `recording render`, and a Test Credential scrub in place of masking in `action.json`.
+Until a Cua release carries them, keek also carries three stopgaps: an ffmpeg editor for the Verification Video in place of Fast-forward in `recording render`, a Test Credential scrub in place of masking in `action.json`, and recovery hints for pid and capture refusals in place of Cua's own.
 
 ## Considered Options
 
@@ -13,7 +13,7 @@ Until a Cua release carries them, keek also carries two stopgaps: an ffmpeg edit
 
 ## Consequences
 
-- The Session Timeline stays after #6239 ships, because Check marks and Takeovers need a timeline anyway. Only the two stopgaps get removed, each through a `stopgap` ticket blocked on its upstream release.
+- The Session Timeline stays after #6239 ships, because Check marks and Takeovers need a timeline anyway. Only the three stopgaps get removed, each through a `stopgap` ticket blocked on its upstream release.
 - Replacing the editor with Cua's render needs both Fast-forward and the #6239 fix in a release, because that render reads Cua's own turn times.
 - On 0.38.0, the times in filed `actions/` disagree with the video. keek leaves them as recorded, and the Verdict Report names the Session Timeline as its time source.
 - The constant holds for one machine and 0.38.0, measured with a hidden window. A driver upgrade reruns the measurement, and a build with the #6239 fix hasn't been measured.

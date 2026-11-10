@@ -16,6 +16,8 @@ async fn an_agent_can_read_the_verifier_protocol_and_list_tools() -> Result<()> 
         .context("the server sent no instructions")?;
     for required in [
         "${NAME}",
+        "/keek/files",
+        "Git-ignored",
         "3 Agent Sessions",
         "acceptance checks",
         "fresh subagent",
@@ -75,4 +77,23 @@ async fn keek_status_reports_the_daemon_version_and_open_sessions() -> Result<()
     assert_eq!(status.open_sessions, 0);
     client.cancel().await?;
     Ok(())
+}
+
+#[test]
+fn every_paragraph_of_the_instructions_after_the_checklist_appears_word_for_word_in_the_designs_verifier_protocol_section()
+ {
+    let design = include_str!("../docs/design.md");
+    let section = design
+        .split("## Verifier protocol\n")
+        .nth(1)
+        .unwrap()
+        .split("\n## ")
+        .next()
+        .unwrap();
+    for paragraph in VERIFIER_PROTOCOL.split("\n\n").skip(3) {
+        assert!(
+            section.contains(paragraph),
+            "Verifier protocol section lacks: {paragraph}"
+        );
+    }
 }

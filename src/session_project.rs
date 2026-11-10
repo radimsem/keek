@@ -19,10 +19,12 @@ pub async fn spec(
     let project = opening.project.clone();
     let worktree = opening.worktree.clone();
     let credentials = opening.credentials.clone();
+    let test_files = opening.test_files.clone();
     let profile = opening.profile.clone();
     tokio::task::spawn_blocking(move || {
         let mut spec = SandboxSpec::from_env(&root, &driver)?;
         spec.credentials = credentials;
+        spec.test_files = test_files;
         spec.project = project;
         spec.worktree = worktree;
         spec.profile = profile;

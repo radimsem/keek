@@ -203,6 +203,7 @@ fn every_message() -> Result<Vec<Message>> {
         Message::Response {
             id,
             response: Response::Opened {
+                files: Default::default(),
                 credentials: vec!["PASSWORD".into()],
                 warnings: vec![],
                 checks: vec![keek::ipc::OpenedCheck {

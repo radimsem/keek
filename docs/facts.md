@@ -81,6 +81,18 @@ Probed live on 2026-11-03 from inside an Agent Session by `live_project`, which 
 
 Not run: a listener on a non-template interface such as a VPN or Docker bridge. This host had no such address and creating one required root. These results do not establish behaviour on other pasta versions.
 
+### Bare nested desktop results
+
+Checked on 2026-11-09 with Hyprland 0.56.2, Omarchy 4.5.0-3, Quickshell 0.3.2 and Chromium 155.0.8059.84, by `live_session_shows_only_the_app`.
+
+- Trial measurement, before the change: a 1440x960 Session Window with the bar and gaps held a window of 1388x882 at 26,52.
+- With `bar-off` in the session's `toggles` and gaps, borders and rounding at 0, `list_windows` reported an ordinary Chromium window as 1440x960 at 0,0. Its page reported `innerWidth` x `innerHeight` of 1440x873, so Chromium's tab strip and toolbar take 87 px.
+- `--kiosk --app=<url>` reported 1440x960 for the page.
+- Omarchy's shell reads `bar-off` when it starts (`/usr/share/omarchy/shell/plugins/bar/Bar.qml`). A frame from the end of the Raw Recording showed no bar and no gap around the window.
+- A critical `notify-send` sent 6 s into `start` showed as a card at the top right of that frame. One sent as `start`'s first command showed in no frame of a 6.7 s Raw Recording. The cause wasn't checked.
+- The host's `toggles` folder listed the same entries before and after the session.
+- With the developer's `decoration.active_opacity` of 0.97, the page's white background showed the wallpaper faintly through the window. With a window rule of `opacity = "1.0 override 1.0 override"` on every class, a 1000x700 crop of the page had one luma value.
+
 ### Chromium phone-width pages
 
 Checked on 2026-11-09 with Chromium 155.0.8059.84 on the nested Hyprland:
@@ -157,6 +169,16 @@ Checked on 2026-11-09 with Cua Driver 0.38.0 and `trycua/cua` at `b5adb8a35`, fr
 - The cut finalises a playable `recording.mp4`, and a later `stop_recording` still reports success, so nothing tells keek the recording ended early.
 - A live session holding a Help Request with no Takeover recorded 329.8 s of 428.8 s. With Cua's TTL set to 5 s, a 60 s Help Request recorded 29.7 s of 68.6 s without a keepalive and 70.4 s of 69.0 s with a keepalive each second.
 
+### Craftsoft trial results
+
+Checked on 2026-11-09 with Cua Driver 0.38.0, Hyprland 0.56.2 and Chromium 155.0.8059.84, from the craftsoft trial.
+
+- `drag` with `delivery_mode` set to `foreground` drew a precise rectangle on a pdf.js canvas on the first try, at 305 % zoom on an unrotated page and at 244 % on a view rotated 90 degrees.
+- Chromium's GTK file dialog (xdg-desktop-portal-gtk) accepted Ctrl+L, a typed absolute sandbox path and Enter. A .pdf filter did not block a typed .txt path.
+- `${NAME}` substitution ran in four sessions, and a grep of all Evidence and logs for the value found nothing.
+- `type_text` into a password field returns `effect: unverifiable`, and the field can't be read back.
+- `get_window_state` on the portal's file dialog failed once with `surface_identity_unproven` and worked in another session. Seen once, not reproduced.
+
 ## Facts this design rests on
 
 Checked on 2026-10-31 in Cua Driver 0.38.0 and `trycua/cua` main `a9902d2`:
@@ -217,3 +239,20 @@ Checked on 2026-11-04 with `/usr/bin/mise` 2026.10.25 linux-x64 (2026-10-31), ag
 - mise's rust backend uses `RUSTUP_HOME` and `CARGO_HOME`; the settings `rust.rustup_home` and `rust.cargo_home`, or `MISE_RUSTUP_HOME` and `MISE_CARGO_HOME`, take precedence, and with explicit homes mise runs its own rustup-init. Toolchains live in `RUSTUP_HOME`. A rust pin inside the sandbox has not run.
 - The registry maps node to `core:node`, python to `core:python`, rust to `core:rust`, pnpm to `aqua:pnpm/pnpm` and yarn to `vfox:jdx/vfox-yarn`.
 - On this host `/usr/bin/node` is v26.12.0, and there is no `/usr/bin/cargo`, `pnpm` or `yarn`. The developer's `~/.config/mise/config.toml` and `~/.local/share/mise/installs` exist and were left unchanged.
+
+## Cua Driver refusal texts
+
+Checked on 2026-11-09 with Cua Driver 0.38.0, from the craftsoft trial. Each arrives as text content with `isError` true.
+
+- `click` without a pid: `Missing required integer field: pid`
+- `get_window_state` for a pid that owns no window: `No windows found for pid 158. Provide window_id.`
+- `click` with an unknown capture: `capture-bound click refused: capture id is unknown`
+
+The three texts were seen in the craftsoft trial. `live_click_with_only_window_id_lists_the_windows` measured the first on 2026-11-09, and that `list_windows` called with `{}` returns its list as one text item in this shape:
+
+```
+Found 1 windows:
+  window_id=94036789428144 pid=158 "keek fixture - Chromium" 1691x1298+0+0 app=chromium
+```
+
+That `list_windows` is read-only, so Cua records no turn for it, is read from source. A Cua Driver version change rechecks these texts.

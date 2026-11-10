@@ -6,6 +6,7 @@ use std::time::Duration;
 #[derive(Default)]
 struct PrepareFactory {
     starts: AtomicUsize,
+    test_files: std::sync::Mutex<Option<PathBuf>>,
     finished: AtomicUsize,
     started: tokio::sync::Notify,
     release: tokio::sync::Notify,
@@ -24,6 +25,7 @@ impl DriverFactory for PrepareFactory {
         prep: &'a crate::project_prepare::ProjectPrep,
     ) -> crate::project_prepare::PrepareFuture<'a> {
         Box::pin(async move {
+            *self.test_files.lock().unwrap() = prep.test_files.clone();
             self.starts.fetch_add(1, Ordering::SeqCst);
             self.started.notify_one();
             self.release.notified().await;
@@ -147,4 +149,21 @@ async fn a_prepare_project_for_another_worktree_while_one_runs_is_refused_with_t
         Response::Prepared(_)
     ));
     assert_eq!(factory.starts.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn prepare_project_hands_the_test_files_folder_to_the_factory() {
+    let (mut h, factory, worktree) = harness();
+    let path = h.registry.dependencies.projects_config.join("app.files");
+    std::fs::create_dir(&path).unwrap();
+    let (_client, opener) = watch::channel(());
+    let answer = prepare(&mut h, &worktree, opener).await;
+    within(factory.started.notified()).await;
+    let received = factory.test_files.lock().unwrap().clone();
+    factory.release.notify_one();
+    assert!(matches!(
+        within(answer).await.unwrap(),
+        Response::Prepared(_)
+    ));
+    assert_eq!(received, Some(path));
 }

@@ -102,6 +102,7 @@ pub enum Response {
     Status(DaemonStatus),
     Tools(Value),
     Opened {
+        files: crate::test_files::TestFileList,
         credentials: Vec<String>,
         session: SessionName,
         checks: Vec<OpenedCheck>,

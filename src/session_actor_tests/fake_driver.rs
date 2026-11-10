@@ -6,7 +6,14 @@ pub(super) enum Screenshot {
     Failed,
     ReportedFailure,
 }
+#[derive(Clone, Copy)]
+pub(super) enum WindowsReply {
+    Listed,
+    Failed,
+    ReportedFailure,
+}
 pub(super) struct FakeDriver {
+    pub(super) windows: Arc<Mutex<WindowsReply>>,
     pub(super) cause: Arc<Mutex<Option<IncompleteReason>>>,
     pub(super) screenshot: Arc<Mutex<Screenshot>>,
     pub(super) ended: watch::Receiver<()>,
@@ -43,6 +50,25 @@ impl Driver for FakeDriver {
                 .lock()
                 .unwrap()
                 .push((tool.to_owned(), arguments.clone()));
+            if tool == "list_windows" {
+                return match *self.windows.lock().unwrap() {
+                    WindowsReply::Listed => Ok(
+                        json!({"content":[{"type":"text","text":"window_id=7 pid=158 \"Sign in made-up-value\"\nwindow_id=9 pid=212 \"File Upload\""}]}),
+                    ),
+                    WindowsReply::Failed => Err(DriverError::Call {
+                        tool: tool.into(),
+                        reason: "fixture failure".into(),
+                    }),
+                    WindowsReply::ReportedFailure => {
+                        Ok(json!({"isError":true,"content":[{"type":"text","text":"list failed"}]}))
+                    }
+                };
+            }
+            if let Some(text) = arguments["refuse_with"].as_str() {
+                return Ok(
+                    json!({"isError":arguments["non_error"] != true,"content":[{"type":"text","text":text}]}),
+                );
+            }
             if tool == "get_desktop_state" {
                 let mode = *self.screenshot.lock().unwrap();
                 match mode {

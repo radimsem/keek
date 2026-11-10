@@ -250,6 +250,8 @@ fn the_report_lists_the_profile_commands_toolchain_versions_and_env_names_withou
             },
         ],
         env: vec!["APP_ENV".into(), "FEATURE_FLAGS".into()],
+        test_files: vec![],
+        test_files_more: 0,
     };
     let rendered = report::render(&ReportInputs {
         session: "s",
@@ -276,4 +278,50 @@ fn the_report_lists_the_profile_commands_toolchain_versions_and_env_names_withou
             "{expected:?} missing from:\n{rendered}"
         );
     }
+}
+
+fn report_with_test_files(list: &keek::test_files::TestFileList) -> String {
+    let revision = Revision {
+        branch: None,
+        commit: "abc".into(),
+        dirty: false,
+    };
+    let profile = report::ProfileSummary {
+        start: "run".into(),
+        ..Default::default()
+    }
+    .with_test_files(list);
+    report::render(&ReportInputs {
+        session: "s",
+        goal: "g",
+        revision: &revision,
+        summary: "",
+        timeline_events: &[],
+        checks: &[],
+        end: &SessionEnd::Verdict(Verdict::Pass),
+        time_map: &IdentityTimeMap,
+        actions_error: None,
+        video_error: None,
+        profile: &profile,
+    })
+}
+
+#[test]
+fn the_verdict_report_lists_the_test_file_names_in_its_project_profile_section() {
+    let rendered = report_with_test_files(&keek::test_files::TestFileList {
+        names: vec!["docs/a.pdf".into(), "a`b.pdf".into()],
+        more: 3,
+    });
+    assert!(
+        rendered.contains(
+            "- Environment: none\n- Test Files: `docs/a.pdf`, `` a`b.pdf `` and 3 more\n"
+        ),
+        "{rendered}"
+    );
+}
+
+#[test]
+fn the_report_says_none_when_the_project_has_no_test_files() {
+    let rendered = report_with_test_files(&Default::default());
+    assert!(rendered.contains("- Test Files: none\n"), "{rendered}");
 }

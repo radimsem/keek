@@ -13,6 +13,7 @@ pub const START_PROBE: Duration = Duration::from_secs(15);
 const TAIL_BYTES: u64 = 4096;
 
 pub struct ProjectPrep {
+    pub test_files: Option<PathBuf>,
     pub project: String,
     pub worktree: PathBuf,
     pub profile: crate::project::Profile,
@@ -170,6 +171,7 @@ pub async fn prepare(
     };
     prep.progress.send("Starting App Under Test");
     let start_log = folder.join("start.log");
+    spec.test_files = prep.test_files.clone();
     let probe_spec = spec.clone();
     let probe_log = start_log.clone();
     let mut command = blocking("prepare the start command", move || {
