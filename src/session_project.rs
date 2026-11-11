@@ -94,7 +94,8 @@ pub async fn prepare(
     .map_err(|e| SessionError::Refused(e.to_string()))?;
     Ok(Mounts {
         tree,
-        layer,
+        layer: layer.path,
+        lease: Some(layer.lease),
         toolchains: spec.toolchains,
     })
 }
@@ -126,5 +127,96 @@ impl Installer for Install<'_> {
             let status = self.1.tailing(log, child.wait()).await?;
             Ok(status.code().unwrap_or(-1))
         })
+    }
+}
+
+#[cfg(test)]
+mod retention_tests {
+    use super::*;
+    use std::sync::Arc;
+
+    struct Runner;
+    impl crate::process::ProcessRunner for Runner {
+        fn output<'a>(
+            &'a self,
+            _: &'a str,
+            _: &'a [&'a str],
+            _: Option<&'a Path>,
+        ) -> crate::process::ProcessFuture<'a> {
+            Box::pin(async { Ok(String::new()) })
+        }
+    }
+    struct Fake;
+    impl Installer for Fake {
+        fn install<'a>(&'a self, _: &'a Path, _: &'a Path, _: &'a Path) -> InstallFuture<'a> {
+            Box::pin(async { Ok(0) })
+        }
+    }
+    #[tokio::test]
+    async fn prepared_mounts_keep_the_project_layer_until_dropped() {
+        let root = tempfile::tempdir().unwrap();
+        let runner = Arc::new(Runner);
+        let factory = SandboxFactory {
+            driver: root.path().join("driver"),
+            runner: runner.clone(),
+            compositor: Arc::new(crate::compositor::HostCompositor::new(runner)),
+            projects_cache: root.path().join("projects"),
+            trees: root.path().join("trees"),
+            toolchains: root.path().join("toolchains"),
+            mise: Arc::new(crate::toolchain::HostMise),
+            prepare: root.path().join("prepare"),
+        };
+        let name = "app_12-00-00".parse().unwrap();
+        let folder = SessionFolder::new(root.path(), &name);
+        let opening = Opening {
+            test_files: None,
+            placement: crate::compositor::Placement {
+                geometry: crate::slots::geometry(
+                    crate::slots::Slot {
+                        x: 0,
+                        y: 0,
+                        width: 1280,
+                        height: 800,
+                    },
+                    None,
+                ),
+                monitor: String::new(),
+                origin: (0, 0),
+            },
+            credentials: Default::default(),
+            project: "app".into(),
+            worktree: root.path().to_owned(),
+            profile: Default::default(),
+            name,
+            progress: Default::default(),
+        };
+        let mounts = prepare(&factory, &folder, &opening).await.unwrap();
+        let layer = mounts.layer.clone();
+        let layers = factory.projects_cache.join("app");
+        for key in ["b", "c"] {
+            drop(
+                crate::project::ensure_layer(
+                    &layers,
+                    &crate::project::ProjectKey(key.into()),
+                    &Fake,
+                    &root.path().join("log"),
+                )
+                .await
+                .unwrap(),
+            );
+        }
+        assert!(layer.is_dir());
+        drop(mounts);
+        drop(
+            crate::project::ensure_layer(
+                &layers,
+                &crate::project::ProjectKey("d".into()),
+                &Fake,
+                &root.path().join("log"),
+            )
+            .await
+            .unwrap(),
+        );
+        assert!(!layer.exists());
     }
 }

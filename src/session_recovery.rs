@@ -1,6 +1,11 @@
 use super::*;
 impl Registry {
     pub async fn recover(&mut self) {
+        let trees = self.dependencies.trees.clone();
+        let cleanup = tokio::task::spawn_blocking(move || sweep_trees(&trees)).await;
+        if !matches!(cleanup, Ok(Ok(()))) {
+            tracing::warn!(?cleanup, "could not sweep leftover worktree copies");
+        }
         let directory = self.dependencies.journals_dir.clone();
         let journals = tokio::task::spawn_blocking(move || -> std::io::Result<Vec<PathBuf>> {
             match std::fs::read_dir(directory) {
@@ -23,11 +28,10 @@ impl Registry {
                 for path in journals {
                     let sessions = self.dependencies.sessions_dir.clone();
                     let projects = self.dependencies.projects_config.clone();
-                    let trees = self.dependencies.trees.clone();
                     let runner = self.dependencies.runner.clone();
                     self.recovery.spawn(async move {
                         if let Err(error) =
-                            recover_one(&path, &sessions, &projects, &trees, runner.as_ref()).await
+                            recover_one(&path, &sessions, &projects, runner.as_ref()).await
                         {
                             tracing::error!(%error, ?path, "could not recover session");
                         }
@@ -38,11 +42,38 @@ impl Registry {
         }
     }
 }
+fn sweep_trees(trees: &std::path::Path) -> std::io::Result<()> {
+    let entries = match std::fs::read_dir(trees) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    for entry in entries {
+        match entry {
+            Ok(entry) => {
+                let path = entry.path();
+                let result = entry.file_type().and_then(|kind| {
+                    if kind.is_symlink() || kind.is_file() {
+                        std::fs::remove_file(&path)
+                    } else {
+                        crate::project::layer::remove_build(&path)
+                    }
+                });
+                if let Err(error) = result {
+                    tracing::warn!(?path, %error, "could not remove leftover worktree copy");
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%error, "could not read an entry of the worktree copies folder")
+            }
+        }
+    }
+    Ok(())
+}
 async fn recover_one(
     path: &std::path::Path,
     sessions: &std::path::Path,
     projects: &std::path::Path,
-    trees: &std::path::Path,
     runner: &dyn ProcessRunner,
 ) -> Result<(), SessionError> {
     // The sandbox can write session-folder files, so recovery trusts the journal.
@@ -163,13 +194,6 @@ async fn recover_one(
         }
     } else {
         tracing::warn!(session = %journal.name, "session folder is gone; removing its journal");
-    }
-    let tree = crate::session_project::tree_path(trees, &journal.name);
-    let cleanup = tokio::task::spawn_blocking(move || std::fs::remove_dir_all(tree)).await;
-    match cleanup {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => {}
-        error => tracing::warn!(?error, "could not remove recovered worktree copy"),
     }
     crate::session_journal::remove(path.to_owned()).await;
     Ok(())

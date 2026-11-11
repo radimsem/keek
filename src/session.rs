@@ -104,6 +104,7 @@ pub struct Opening {
 pub struct Mounts {
     pub tree: PathBuf,
     pub layer: PathBuf,
+    pub lease: Option<crate::project::LayerLease>,
     pub toolchains: crate::toolchain::Toolchains,
 }
 pub trait DriverFactory: Send + Sync {

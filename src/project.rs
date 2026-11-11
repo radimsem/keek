@@ -2,12 +2,14 @@ mod credential_copy;
 mod files;
 mod key;
 pub(crate) mod layer;
+mod layer_retention;
 mod profile;
 mod profile_file;
 pub use credential_copy::{CopiedCredentials, CopyError, copy_credentials};
 pub use files::{ProjectFiles, check_git_root};
 pub use key::ProjectKey;
 pub use layer::{InstallFuture, Installer, ensure_layer};
+pub use layer_retention::LayerLease;
 pub use profile::{
     HostPort, Profile, ProfileError, WindowSize, profile_path, read_project_profile,
 };
