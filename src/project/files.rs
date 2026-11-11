@@ -1,4 +1,4 @@
-use super::ProjectError;
+use super::{ProjectError, submodules};
 use crate::process::ProcessRunner;
 use std::ffi::OsStr;
 use std::os::fd::AsRawFd;
@@ -10,28 +10,50 @@ pub struct ProjectFiles {
     pub(super) tracked: Vec<PathBuf>,
 }
 fn paths(bytes: &[u8]) -> Vec<PathBuf> {
-    let mut paths: Vec<_> = bytes
-        .split(|b| *b == 0)
-        .filter(|b| !b.is_empty())
-        .map(|b| PathBuf::from(OsStr::from_bytes(b)))
-        .filter(|p| p.components().all(|c| matches!(c, Component::Normal(_))))
-        .collect();
+    let mut paths: Vec<_> = bytes.split(|b| *b == 0).filter_map(relative).collect();
     paths.sort();
     paths.dedup();
     paths
 }
+pub(super) fn relative(bytes: &[u8]) -> Option<PathBuf> {
+    let path = PathBuf::from(OsStr::from_bytes(bytes));
+    (!bytes.is_empty() && path.components().all(|c| matches!(c, Component::Normal(_))))
+        .then_some(path)
+}
 impl ProjectFiles {
     pub async fn read(runner: &dyn ProcessRunner, worktree: &Path) -> Result<Self, ProjectError> {
-        let args: Vec<_> = crate::revision::GIT_WITHOUT_REPOSITORY_PROGRAMS
-            .into_iter()
-            .chain(["ls-files", "-co", "--exclude-standard", "-z"])
-            .collect();
-        let entries = paths(&runner.output_bytes("git", &args, Some(worktree)).await?);
-        let args: Vec<_> = crate::revision::GIT_WITHOUT_REPOSITORY_PROGRAMS
-            .into_iter()
-            .chain(["ls-files", "-z"])
-            .collect();
-        let tracked = paths(&runner.output_bytes("git", &args, Some(worktree)).await?);
+        let mut entries = Vec::new();
+        let mut tracked = Vec::new();
+        let mut repositories = vec![PathBuf::new()];
+        while let Some(prefix) = repositories.pop() {
+            let repository = worktree.join(&prefix);
+            let args: Vec<_> = crate::revision::GIT_WITHOUT_REPOSITORY_PROGRAMS
+                .into_iter()
+                .chain(["ls-files", "-co", "--exclude-standard", "-z"])
+                .collect();
+            entries.extend(
+                paths(&runner.output_bytes("git", &args, Some(&repository)).await?)
+                    .into_iter()
+                    .map(|path| prefix.join(path)),
+            );
+            let args: Vec<_> = crate::revision::GIT_WITHOUT_REPOSITORY_PROGRAMS
+                .into_iter()
+                .chain(["ls-files", "-s", "-z"])
+                .collect();
+            let staged =
+                submodules::staged(&runner.output_bytes("git", &args, Some(&repository)).await?);
+            tracked.extend(staged.tracked.into_iter().map(|path| prefix.join(path)));
+            for path in staged.gitlinks {
+                let path = prefix.join(path);
+                if submodules::initialized(runner, worktree, &path).await? {
+                    repositories.push(path);
+                }
+            }
+        }
+        entries.sort();
+        entries.dedup();
+        tracked.sort();
+        tracked.dedup();
         Ok(Self { entries, tracked })
     }
     pub fn build_tree(&self, worktree: &Path, tree: &Path) -> Result<(), ProjectError> {
@@ -73,7 +95,7 @@ impl ProjectFiles {
     }
 }
 // The index can list a path below a symlink the listing itself leaves out, such as a git-ignored one, and reading it would copy a host file into the sandbox.
-fn is_real_folder(worktree: &Path, relative: &Path) -> Result<bool, ProjectError> {
+pub(super) fn is_real_folder(worktree: &Path, relative: &Path) -> Result<bool, ProjectError> {
     let mut folder = worktree.to_owned();
     for component in relative {
         folder.push(component);
@@ -106,10 +128,7 @@ fn link_file(source: &Path, target: &Path, metadata: &std::fs::Metadata) -> std:
 }
 // git's top level honours core.worktree, so a repository's config could otherwise choose the host folder copied into the sandbox.
 pub fn check_git_root(passed: &Path, root: &Path) -> Result<(), ProjectError> {
-    let git_folder = passed
-        .ancestors()
-        .find(|folder| folder.join(".git").exists());
-    if git_folder == Some(root) {
+    if holds_git_root(passed, root) {
         Ok(())
     } else {
         Err(ProjectError::MovedWorktree {
@@ -117,6 +136,12 @@ pub fn check_git_root(passed: &Path, root: &Path) -> Result<(), ProjectError> {
             root: root.to_owned(),
         })
     }
+}
+pub(super) fn holds_git_root(passed: &Path, root: &Path) -> bool {
+    passed
+        .ancestors()
+        .find(|folder| folder.join(".git").exists())
+        == Some(root)
 }
 #[cfg(test)]
 mod tests {

@@ -148,6 +148,16 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn project_key_changes_when_a_lockfile_in_a_submodule_changes() {
+        let directory = crate::project::submodules::tests::repository_with_submodule();
+        let root = directory.path().join("super");
+        let profile = profile("install = \"make\"\nstart = \"run\"");
+        let first = key(&root, &profile).await;
+        std::fs::write(root.join("vendor/lib/Cargo.lock"), "second").unwrap();
+        assert_ne!(first, key(&root, &profile).await);
+    }
+
+    #[tokio::test]
     async fn the_key_follows_the_resolved_toolchain_version_not_the_pin() {
         let d = repository();
         let root = d.path();

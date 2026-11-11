@@ -5,6 +5,7 @@ pub(crate) mod layer;
 mod layer_retention;
 mod profile;
 mod profile_file;
+mod submodules;
 pub use credential_copy::{CopiedCredentials, CopyError, copy_credentials};
 pub use files::{ProjectFiles, check_git_root};
 pub use key::ProjectKey;
@@ -30,6 +31,10 @@ pub enum ProjectError {
         "git names {root} as the top of {passed}, but its .git is not there, so a core.worktree setting has probably moved it. Remove core.worktree from the repository's config, or pass the folder that holds .git, then open again."
     )]
     MovedWorktree { passed: PathBuf, root: PathBuf },
+    #[error(
+        "git names {root} as the top of submodule {submodule}, not the submodule's own folder, so a core.worktree setting in the submodule's git config has moved it. Point that core.worktree back at {submodule}, or deinitialize the submodule with `git submodule deinit`, then open again."
+    )]
+    MovedSubmodule { submodule: PathBuf, root: PathBuf },
     #[error(
         "Cannot install the Project: {reason}. Fix the install command with set_project_profile and try again. {log}"
     )]
