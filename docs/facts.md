@@ -145,13 +145,13 @@ Checked on 2026-11-03 with Hyprland 0.56.2, over every live test file:
 
 Checked on 2026-11-09 in the Omarchy shell's notification plugin (`/usr/share/omarchy/shell/plugins/notifications`).
 
-- A low urgency notification shows for 5 s and a normal one for 8 s, stretched to at most 30 s when the sender asks. A critical one stays until it is clicked or closed. In the flowchart trial a normal "Agent needs you" notification expired after 7.4 s while the Help Request waited 3:12.
+- A low urgency notification shows for 5 s and a normal one for 8 s, stretched to at most 30 s when the sender asks. A critical one stays until it is clicked or closed. In the first trial a normal "Agent needs you" notification expired after 7.4 s while the Help Request waited 3:12.
 - `org.freedesktop.Notifications.CloseNotification` returns success but leaves a card on screen, because the shell keeps a visible card after its sender closes it. `omarchy-notification-dismiss <summary>` takes off every card whose summary contains that text.
 - Do not disturb doesn't silence `omarchy-notification-send`, whose app name is `omarchy-action`.
 
 ### Opening Evidence results
 
-Checked on 2026-11-08 with Hyprland 0.56.2, GTK 4.24.1, gtk4-layer-shell 1.3.0 and xdg-desktop-portal 1.22.1, from a gjs script outside keek. The daemon had exited with no log line and no core dump when Open video was pressed during the flowchart trial.
+Checked on 2026-11-08 with Hyprland 0.56.2, GTK 4.24.1, gtk4-layer-shell 1.3.0 and xdg-desktop-portal 1.22.1, from a gjs script outside keek. The daemon had exited with no log line and no core dump when Open video was pressed during the first trial.
 
 - `gtk::FileLauncher::launch` with a gtk4-layer-shell window as parent gets `Error 71 (Protocol error) dispatching to Wayland display`, and GDK exits the process with status 1. A Session Footer is such a window, so the button ended the daemon and every open session.
 - With no parent, or from an ordinary toplevel, the process survives, but the launch through the portal neither completed nor failed within 15 s, and no player opened.
@@ -159,7 +159,7 @@ Checked on 2026-11-08 with Hyprland 0.56.2, GTK 4.24.1, gtk4-layer-shell 1.3.0 a
 
 ### Still-screen results
 
-Measured on 2026-11-08 with ffmpeg's `freezedetect` (`d=0.5`) on two Raw Recordings of the deployed FlowChart login page at 1440x960, from the flowchart trial.
+Measured on 2026-11-08 with ffmpeg's `freezedetect` (`d=0.5`) on two Raw Recordings of the deployed login page at 1440x960, from the first trial.
 
 - During a 4:43 Help Request wait, the code field's blinking caret, Cua's agent cursor and the login page's animated chart changed about 100 pixels every 1 to 3 seconds. At -60 dB that split the wait into 102 frozen pieces, so the editor showed it at real speed. At -55, -50, -45 and -40 dB it was one frozen span.
 - At -55 dB the session with a wrong password still showed change while the Verifier typed and for 0.6 s as the error message appeared after the sign-in click.
@@ -167,7 +167,7 @@ Measured on 2026-11-08 with ffmpeg's `freezedetect` (`d=0.5`) on two Raw Recordi
 
 ### Takeover blur results
 
-Checked on 2026-11-09 with ffmpeg's `gblur` on a 1440x960 Raw Recording from the flowchart trial. The frame showed the FlowChart authenticator step after the developer had typed all six digits of the code into its boxes.
+Checked on 2026-11-09 with ffmpeg's `gblur` on a 1440x960 Raw Recording from the first trial. The frame showed the authenticator step after the developer had typed all six digits of the code into its boxes.
 
 - At `sigma=40` (height / 24, the editor's rule) no text on the page is readable, the six digits included. Only the page layout, the chart line and the button shapes remain.
 - At `sigma=20` the six code boxes show only grey blobs.
@@ -175,15 +175,15 @@ Checked on 2026-11-09 with ffmpeg's `gblur` on a 1440x960 Raw Recording from the
 
 ### Recording idle results
 
-Checked on 2026-11-09 with Cua Driver 0.38.0 and `trycua/cua` at `b5adb8a35`, from the agent-control trial, where a Verification Video ended 7.5 minutes before its session.
+Checked on 2026-11-09 with Cua Driver 0.38.0 and `trycua/cua` at `b5adb8a35`, from the second trial, where a Verification Video ended 7.5 minutes before its session.
 
 - Cua Driver stops its recording once 300 s pass without a tool call (`CUA_DRIVER_RS_RECORDING_IDLE_TTL_SECS`, `cua-driver-sdk/src/runtime.rs`). A thread checks every 30 s, so the cut lands 300 to 330 s after the last call. Any tool call resets it, `get_recording_state` included.
 - The cut finalises a playable `recording.mp4`, and a later `stop_recording` still reports success, so nothing tells keek the recording ended early.
 - A live session holding a Help Request with no Takeover recorded 329.8 s of 428.8 s. With Cua's TTL set to 5 s, a 60 s Help Request recorded 29.7 s of 68.6 s without a keepalive and 70.4 s of 69.0 s with a keepalive each second.
 
-### Craftsoft trial results
+### Third trial results
 
-Checked on 2026-11-09 with Cua Driver 0.38.0, Hyprland 0.56.2 and Chromium 155.0.8059.84, from the craftsoft trial.
+Checked on 2026-11-09 with Cua Driver 0.38.0, Hyprland 0.56.2 and Chromium 155.0.8059.84, from the third trial.
 
 - `drag` with `delivery_mode` set to `foreground` drew a precise rectangle on a pdf.js canvas on the first try, at 305 % zoom on an unrotated page and at 244 % on a view rotated 90 degrees.
 - Chromium's GTK file dialog (xdg-desktop-portal-gtk) accepted Ctrl+L, a typed absolute sandbox path and Enter. A .pdf filter did not block a typed .txt path.
@@ -254,13 +254,13 @@ Checked on 2026-11-04 with `/usr/bin/mise` 2026.10.25 linux-x64 (2026-10-31), ag
 
 ## Cua Driver refusal texts
 
-Checked on 2026-11-09 with Cua Driver 0.38.0, from the craftsoft trial. Each arrives as text content with `isError` true.
+Checked on 2026-11-09 with Cua Driver 0.38.0, from the third trial. Each arrives as text content with `isError` true.
 
 - `click` without a pid: `Missing required integer field: pid`
 - `get_window_state` for a pid that owns no window: `No windows found for pid 158. Provide window_id.`
 - `click` with an unknown capture: `capture-bound click refused: capture id is unknown`
 
-The three texts were seen in the craftsoft trial. `live_click_with_only_window_id_lists_the_windows` measured the first on 2026-11-09, and that `list_windows` called with `{}` returns its list as one text item in this shape:
+The three texts were seen in the third trial. `live_click_with_only_window_id_lists_the_windows` measured the first on 2026-11-09, and that `list_windows` called with `{}` returns its list as one text item in this shape:
 
 ```
 Found 1 windows:
