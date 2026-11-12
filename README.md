@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" width="128" height="128" alt="keek logo: a blue window nested inside a larger window">
+</p>
+
 # keek
 
 keek lets a coding agent have its change verified on a real desktop. A fresh Verifier agent uses your app like a person would, in a sandboxed nested Hyprland inside your own Omarchy session. It leaves a video and a report you can attach to the pull request.
