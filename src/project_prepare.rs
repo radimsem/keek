@@ -155,7 +155,7 @@ pub async fn prepare(
     spec.tree = tree.clone();
     spec.toolchains = toolchains;
     let install_log = folder.join("install.log");
-    spec.layer = crate::project::ensure_layer(
+    let prepared_layer = crate::project::ensure_layer(
         &factory.projects_cache.join(&spec.project),
         &key,
         &crate::session_project::Install(&spec, &prep.progress),
@@ -163,6 +163,8 @@ pub async fn prepare(
     )
     .await
     .map_err(|e| SessionError::Refused(e.to_string()))?;
+    spec.layer = prepared_layer.path;
+    let lease = prepared_layer.lease;
     // The folder starts empty, so only a build writes install.log.
     let layer = if install_log.exists() {
         LayerUse::Built
@@ -195,6 +197,7 @@ pub async fn prepare(
         Ok(tails)
     })
     .await?;
+    drop(lease);
     Ok(PreparedProject {
         project: prep.project.clone(),
         worktree: prep.worktree.clone(),

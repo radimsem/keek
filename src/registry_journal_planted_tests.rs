@@ -1,6 +1,34 @@
 use super::*;
 
 #[tokio::test]
+async fn recovery_removes_every_worktree_copy_and_still_files_the_incomplete_session() {
+    use std::os::unix::fs::PermissionsExt;
+    let mut h = Harness::new(1);
+    let name = h.open(h.worktree("leftover-trees")).await;
+    stop_without_filing(&mut h).await;
+    let trees = h.registry.dependencies.trees.clone();
+    let session_tree = trees.join(name.to_string());
+    std::fs::create_dir_all(&session_tree).unwrap();
+    std::fs::write(session_tree.join("f"), "session").unwrap();
+    let orphan = trees.join("orphan/sub");
+    std::fs::create_dir_all(&orphan).unwrap();
+    std::fs::write(orphan.join("f"), "orphan").unwrap();
+    std::fs::set_permissions(orphan, std::fs::Permissions::from_mode(0o500)).unwrap();
+    std::os::unix::fs::symlink(trees.join("missing"), trees.join("dangling")).unwrap();
+    std::fs::write(trees.join("file"), "leftover").unwrap();
+    recover(&mut h).await;
+    assert!(std::fs::read_dir(trees).unwrap().next().is_none());
+    assert!(
+        h.directory
+            .path()
+            .join(format!(
+                "videos/keek/app/2026-01-15/{name}_incomplete_report.md"
+            ))
+            .exists()
+    );
+}
+
+#[tokio::test]
 async fn recovery_replaces_planted_output_directories() {
     let mut h = Harness::new(1);
     let name = h.open(h.worktree("planted-directories")).await;

@@ -1,3 +1,4 @@
+use super::layer_retention::{KEPT_LAYERS, Layer, lease, prune};
 use super::{ProjectError, ProjectKey};
 use std::io::{Read, Seek, SeekFrom};
 use std::os::unix::fs::PermissionsExt;
@@ -41,7 +42,7 @@ pub async fn ensure_layer(
     key: &ProjectKey,
     installer: &dyn Installer,
     log: &Path,
-) -> Result<PathBuf, ProjectError> {
+) -> Result<Layer, ProjectError> {
     ensure_layer_with_cleanup(layers, key, installer, log, remove_build).await
 }
 async fn ensure_layer_with_cleanup(
@@ -50,15 +51,16 @@ async fn ensure_layer_with_cleanup(
     installer: &dyn Installer,
     log: &Path,
     cleanup: fn(&Path) -> std::io::Result<()>,
-) -> Result<PathBuf, ProjectError> {
+) -> Result<Layer, ProjectError> {
     let layers = layers.to_owned();
     let lock_folder = layers.clone();
     let destination = layers.join(&key.0);
     let check_destination = destination.clone();
+    let check_key = key.clone();
     let build = layers.join(".build");
     let guard_build = build.clone();
     let runtime = tokio::runtime::Handle::current();
-    let (guard, exists) = tokio::task::spawn_blocking(move || {
+    let (guard, existing_lease) = tokio::task::spawn_blocking(move || {
         std::fs::create_dir_all(&lock_folder)?;
         let lock = std::fs::OpenOptions::new()
             .create(true)
@@ -67,6 +69,13 @@ async fn ensure_layer_with_cleanup(
             .open(lock_folder.join(".lock"))?;
         lock.lock()?;
         let exists = check_destination.is_dir();
+        let existing_lease = if exists {
+            let lease = lease(&lock_folder, &check_key)?;
+            prune(&lock_folder, KEPT_LAYERS);
+            Some(lease)
+        } else {
+            None
+        };
         Ok::<_, std::io::Error>((
             BuildGuard {
                 lock: Some(lock),
@@ -79,12 +88,15 @@ async fn ensure_layer_with_cleanup(
                     BuildState::Active
                 },
             },
-            exists,
+            existing_lease,
         ))
     })
     .await??;
-    if exists {
-        return Ok(destination);
+    if let Some(lease) = existing_lease {
+        return Ok(Layer {
+            path: destination,
+            lease,
+        });
     }
     let prep = build.clone();
     let guard = tokio::task::spawn_blocking(move || {
@@ -109,6 +121,7 @@ async fn ensure_layer_with_cleanup(
         )),
     };
     let log = log.to_owned();
+    let key = key.clone();
     tokio::task::spawn_blocking(move || {
         let mut guard = guard;
         if let Err(mut reason) = outcome {
@@ -134,8 +147,13 @@ async fn ensure_layer_with_cleanup(
         if let Err(error) = cleanup(&build) {
             tracing::warn!(path = ?build, %error, "could not clean the Project Layer build");
         }
+        let lease = lease(&layers, &key)?;
+        prune(&layers, KEPT_LAYERS);
         guard.state = BuildState::Finished;
-        Ok(destination)
+        Ok(Layer {
+            path: destination,
+            lease,
+        })
     })
     .await?
 }
@@ -271,7 +289,7 @@ mod tests {
         )
         .await;
         assert!(result.is_ok(), "{result:?}");
-        assert!(result.unwrap().is_dir());
+        assert!(result.unwrap().path.is_dir());
     }
     #[tokio::test]
     async fn project_layer_is_reused_for_the_same_key() {
@@ -283,7 +301,7 @@ mod tests {
         let log = d.path().join("install.log");
         let key = ProjectKey("a".into());
         let layer = ensure_layer(d.path(), &key, &f, &log).await.unwrap();
-        assert!(layer.join("installed").exists());
+        assert!(layer.path.join("installed").exists());
         ensure_layer(d.path(), &key, &f, &log).await.unwrap();
         assert_eq!(f.calls.load(Ordering::SeqCst), 1);
         assert!(!d.path().join(".build").exists());
