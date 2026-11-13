@@ -13,6 +13,7 @@ A Project Profile tells keek how to install and start a Project's App Under Test
 2. **Write the profile** with `set_project_profile(project, profile, credentials?)`, choosing values with the rules below. Done when it returns the written TOML. A refusal names the key and the reason; fix that key and call again.
 3. **Prove it** with `prepare_project(project, worktree)`. Done when the reply has `start.state` `running` and `start_log` shows the app ready, such as a listening line. Otherwise read `install_log`, `start_log` and the refusal, change the profile in step 2, and call again. A cancelled `prepare_project` keeps building; call it again to join the same build.
 4. **Report** to the developer the Test Credential names `set_project_profile` listed as `missing`, and the host services the app needs running, such as a database in Docker. When the app needs a sample input uploaded, tell the developer to place it in `~/.config/keek/projects/<project>.files/`.
+5. **Offer the Verification section.** Ask the developer whether to add the section below to the repository's agent file, and write it only on a yes. Done when the file names the Project or the developer declined.
 
 ## Profile format
 
@@ -35,6 +36,23 @@ DATABASE_URL = "postgres://app@127.0.0.1:5432/app_test"
 width = 1280
 height = 800
 ```
+
+## Verification section
+
+The section tells every agent working in the repository which Project to name and when to verify. Without it each agent picks its own Project name, and a new name has no Project Profile.
+
+```markdown
+## Verification
+
+- keek Projects in this repository: `<project>` (`<path>`).
+- Verify with keek when a change alters what a person sees or does in the running app. When you skip it, say so and why.
+- When keek refuses for a missing or invalid Project Profile, load the `keek-setup` skill.
+- Put the Verdict and each Check's outcome in the pull request, and tell the developer the Verification Video's path to attach.
+```
+
+- Write it to `AGENTS.md` when that exists, otherwise to the agent file the repository has, such as `CLAUDE.md` or `GEMINI.md`, otherwise to a new `AGENTS.md`. A `CLAUDE.md` that only imports `AGENTS.md` stays as it is.
+- Replace `<project>` with the Project name you passed to `set_project_profile`, and `<path>` with the folder of its app, or `.` for the whole repository.
+- When the file already has the section, add or update this Project in its first line, such as `` `shop-web` (`apps/web`), `shop-admin` (`apps/admin`) ``, and leave the other lines as they are.
 
 ## Rules
 

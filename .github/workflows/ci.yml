@@ -10,6 +10,8 @@ on:
       - 'docs/design.md'
       # src/mcp_project.rs checks its profile example against the tool schema.
       - 'skills/keek-setup/SKILL.md'
+      # src/mcp_project.rs checks its Verification section against the setup skill's.
+      - 'README.md'
   push:
     branches: [main]
     paths: *paths
