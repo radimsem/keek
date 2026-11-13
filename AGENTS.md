@@ -79,7 +79,7 @@ A comment says what the code can't. Most declarations need none.
 
 ## CI
 
-- `.github/workflows/ci.yml` runs the gates in one job. Actions minutes are limited on this private repo, and each job rounds up to a whole minute. A pull request that adds a job, a matrix or a paid runner states its cost in minutes.
+- `.github/workflows/ci.yml` runs the gates in one job. A pull request that adds a job, a matrix or a paid runner states its cost in minutes.
 - `.githooks/pre-push` runs the gates before a push. Enable it once per clone: `git config core.hooksPath .githooks`.
 - CI skips docs-only changes, except `docs/design.md`, which `tests/mcp_server.rs` reads. A test that reads another doc adds it to `paths` in the workflow.
 - Only `main` saves the build cache, and pull requests restore from it.
