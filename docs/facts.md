@@ -14,7 +14,7 @@ Run on 2026-10-29 with a nested Hyprland under the developer's own user (no sand
 
 ## Sandbox spike results
 
-Run on 2026-10-31 with Hyprland 0.56.2, aquamarine 0.15.1, `cua-hyprland-plugin` 0.33.2-3, Cua Driver 0.38.0, bubblewrap 0.13.1 and pasta 2026_10_02. The scripts and raw output are in [`spikes/sandbox/`](../spikes/sandbox/RESULTS.md).
+Run on 2026-10-31 with Hyprland 0.56.2, aquamarine 0.15.1, `cua-hyprland-plugin` 0.33.2-3, Cua Driver 0.38.0, bubblewrap 0.13.1 and pasta 2026_10_02. The scripts and raw output are in [`spikes/sandbox/` at `d594ee0`](https://github.com/radimsem/keek/blob/d594ee0ed5ed3d1198b33fd5f51b9167c4fd62e3/spikes/sandbox/RESULTS.md).
 
 The sandbox works: a Verifier subagent signed in to a test page in Chromium, recorded, with input through the plugin's seat. Inside there is no `DISPLAY` and the buses and namespaces are separate. Through the security-context connection, the screencopy and virtual input globals are hidden. Writes to the developer's config fail, and no sandbox process survives killing its parent.
 
