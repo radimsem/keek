@@ -6,13 +6,7 @@
 
 keek lets a coding agent have its change verified on a real desktop. A fresh Verifier agent uses your app like a person would, in a sandboxed nested Hyprland inside your own Omarchy session. It leaves a video and a report you can attach to the pull request.
 
-<p align="center">
-  <a href="assets/keek-launch.mp4">
-    <img src="assets/keek-preview.webp" width="800" alt="A Verifier agent is stuck on a 2FA code in an invoicing app. The developer takes control, enters the code and hands back. keek ticks each Check and shows the Verdict Pass.">
-  </a>
-  <br>
-  <a href="assets/keek-launch.mp4">Watch the launch video (53 s, with sound)</a>
-</p>
+<video src="assets/keek-launch.mp4" controls width="800"></video>
 
 You keep working while it runs. Each Agent Session shows on its own `keek` workspace, where you can watch it and take control when the agent is stuck on something like a 2FA prompt.
 
