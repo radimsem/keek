@@ -153,6 +153,23 @@ mod skill_tests {
 
     const SKILL: &str = include_str!("../skills/keek-setup/SKILL.md");
 
+    const README: &str = include_str!("../README.md");
+
+    fn verification_section(document: &str) -> &str {
+        document
+            .split("```markdown\n")
+            .nth(1)
+            .and_then(|rest| rest.split("```").next())
+            .expect("the document has a markdown example")
+    }
+
+    #[test]
+    fn the_readme_and_the_setup_skill_show_the_same_verification_section() {
+        let section = verification_section(SKILL);
+        assert!(section.starts_with("## Verification\n"), "{section}");
+        assert_eq!(section, verification_section(README));
+    }
+
     fn keys(schema: &Value) -> Vec<String> {
         schema["properties"]
             .as_object()

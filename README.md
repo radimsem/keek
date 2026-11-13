@@ -131,6 +131,19 @@ Two things are yours to add, beside the profile:
 - Test Credentials, in `~/.config/keek/projects/<project>.env`. Use test-only accounts. The agent sees their names, never their values.
 - Test Files, in `~/.config/keek/projects/<project>.files/`. These are sample inputs the app needs, such as a file to upload.
 
+### Tell your agents when to verify
+
+keek's server instructions tell an agent how to verify a change. The repository's agent file tells it when, and which Project to name. The `keek-setup` skill offers to add this section to `AGENTS.md`, or to the agent file your repository has, when it finishes. To add it by hand, paste it and replace `<project>` and `<path>` with the Project name and the folder of its app.
+
+```markdown
+## Verification
+
+- keek Projects in this repository: `<project>` (`<path>`).
+- Verify with keek when a change alters what a person sees or does in the running app. When you skip it, say so and why.
+- When keek refuses for a missing or invalid Project Profile, load the `keek-setup` skill.
+- Put the Verdict and each Check's outcome in the pull request, and tell the developer the Verification Video's path to attach.
+```
+
 ## Verify a change
 
 Ask your agent to verify its change with keek. The agent writes a Verification Checklist and hands it to a fresh Verifier. The Verifier opens an Agent Session, uses the app, and marks each Check.
