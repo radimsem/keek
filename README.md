@@ -8,7 +8,7 @@ keek lets a coding agent have its change verified on a real desktop. A fresh Ver
 
 <p align="center">
   <a href="assets/keek-launch.mp4">
-    <img src="assets/keek-preview.webp" width="800" alt="A Verifier agent is stuck on a 2FA code in an invoicing app. The developer takes control, enters the code and hands back. keek ticks each Check and shows the Verdict Pass.">
+    <img src="assets/keek-preview.webp" width="800" alt="keek opens a nested desktop on an Omarchy workspace. A Verifier agent signs in to an invoicing app and is stuck on a 2FA code. The developer takes control, enters the code and hands back. keek ticks each Check, shows the Verdict Pass, and the video plays in a pull request comment.">
   </a>
   <br>
   <a href="assets/keek-launch.mp4">Watch the launch video (53 s, with sound)</a>
