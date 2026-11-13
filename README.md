@@ -21,7 +21,7 @@ keek lets a coding agent have its change verified on a real desktop. A fresh Ver
   <img src="assets/keek-preview.webp" width="800" alt="keek opens a nested desktop on an Omarchy workspace. A Verifier agent signs in to an invoicing app and is stuck on a 2FA code. The developer takes control, enters the code and hands back. keek ticks each Check, shows the Verdict Pass, and the video plays in a pull request comment.">
 </p>
 
-You keep working while it runs. Each Agent Session shows on its own `keek` workspace, where you can watch it and take control when the agent is stuck on something like a 2FA prompt.
+You keep working while it runs. Each Agent Session shows on its own `keek` workspace, where you can watch it and take control when the agent is stuck on something like a 2FA prompt. The nested desktop is isolated. Its windows and input stay inside it, so nothing lands on the workspaces you have open.
 
 keek is an [Omarchy](https://github.com/omacom/omarchy) layer on [Cua Driver](https://github.com/trycua/cua), which performs and records the agent's actions.
 
