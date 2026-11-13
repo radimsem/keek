@@ -41,7 +41,7 @@ pub struct Profile {
 #[derive(Debug, thiserror::Error)]
 pub enum ProfileError {
     #[error(
-        "Project {project} has no Project Profile at {path}. If the Project name is misspelled, use the right name. Otherwise write one with set_project_profile, then try again.",
+        "Project {project} has no Project Profile at {path}. If the Project name is misspelled, use the right name. Otherwise the coding agent writes one with the `keek-setup` skill and set_project_profile, then tries again. A Verifier stops and reports this refusal to the coding agent. If the skill is not installed, ask the developer to install it from https://github.com/radimsem/keek#install-the-setup-skill.",
         path = .path.display()
     )]
     Missing { project: String, path: PathBuf },
@@ -252,11 +252,16 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_profile_names_set_project_profile() {
+    fn a_missing_profile_names_the_setup_skill_and_where_to_install_it() {
         let directory = tempfile::tempdir().unwrap();
         let path = profile_path(directory.path(), "demo");
         let error = Profile::read("demo", &path).unwrap_err().to_string();
-        assert!(error.contains("set_project_profile"), "{error}");
+        assert!(error.contains("`keek-setup` skill"), "{error}");
+        assert!(
+            error.contains("https://github.com/radimsem/keek#install-the-setup-skill"),
+            "{error}"
+        );
+        assert!(error.contains("A Verifier stops"), "{error}");
         assert!(error.contains(path.to_str().unwrap()), "{error}");
     }
 
