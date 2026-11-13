@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" width="128" height="128" alt="keek logo: a blue window nested inside a larger window">
+  <img src="assets/logo.png" width="128" height="128" alt="keek logo: a letter k whose arm and leg form a pointer, on a blue tile">
 </p>
 
 # keek
