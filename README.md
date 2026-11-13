@@ -23,7 +23,7 @@ keek lets a coding agent have its change verified on a real desktop. A fresh Ver
 
 You keep working while it runs. Each Agent Session shows on its own `keek` workspace, where you can watch it and take control when the agent is stuck on something like a 2FA prompt.
 
-keek is an Omarchy layer on [Cua Driver](https://github.com/trycua/cua), which performs and records the agent's actions.
+keek is an [Omarchy](https://github.com/omacom/omarchy) layer on [Cua Driver](https://github.com/trycua/cua), which performs and records the agent's actions.
 
 ## Requirements
 
