@@ -2,7 +2,18 @@
   <img src="assets/logo.png" width="128" height="128" alt="keek logo: a letter k whose arm and leg form a pointer, on a blue tile">
 </p>
 
-# keek
+<h1 align="center">keek</h1>
+
+<p align="center">Your coding agent's change, verified on a real desktop.</p>
+
+<p align="center">
+  <a href="https://github.com/radimsem/keek/actions/workflows/ci.yml"><img src="https://github.com/radimsem/keek/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status"></a>
+  <a href="https://github.com/radimsem/keek/releases/latest"><img src="https://img.shields.io/github/v/release/radimsem/keek?color=4a97e4" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-4a97e4" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/rust-1.97%2B-4a97e4?logo=rust&logoColor=white" alt="Rust 1.97 or newer">
+  <img src="https://img.shields.io/badge/platform-Omarchy-4a97e4" alt="Platform: Omarchy">
+  <img src="https://img.shields.io/badge/MCP-server-4a97e4" alt="MCP server">
+</p>
 
 keek lets a coding agent have its change verified on a real desktop. A fresh Verifier agent uses your app like a person would, in a sandboxed nested Hyprland inside your own Omarchy session. It leaves a video and a report you can attach to the pull request.
 
@@ -22,7 +33,7 @@ keek runs on Omarchy only. It needs:
 - Omarchy's `cua-hyprland-plugin` package, which is built for one exact Hyprland version.
 - Cua Driver 0.38.0. keek refuses any other version.
 - Rust 1.97 or newer, to build keek.
-- A coding agent that speaks MCP, such as Claude Code or Codex.
+- A coding agent that speaks MCP, such as Claude Code, Codex, OpenCode, Cursor or Antigravity CLI.
 
 ## Install
 
@@ -54,20 +65,61 @@ keek runs on Omarchy only. It needs:
 
 ## Add keek to your coding agent
 
-keek is an MCP server. In Claude Code:
+keek is a stdio MCP server, started with `keek mcp`. Register it once for your user, then install the setup skill.
+
+### Register the MCP server
+
+Claude Code:
 
 ```sh
-claude mcp add keek -- keek mcp
+claude mcp add --scope user keek -- keek mcp
 ```
 
-In another harness, register a stdio MCP server with the command `keek` and the argument `mcp`.
-
-Then give the agent the setup skill. It tells the agent how to describe a project to keek. For Claude Code:
+Codex:
 
 ```sh
-mkdir -p ~/.claude/skills/keek-setup
+codex mcp add keek -- keek mcp
+```
+
+OpenCode:
+
+```sh
+opencode mcp add keek --global -- keek mcp
+```
+
+Cursor has no command for this. Add the server to `~/.cursor/mcp.json`, which the editor and `cursor-agent` both read. Antigravity CLI reads the same entry from `~/.gemini/config/mcp_config.json`.
+
+```json
+{
+  "mcpServers": {
+    "keek": { "command": "keek", "args": ["mcp"] }
+  }
+}
+```
+
+In any other agent, register a stdio MCP server with the command `keek` and the argument `mcp`.
+
+### Install the setup skill
+
+The `keek-setup` skill tells the agent how to describe a project to keek. The [skills](https://github.com/vercel-labs/skills) installer places it for the agents you pick. It needs Node.js.
+
+```sh
+npx skills add radimsem/keek --skill keek-setup -g
+```
+
+To install it by hand, download the skill to `~/.agents/skills`. Codex, OpenCode and Cursor read that folder.
+
+```sh
+mkdir -p ~/.agents/skills/keek-setup
 curl -fsSL https://raw.githubusercontent.com/radimsem/keek/v0.1.0/skills/keek-setup/SKILL.md \
-  -o ~/.claude/skills/keek-setup/SKILL.md
+  -o ~/.agents/skills/keek-setup/SKILL.md
+```
+
+Claude Code and Antigravity CLI read their own folders, so link the skill into them.
+
+```sh
+ln -s ~/.agents/skills/keek-setup ~/.claude/skills/keek-setup
+ln -s ~/.agents/skills/keek-setup ~/.gemini/config/skills/keek-setup
 ```
 
 ## Set up a project
