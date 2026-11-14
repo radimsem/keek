@@ -170,6 +170,17 @@ mod skill_tests {
         assert_eq!(section, verification_section(README));
     }
 
+    #[test]
+    fn the_readme_installs_the_crate_version() {
+        let version = crate::VERSION;
+        for pinned in [
+            format!("--tag v{version} --locked"),
+            format!("radimsem/keek/v{version}/skills/"),
+        ] {
+            assert!(README.contains(&pinned), "README.md lacks `{pinned}`");
+        }
+    }
+
     fn keys(schema: &Value) -> Vec<String> {
         schema["properties"]
             .as_object()
