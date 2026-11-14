@@ -11,6 +11,7 @@ keek lets a coding agent have its change verified by a fresh Verifier on a sandb
 - `design/comps/` and `.impeccable/`: design files kept outside git. A worktree or fresh clone lacks them, so read them from the primary checkout, or use the design canvas linked in `docs/DESIGN.md`.
 - `docs/adr/`: before changing behaviour a decision records. A change that contradicts an ADR updates that ADR in the same pull request.
 - `docs/facts.md`: what was checked about Cua Driver and Hyprland, with versions.
+- `docs/releasing.md`: cutting a release. Tagging and publishing are the developer's to do or approve.
 
 Skills and tools that default to a root `GLOSSARY.md`, `DESIGN.md` or `PRODUCT.md` use these `docs/` paths.
 
@@ -51,6 +52,12 @@ A ticket's plan is a proposal: its module names and flags can change, its accept
 - Each commit is one coherent change that passes the gates alone. Tests travel with their code. Formatting and regenerated files get their own commit.
 - Stage exact paths and read `git diff --staged` first. `Cargo.lock` changes only with a dependency change.
 - `push --force`, `reset --hard`, `clean` and `branch -D` run only when asked.
+
+## Changelog
+
+- A change a person using keek would notice adds one line under `Unreleased` in `CHANGELOG.md`, in the same pull request, under Added, Changed, Fixed or Removed.
+- Write the line for that person, in the voice of `docs/PRODUCT.md`: what they can now do or what stopped going wrong, with no module names.
+- Refactors, tests, CI and internal docs add no line.
 
 ## Comments
 

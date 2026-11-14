@@ -1,0 +1,31 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  draft:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The ancestry check needs main's history.
+          fetch-depth: 0
+      - name: Check the tag against Cargo.toml and main
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          grep -Fxq "version = \"$version\"" Cargo.toml
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          echo "version=$version" >> "$GITHUB_ENV"
+      - name: Read the notes from the changelog
+        run: scripts/release-notes.sh "$version" > "$RUNNER_TEMP/notes.md"
+      # A draft, so the developer reads the notes on GitHub before anyone else does.
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "keek $version" --notes-file "$RUNNER_TEMP/notes.md"
