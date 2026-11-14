@@ -49,9 +49,17 @@ keek runs on Omarchy only. It needs:
    CUA_DRIVER_RS_VERSION=0.38.0 /bin/bash -c "$(curl -fsSL https://cua.ai/driver/install.sh)"
    ```
 
+   Cua's installer also stops running Cua drivers, edits your shell rc file, and connects itself to Claude Code, Codex and Cursor.
+
    keek reads the driver from `~/.cua-driver/packages/releases/0.38.0-x86_64-unknown-linux-gnu/cua-driver`.
 
-3. Build and install keek.
+   Check that the driver is executable at that path:
+
+   ```sh
+   test -x ~/.cua-driver/packages/releases/0.38.0-x86_64-unknown-linux-gnu/cua-driver && echo ok
+   ```
+
+3. Build and install keek. The build refuses a default toolchain older than Rust 1.97. Run `rustup update` to update it.
 
    ```sh
    cargo install --git https://github.com/radimsem/keek --tag v0.1.0 --locked
@@ -154,7 +162,7 @@ The Verdict follows from the checklist. It is Pass, Needs fixes or Partly verifi
 
 ## Evidence
 
-keek files Evidence under `~/Videos/keek/<project>/<date>/`. Each session leaves:
+keek files Evidence under `<videos>/keek/<project>/<date>/`, where `<videos>` is the folder `xdg-user-dir VIDEOS` prints, usually `~/Videos`. Each session leaves:
 
 - a Verification Video, ending in `_verification.mp4`, with idle stretches fast-forwarded;
 - a Verdict Report, ending in `_report.md`, with every Check and its comment.
