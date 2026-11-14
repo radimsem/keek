@@ -179,6 +179,7 @@ Cua Driver is still pre-release, and its Hyprland support is experimental.
 - [`docs/viewer.md`](docs/viewer.md) covers the Agents Workspace, Help Requests and Takeovers.
 - [`docs/GLOSSARY.md`](docs/GLOSSARY.md) defines every term used here.
 - [`docs/adr/`](docs/adr/) records the decisions behind the design.
+- [`CHANGELOG.md`](CHANGELOG.md) lists what each release changed.
 
 ## License
 
