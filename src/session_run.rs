@@ -53,13 +53,13 @@ impl Actor {
         self.progress.send("Building Project Layer");
         let mounts = match tokio::select! { biased;
             () = opener_left(&mut opener) => {
-                self.remove_cancelled_folder().await;
                 Err(SessionError::Refused("The coding agent disconnected during setup. Open a new Agent Session.".into()))
             },
             result = self.factory.prepare(&self.folder, &opening) => result,
         } {
             Ok(mounts) => mounts,
             Err(error) => {
+                self.remove_cancelled_folder().await;
                 return Finished {
                     response: self.mask_reply(refusal(error)),
                     name: self.name,
@@ -78,26 +78,26 @@ impl Actor {
             }
         }
         self.progress.send("Starting desktop");
-        // Outlasts the factory's 30 s handshake limit, whose refusal names the log files.
         let mut driver = match tokio::select! { biased;
             () = opener_left(&mut opener) => {
-                self.remove_cancelled_folder().await;
                 Err(SessionError::Refused("The coding agent disconnected during setup. Open a new Agent Session.".into()))
             },
             result = async { tokio::time::timeout(
-            Duration::from_secs(45),
+            // Outlasts the factory's 30 s handshake limit and 20 s cover wait, whose refusals say more.
+            Duration::from_secs(60),
             self.factory.open(&self.folder, &opening, &mounts),
         )
         .await
         .unwrap_or_else(|_| {
             Err(SessionError::Refused(
-                "Agent Session setup timed out after 45 s. Check the session logs and retry."
+                "Agent Session setup timed out after 60 s. Open again."
                     .into(),
             ))
         }) } => result,
         } {
             Ok(d) => d,
             Err(e) => {
+                self.remove_cancelled_folder().await;
                 return Finished {
                     response: self.mask_reply(refusal(e)),
                     name: self.name,
@@ -111,6 +111,7 @@ impl Actor {
             Ok(zero) => zero,
             Err(error) => {
                 let _ = close_driver(driver.as_mut()).await;
+                self.remove_cancelled_folder().await;
                 return Finished {
                     response: self.mask_reply(refusal(error)),
                     name: self.name,

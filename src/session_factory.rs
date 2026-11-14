@@ -1,3 +1,6 @@
+#[path = "session_startup.rs"]
+mod startup;
+
 use crate::driver::{CuaDriver, Driver, DriverError, DriverFuture};
 use crate::process::ProcessRunner;
 use crate::session::{DriverFactory, Mounts, Opening, SessionError};
@@ -50,7 +53,9 @@ impl DriverFactory for SandboxFactory {
             let mut command = tokio::task::spawn_blocking(move || spec.command())
                 .await
                 .map_err(|e| {
-                    SessionError::Refused(format!("Cannot prepare the Agent Session command: {e}. Check the session folder and open again."))
+                    SessionError::Refused(format!(
+                        "Cannot prepare the Agent Session command: {e}. Open again."
+                    ))
                 })??;
             let events = self
                 .compositor
@@ -72,18 +77,12 @@ impl DriverFactory for SandboxFactory {
                 Ok(Ok(driver)) => driver,
                 other => {
                     let _ = child.kill().await;
-                    return Err(SessionError::Refused(format!(
-                        "Agent Session desktop did not become ready: {}. Read {}, {}, {} and {} before retrying.",
-                        match other {
-                            Ok(Err(e)) => e.to_string(),
-                            Err(e) => e.to_string(),
-                            Ok(Ok(_)) => String::new(),
-                        },
-                        folder.root().join("session.err").display(),
-                        folder.root().join("hyprland.log").display(),
-                        folder.root().join("sandbox.err").display(),
-                        folder.root().join("driver.log").display()
-                    )));
+                    let reason = match other {
+                        Ok(Err(e)) => e.to_string(),
+                        Err(_) => "Cua Driver did not answer within 30 s. Open again.".into(),
+                        Ok(Ok(_)) => String::new(),
+                    };
+                    return Err(startup::startup_refusal(folder.root(), &reason).await);
                 }
             };
             let mut sandbox = SandboxDriver {
@@ -98,7 +97,7 @@ impl DriverFactory for SandboxFactory {
             }
             let mut window_pid = None;
             let placement_result = async {
-                let pid = sandbox.child.id().ok_or_else(|| SessionError::Refused("The sandbox stopped before the Session Window appeared. Check sandbox.err and open again.".into()))?;
+                let pid = sandbox.child.id().ok_or_else(|| SessionError::Refused("The sandbox stopped before the Session Window appeared. Open again.".into()))?;
                 let pid = match connection_pid(pid).await {
                     Ok(pid) => Some(crate::compositor::WindowPid(pid)),
                     Err(error) => {
@@ -115,6 +114,22 @@ impl DriverFactory for SandboxFactory {
                     let _ = sandbox.close().await;
                     return Err(error);
                 }
+            }
+            let cover = tokio::select! {
+                result = startup::wait_for_cover(
+                    folder.root(),
+                    Duration::from_secs(20),
+                    Duration::from_millis(50),
+                ) => result,
+                _ = sandbox.child.wait() => Err(startup::startup_refusal(
+                    folder.root(),
+                    "The sandbox stopped before the desktop was ready. Open again.",
+                )
+                .await),
+            };
+            if let Err(error) = cover {
+                let _ = sandbox.close().await;
+                return Err(error);
             }
             if let (Some(pid), Some(address), Some(sandbox_pid)) =
                 (window_pid, sandbox.window.as_ref(), sandbox.child.id())
@@ -152,7 +167,7 @@ async fn connection_pid(pid: u32) -> Result<u32, SessionError> {
             }
         }
         Err(SessionError::Refused(
-            "Cannot find the Session Window process. Check sandbox.err and open again.".into(),
+            "Cannot find the Session Window process. Open again.".into(),
         ))
     })
     .await
@@ -169,11 +184,9 @@ async fn check_plugin(
     let folder = folder.clone();
     let (plugins, version) = tokio::task::spawn_blocking(move || {
         let read = |name: &str| {
-            crate::session_folder::read_sandbox_file(&folder.root().join(name)).map_err(|error| {
-                SessionError::Refused(format!(
-                    "Cannot read {name}: {error}. Check the Agent Session folder and retry."
-                ))
-            })
+            crate::session_folder::read_sandbox_file(&folder.root().join(name), None).map_err(
+                |error| SessionError::Refused(format!("Cannot read {name}: {error}. Open again.")),
+            )
         };
         Ok::<_, SessionError>((read("plugins.json")?, read("hyprland-version.json")?))
     })

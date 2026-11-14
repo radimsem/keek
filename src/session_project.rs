@@ -82,7 +82,9 @@ pub async fn prepare(
     tokio::task::spawn_blocking(move || prep.prepare())
         .await
         .map_err(|e| {
-            SessionError::Refused(format!("Cannot prepare the Agent Session files: {e}. Check the session folder and open again."))
+            SessionError::Refused(format!(
+                "Cannot prepare the Agent Session files: {e}. Open again."
+            ))
         })??;
     let layer = crate::project::ensure_layer(
         &factory.projects_cache.join(&spec.project),

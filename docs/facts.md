@@ -268,3 +268,17 @@ Found 1 windows:
 ```
 
 That `list_windows` is read-only, so Cua records no turn for it, is read from source. A Cua Driver version change rechecks these texts.
+
+## Omarchy startup cover
+
+Checked on 2026-11-14 against Omarchy 4.5.0-3 source:
+
+- `/usr/share/omarchy/shell/services/BackgroundIntro.qml` maps a full-screen black startup cover with namespace `omarchy-background` at the overlay level (3).
+- It skips the startup cover when the trimmed text of `~/.local/state/omarchy/background-intro.session-id` equals `OMARCHY_SESSION_ID` (falling back to `HYPRLAND_INSTANCE_SIGNATURE` when the variable is empty). `omarchy-theme-bg-boot-intro` also exits early for a matching marker.
+- A 10 second fallback timer releases the startup cover when the background or shell does not become ready. An install eval saw the cover hide the app for 6 to 14 seconds.
+
+Checked the same day in a nested Agent Session, by `live_the_first_recorded_frame_shows_the_app_instead_of_a_black_cover` on a white fixture page:
+
+- With a marker that didn't match and no wait, the first frame of the Raw Recording had a mean luma of 14, which is video black.
+- With a matching marker bound read-only and `OMARCHY_SESSION_ID` set, the test passed and `open_session` took no longer.
+- With a marker that didn't match, waiting until no overlay-level `omarchy-background` layer was left also passed, and the test took about 5 s longer.

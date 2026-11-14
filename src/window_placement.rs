@@ -180,9 +180,7 @@ pub async fn place(
         place_mapped(pid, slot, &mut events),
     )
     .await
-    .map_err(|_| {
-        refused("The Session Window did not appear within 5 s. Check sandbox.err and retry")
-    })?
+    .map_err(|_| refused("The Session Window did not appear within 5 s. Open again"))?
 }
 
 async fn place_mapped(

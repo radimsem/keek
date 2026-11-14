@@ -76,3 +76,85 @@ async fn live_session_shows_only_the_app() -> Result<()> {
     result?;
     cleanup
 }
+
+#[tokio::test]
+#[ignore = "requires the real Hyprland desktop, pinned Cua Driver, Chromium and ffmpeg"]
+async fn live_the_first_recorded_frame_shows_the_app_instead_of_a_black_cover() -> Result<()> {
+    async fn first_frame(path: &Path) -> Result<Vec<u8>> {
+        let output = Command::new("ffmpeg")
+            .args(["-v", "error", "-i"])
+            .arg(path)
+            .args([
+                "-frames:v",
+                "1",
+                "-vf",
+                "scale=32:32",
+                "-pix_fmt",
+                "gray",
+                "-f",
+                "rawvideo",
+                "pipe:1",
+            ])
+            .output()
+            .await?;
+        anyhow::ensure!(
+            output.status.success(),
+            "first frame extraction failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        anyhow::ensure!(
+            output.stdout.len() == 32 * 32,
+            "missing or incomplete first frame: {} bytes",
+            output.stdout.len()
+        );
+        Ok(output.stdout)
+    }
+
+    let _desktop = LIVE_DESKTOP.lock().await;
+    let mut fixture = Fixture::start().await?;
+    let result = async {
+        let control = fixture.directory.path().join("white.mp4");
+        let output = Command::new("ffmpeg")
+            .args([
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=white:s=32x32",
+                "-frames:v",
+                "1",
+            ])
+            .arg(&control)
+            .output()
+            .await?;
+        anyhow::ensure!(
+            output.status.success(),
+            "white control creation failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let white = first_frame(&control).await?;
+        anyhow::ensure!(
+            white.iter().map(|&pixel| u64::from(pixel)).sum::<u64>() / white.len() as u64 > 200,
+            "white control is not bright"
+        );
+
+        let worktree = fixture
+            .worktree_with_start("first-frame", START_COMMAND)
+            .await?;
+        let session = fixture.open("first-frame", &worktree).await?;
+        let records = fixture.close(&session).await?;
+        let frame = first_frame(&records.raw).await?;
+        let mean =
+            frame.iter().map(|&pixel| u64::from(pixel)).sum::<u64>() as f64 / frame.len() as f64;
+        anyhow::ensure!(
+            mean > 64.0,
+            "the first Raw Recording frame is black: mean luma {mean}"
+        );
+        Ok::<(), anyhow::Error>(())
+    }
+    .await;
+    let cleanup = fixture.finish().await;
+    result?;
+    cleanup
+}

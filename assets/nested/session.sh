@@ -34,4 +34,32 @@ hyprctl version -j >"$KEEK_SESSION/hyprland-version.json"
 
 hyprctl eval "hl.exec_cmd('/keek/nested/start-app.sh')" >"$KEEK_SESSION/exec.log" 2>&1
 
+(
+  SECONDS=0
+  shell_seen=false
+  clear=0
+  while [ "$SECONDS" -lt 30 ]; do
+    if layers=$(hyprctl layers -j 2>/dev/null) && state=$(jq -er '
+      [ .[] | .levels | to_entries[] | .key as $level | .value[] |
+        {level: $level, namespace: (.namespace // "")} ] |
+      [any(.level == "3" and .namespace == "omarchy-background"),
+       any(.namespace | startswith("omarchy-"))] | @tsv
+    ' <<<"$layers" 2>/dev/null); then
+      read -r covered shell <<<"$state"
+      [ "$shell" = true ] && shell_seen=true
+      if [ "$covered" = false ] && { [ "$shell_seen" = true ] || [ "$SECONDS" -ge 3 ]; }; then
+        clear=$((clear + 1))
+      else
+        clear=0
+      fi
+      # One clear sample could fall between the shell starting and its cover mapping.
+      if [ "$clear" -ge 10 ]; then
+        touch "$KEEK_SESSION/cover-clear"
+        exit
+      fi
+    fi
+    sleep 0.05
+  done
+) 8<&- 9>&- &
+
 exec "$KEEK_DRIVER" mcp <&8 >&9 2>"$KEEK_SESSION/driver.log" 8<&- 9>&-

@@ -163,6 +163,9 @@ fn pasta_inherits_only_host_display_environment() {
     let temp = tempfile::tempdir().unwrap();
     let mut spec = spec();
     spec.session_dir = temp.path().to_owned();
+    spec.home = temp.path().join("home");
+    std::fs::create_dir_all(spec.home.join(".config/hypr")).unwrap();
+    std::fs::create_dir_all(spec.home.join(".config/omarchy")).unwrap();
     let command = spec.command().unwrap();
     let command = command.as_std();
     assert!(format!("{command:?}").contains("env -i"), "{command:?}");
@@ -328,6 +331,9 @@ fn the_sandbox_command_carries_the_credential_values_for_connect_exec() {
     let directory = tempfile::tempdir().unwrap();
     let mut sandbox = spec();
     sandbox.session_dir = directory.path().join("session");
+    sandbox.home = directory.path().join("home");
+    std::fs::create_dir_all(sandbox.home.join(".config/hypr")).unwrap();
+    std::fs::create_dir_all(sandbox.home.join(".config/omarchy")).unwrap();
     std::fs::create_dir_all(&sandbox.session_dir).unwrap();
     sandbox.credentials = crate::credentials::Credentials::parse(
         Path::new("fixture.env"),
@@ -349,6 +355,9 @@ fn install_carries_no_credential_value_in_arguments_or_environment() {
     let directory = tempfile::tempdir().unwrap();
     let mut sandbox = spec();
     sandbox.session_dir = directory.path().join("session");
+    sandbox.home = directory.path().join("home");
+    std::fs::create_dir_all(sandbox.home.join(".config/hypr")).unwrap();
+    std::fs::create_dir_all(sandbox.home.join(".config/omarchy")).unwrap();
     std::fs::create_dir_all(&sandbox.session_dir).unwrap();
     sandbox.credentials =
         crate::credentials::Credentials::parse(Path::new("fixture.env"), "PASSWORD=made-up-value")
@@ -585,3 +594,6 @@ fn the_session_binds_its_own_toggles_folder_read_only_in_place_of_the_developers
 }
 
 include!("sandbox_preparation_tests.rs");
+
+#[path = "sandbox_startup_tests.rs"]
+mod startup;

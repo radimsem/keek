@@ -9,6 +9,7 @@ pub(crate) const DNS_FORWARDER: &str = "169.254.1.1";
 
 // Console scripts in a shared Project Layer need the same absolute worktree path.
 const SANDBOX_WORKTREE: &str = "/keek/worktree";
+const OMARCHY_SESSION_ID: &str = "keek";
 
 #[derive(Debug, thiserror::Error)]
 pub enum SandboxError {
@@ -22,6 +23,10 @@ pub enum SandboxError {
         "Can't prepare the Agent Session because {0} is missing. Run keek from your desktop session."
     )]
     MissingEnvironment(&'static str),
+    #[error(
+        "Can't start the Agent Session because {0} is not a directory. keek reads your Hyprland and Omarchy config from there. Restore the folder and open again."
+    )]
+    MissingConfig(PathBuf),
 }
 
 #[derive(Debug, Clone)]
@@ -154,6 +159,10 @@ impl SandboxSpec {
             &self.session_dir.join("toggles"),
         )?;
         std::fs::write(
+            self.session_dir.join("background-intro.session-id"),
+            OMARCHY_SESSION_ID,
+        )?;
+        std::fs::write(
             self.session_dir.join("resolv.conf"),
             format!("nameserver {DNS_FORWARDER}\n"),
         )?;
@@ -161,6 +170,12 @@ impl SandboxSpec {
     }
 
     pub fn command(&self) -> Result<Command, SandboxError> {
+        for folder in [".config/hypr", ".config/omarchy"] {
+            let path = self.home.join(folder);
+            if !path.is_dir() {
+                return Err(SandboxError::MissingConfig(path));
+            }
+        }
         self.command_with(SandboxMode::Session)
     }
 
@@ -286,6 +301,7 @@ impl SandboxSpec {
             ("USER", self.user.as_ref()),
             ("LANG", self.lang.as_ref()),
             ("OMARCHY_PATH", "/usr/share/omarchy".as_ref()),
+            ("OMARCHY_SESSION_ID", OMARCHY_SESSION_ID.as_ref()),
             ("XDG_RUNTIME_DIR", self.runtime_dir.as_os_str()),
             ("XDG_SESSION_TYPE", "wayland".as_ref()),
             ("XDG_CURRENT_DESKTOP", "Hyprland".as_ref()),
@@ -456,6 +472,11 @@ impl SandboxSpec {
             OsString::from("--ro-bind"),
             self.session_dir.join("toggles").into(),
             self.home.join(".local/state/omarchy/toggles").into(),
+            "--ro-bind".into(),
+            self.session_dir.join("background-intro.session-id").into(),
+            self.home
+                .join(".local/state/omarchy/background-intro.session-id")
+                .into(),
         ]);
         args.extend([
             OsString::from("--bind"),

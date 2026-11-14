@@ -469,3 +469,44 @@ async fn a_full_close_channel_refuses_without_dropping_the_reply() {
         format!("Agent Session {name} is busy. Try again or open a new Agent Session.")
     );
 }
+
+#[tokio::test]
+async fn a_failed_open_releases_the_daemon_and_removes_its_folder_and_journal() {
+    let mut h = Harness::new(1);
+    h.controls.fail_open.store(true, Ordering::SeqCst);
+    let worktree = h.worktree("failed");
+    let message = refused(
+        h.request(Request::OpenSession {
+            project: "app".into(),
+            worktree,
+            goal: "goal".into(),
+            checks: vec!["check".into()],
+        })
+        .await,
+    );
+    assert!(message.contains("fixture open failed"), "{message}");
+    assert!(
+        !h.registry.keeps_daemon_alive(),
+        "failed open keeps daemon alive"
+    );
+    assert!(h.registry.preparing.is_empty());
+    assert!(h.registry.cards.is_empty());
+    assert!(h.registry.recovery.is_empty());
+    assert_eq!(
+        std::fs::read_dir(&h.registry.dependencies.sessions_dir)
+            .unwrap()
+            .count(),
+        0,
+        "failed session folder remains"
+    );
+    assert_eq!(
+        std::fs::read_dir(&h.registry.dependencies.journals_dir)
+            .unwrap()
+            .count(),
+        0,
+        "failed session journal remains"
+    );
+}
+
+#[path = "registry_failed_setup_tests.rs"]
+mod failed_setup;
