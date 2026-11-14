@@ -77,10 +77,37 @@ fn socket(name: &str) -> Result<std::path::PathBuf, ProcessError> {
     let runtime = std::env::var_os("XDG_RUNTIME_DIR").ok_or_else(|| missing("XDG_RUNTIME_DIR"))?;
     let signature = std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE")
         .ok_or_else(|| missing("HYPRLAND_INSTANCE_SIGNATURE"))?;
-    Ok(std::path::PathBuf::from(runtime)
-        .join("hypr")
-        .join(signature)
-        .join(name))
+    socket_path(std::path::Path::new(&runtime), &signature, name)
+}
+fn socket_path(
+    runtime: &std::path::Path,
+    signature: &std::ffi::OsStr,
+    name: &str,
+) -> Result<std::path::PathBuf, ProcessError> {
+    let path = runtime.join("hypr").join(signature).join(name);
+    let length = path.as_os_str().len();
+    if length >= 108 {
+        return Err(ProcessError::Failed {
+            program: "Hyprland IPC".into(),
+            message: format!(
+                "socket path {} is {length} bytes; the limit is 108 bytes including the terminator. Use a shorter XDG_RUNTIME_DIR",
+                path.display()
+            ),
+        });
+    }
+    Ok(path)
+}
+async fn connect(name: &str) -> Result<UnixStream, ProcessError> {
+    let path = socket(name)?;
+    UnixStream::connect(&path)
+        .await
+        .map_err(|error| ProcessError::Failed {
+            program: "Hyprland IPC".into(),
+            message: format!(
+                "cannot connect to {}: {error}. Check that Hyprland is running",
+                path.display()
+            ),
+        })
 }
 fn io(source: std::io::Error) -> ProcessError {
     ProcessError::Io {
@@ -90,9 +117,7 @@ fn io(source: std::io::Error) -> ProcessError {
 }
 pub async fn command(request: &str) -> Result<String, ProcessError> {
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        let mut stream = UnixStream::connect(socket(".socket.sock")?)
-            .await
-            .map_err(io)?;
+        let mut stream = connect(".socket.sock").await?;
         stream.write_all(request.as_bytes()).await.map_err(io)?;
         let mut reply = String::new();
         stream.read_to_string(&mut reply).await.map_err(io)?;
@@ -104,12 +129,7 @@ pub async fn command(request: &str) -> Result<String, ProcessError> {
     })?
 }
 pub async fn subscribe() -> Result<Lines<BufReader<UnixStream>>, ProcessError> {
-    Ok(BufReader::new(
-        UnixStream::connect(socket(".socket2.sock")?)
-            .await
-            .map_err(io)?,
-    )
-    .lines())
+    Ok(BufReader::new(connect(".socket2.sock").await?).lines())
 }
 #[cfg(test)]
 mod tests {
@@ -180,5 +200,27 @@ mod tests {
         ] {
             assert_eq!(parse(line), None);
         }
+    }
+}
+
+#[cfg(test)]
+mod socket_tests {
+    use super::*;
+    #[test]
+    fn an_overlong_socket_path_names_the_path_and_its_byte_length() {
+        let runtime = std::path::PathBuf::from(format!("/run/{}", "é".repeat(55)));
+        let path = runtime.join("hypr/fixture/.socket.sock");
+        let error = socket_path(&runtime, "fixture".as_ref(), ".socket.sock")
+            .expect_err("overlong socket path must be refused")
+            .to_string();
+        assert!(error.contains(&path.display().to_string()), "{error}");
+        assert!(
+            error.contains(&path.as_os_str().len().to_string()),
+            "{error}"
+        );
+        assert!(
+            error.contains("108") && error.contains("shorter XDG_RUNTIME_DIR"),
+            "{error}"
+        );
     }
 }
