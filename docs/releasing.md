@@ -51,4 +51,6 @@ A pull request that changes what a person using keek would notice adds a line un
 
 ## When a tag is wrong
 
-Before the release is published, delete the draft and the tag, fix `main`, and tag again. After it is published, leave the tag alone and release a new patch version.
+The `Protect release tags` ruleset refuses to delete or move a `v*` tag. Before the release is published, disable that ruleset under Settings, Rules, delete the draft and the tag, and enable the ruleset again. Then fix `main` and tag again.
+
+A published release is immutable. Leave its tag alone and release a new patch version.

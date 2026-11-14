@@ -1,20 +1,10 @@
 name: CI
 
+# No paths filter: the gates job is a required check, and a required check that never runs blocks the merge.
 on:
   pull_request:
-    paths: &paths
-      - '**'
-      - '!docs/**'
-      - '!**.md'
-      # tests/mcp_server.rs reads this one.
-      - 'docs/design.md'
-      # src/mcp_project.rs checks its profile example against the tool schema.
-      - 'skills/keek-setup/SKILL.md'
-      # src/mcp_project.rs checks its Verification section against the setup skill's.
-      - 'README.md'
   push:
     branches: [main]
-    paths: *paths
 
 permissions:
   contents: read
@@ -39,7 +29,7 @@ jobs:
       - name: Install the pinned toolchain
         run: rustup toolchain install
       # GitHub keeps a pull request's cache to its own branch, so only main's is reusable.
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Check formatting
