@@ -89,4 +89,5 @@ A comment says what the code can't. Most declarations need none.
 - `.github/workflows/ci.yml` runs the gates in one job. A pull request that adds a job, a matrix or a paid runner states its cost in minutes.
 - `.githooks/pre-push` runs the gates before a push. Enable it once per clone: `git config core.hooksPath .githooks`.
 - CI runs on every pull request and every push to `main`, docs-only ones too. The `gates` job is a required check on `main`, so a path filter would leave a pull request unable to merge.
+- A third-party action is pinned to a commit, with its version in a comment.
 - Only `main` saves the build cache, and pull requests restore from it.
