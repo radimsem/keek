@@ -16,6 +16,8 @@ To wait for the screen to change, call `get_window_state` again rather than slee
 
 `open_session` also returns `files`, the names of the Project's Test Files: sample inputs, such as a document to upload, that the developer placed outside the repository. They are read-only at `/keek/files/<name>`; in a file dialog press Ctrl+L and type that path. `more_files` counts names left off a long list. Git-ignored files are absent from `/keek/worktree`, so a path to one fails: use a Test File, or mark the Check skipped and say why.
 
+Call `mark_check` for each Check as soon as you observe it, rather than marking all Checks at the end, because its mark time is where the Verdict Report and Verification Video point.
+
 Judge each Check only from what the Agent Session shows. Don't read the worktree's source or run host commands to explain a result.
 
 `type_text` into a password field returns `effect: unverifiable`, and the field can't be read back. Click the field and clear it with ctrl+a before typing, so a retype doesn't double the password."#;
