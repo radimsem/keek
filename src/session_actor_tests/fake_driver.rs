@@ -2,6 +2,8 @@ use super::*;
 #[derive(Clone, Copy)]
 pub(super) enum Screenshot {
     Ready,
+    Image(&'static str, &'static str),
+    NoImage,
     Held,
     Failed,
     ReportedFailure,
@@ -73,6 +75,14 @@ impl Driver for FakeDriver {
                 let mode = *self.screenshot.lock().unwrap();
                 match mode {
                     Screenshot::Ready => {}
+                    Screenshot::Image(mime_type, data) => {
+                        return Ok(
+                            json!({"content":[{"type":"image","data":data,"mimeType":mime_type}]}),
+                        );
+                    }
+                    Screenshot::NoImage => {
+                        return Ok(json!({"content":[{"type":"text","text":"no screenshot"}]}));
+                    }
                     Screenshot::ReportedFailure => {
                         return Ok(
                             json!({"isError": true, "content": [{"type":"text", "text":"capture rejected"}]}),

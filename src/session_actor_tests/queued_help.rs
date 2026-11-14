@@ -59,7 +59,7 @@ async fn help_queued_behind_a_held_call_uses_that_takeover() {
     assert_eq!(click["content"][0]["text"], help["content"][0]["text"]);
     assert_eq!(
         help["content"][0]["text"],
-        "The developer controlled the session for 0:42. The screen may have changed."
+        "The developer pressed Done and handed control back after 0:42. If you raised a Help Request, it is answered. The screen may have changed.\nThe screenshot's scale is unknown. Call get_window_state before acting on coordinates."
     );
     assert!(matches!(
         events.borrow().control,

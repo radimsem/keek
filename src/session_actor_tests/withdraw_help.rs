@@ -144,7 +144,7 @@ async fn a_call_after_a_long_withdrawn_help_request_runs_without_a_takeover() {
         !value["content"][0]["text"]
             .as_str()
             .unwrap_or_default()
-            .contains("developer controlled")
+            .contains("developer pressed Done and handed control back")
     );
     assert!(matches!(
         events.borrow().control,
