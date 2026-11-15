@@ -4,6 +4,8 @@ What changed in each keek release, for a person who uses it. The format follows 
 
 ## Unreleased
 
+## 0.1.1 - 2026-11-15
+
 ### Fixed
 
 - Recordings no longer start black beneath Omarchy's startup cover.
