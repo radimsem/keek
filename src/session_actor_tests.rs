@@ -553,3 +553,9 @@ mod close_failed;
 
 #[path = "session_actor_tests/withdraw_help.rs"]
 mod withdraw_help;
+
+#[path = "session_actor_tests/hand_back.rs"]
+mod hand_back;
+
+#[path = "session_actor_tests/hand_back_scale.rs"]
+mod hand_back_scale;

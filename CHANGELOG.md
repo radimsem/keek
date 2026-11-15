@@ -4,6 +4,21 @@ What changed in each keek release, for a person who uses it. The format follows 
 
 ## Unreleased
 
+### Fixed
+
+- Recordings no longer start black beneath Omarchy's startup cover.
+- `open_session` waits for Omarchy's startup cover to clear and refuses with a reason if it stays.
+- A sandbox that fails to start reports its own log lines in the refusal.
+- A missing `~/.config/hypr` or `~/.config/omarchy` is named in the refusal.
+- An overlong Hyprland socket path is reported with the path and its length.
+- A failed `open_session` leaves no session folder behind.
+- `request_help` says the developer pressed Done and handed control back, and states the screenshot's scale.
+
+### Changed
+
+- The Verifier is told to mark each Check when it observes it, so the report and video point to that moment.
+- The setup skill explains how to prove a browser app starts when the probe has no desktop.
+
 ## 0.1.0 - 2026-11-14
 
 The first release. keek lets a coding agent have its change verified on a real desktop. A fresh Verifier agent uses your app like a person would, in a sandboxed nested Hyprland inside your own Omarchy session. It leaves a video and a report you can attach to the pull request.

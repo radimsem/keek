@@ -16,9 +16,7 @@ pub fn driver_path(home: &Path) -> PathBuf {
 
 #[derive(Debug, thiserror::Error)]
 pub enum DriverError {
-    #[error(
-        "Cua Driver could not complete its MCP handshake: {0}. Read session.err and hyprland.log in the Agent Session folder."
-    )]
+    #[error("Cua Driver could not complete its MCP handshake: {0}. Open again.")]
     Handshake(String),
     #[error(
         "Cua Driver could not list its tools: {0}. Check driver.log in the Agent Session folder."

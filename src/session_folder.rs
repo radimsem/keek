@@ -109,10 +109,10 @@ pub(crate) fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         .write_all(bytes)
 }
 
-pub(crate) fn read_sandbox_file(path: &Path) -> std::io::Result<Vec<u8>> {
-    use std::io::Read;
+pub(crate) fn read_sandbox_file(path: &Path, tail: Option<u64>) -> std::io::Result<Vec<u8>> {
+    use std::io::{Read, Seek, SeekFrom};
     use std::os::unix::fs::OpenOptionsExt;
-    let file = std::fs::OpenOptions::new()
+    let mut file = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)?;
@@ -122,7 +122,13 @@ pub(crate) fn read_sandbox_file(path: &Path) -> std::io::Result<Vec<u8>> {
             "not a regular file",
         ));
     }
+    let limit = tail.unwrap_or(64 * 1024).min(64 * 1024);
+    if tail.is_some() {
+        file.seek(SeekFrom::Start(
+            file.metadata()?.len().saturating_sub(limit),
+        ))?;
+    }
     let mut bytes = Vec::new();
-    file.take(64 * 1024).read_to_end(&mut bytes)?;
+    file.take(limit).read_to_end(&mut bytes)?;
     Ok(bytes)
 }
