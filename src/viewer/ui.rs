@@ -221,7 +221,6 @@ fn create(
     row.set_margin_end(16);
     row.set_valign(gtk::Align::Center);
     let identity = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    identity.set_hexpand(true);
     identity.set_size_request(100, -1);
     let view = footer_view::for_session(
         &info,
@@ -236,10 +235,14 @@ fn create(
     heading.append(&label(&view.branch, "dim"));
     identity.append(&heading);
     identity.append(&label(&view.goal, "dim"));
-    row.append(&identity);
     let (status, state_label, detail) = column("", "", 100);
-    status.set_hexpand(true);
-    row.append(&status);
+    // Equal halves keep the state column's left edge still while its text changes length.
+    let flexible = gtk::Box::new(gtk::Orientation::Horizontal, 24);
+    flexible.set_homogeneous(true);
+    flexible.set_hexpand(true);
+    flexible.append(&identity);
+    flexible.append(&status);
+    row.append(&flexible);
     let checked = gtk::Box::new(gtk::Orientation::Vertical, 4);
     checked.set_size_request(190, -1);
     row.append(&checked);
