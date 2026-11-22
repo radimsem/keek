@@ -1,0 +1,22 @@
+19:25:47.185 host before: active=0x559a32d23080 ws=2 windows=0x559a32b8f690,0x559a32d23080,0x559a32da72e0,0x559a32ddd1a0 (active workspace 2, monitor 3440x1440)
+19:25:47.189 hyprland: Hyprland 0.56.2 built from branch v0.56.2 at commit efb50993780079460b0cbed1363e2166a2de1d9f clean ([gha] Nix: update inputs).
+19:25:47.411 nested Hyprland pid=1078015 window=0x559a32ba28b0 signature=efb50993780079460b0cbed1363e2166a2de1d9f_1795371947_102389353
+19:25:59.965 PLACEMENT hidden_ws host_window={"workspace":"keek-spike","at":[20,20],"size":[1280,800],"floating":true,"hidden":false,"mapped":true} no_focus=true nested_output={"output":"1280x800","refresh":60.00000}
+19:26:00.309 PLACEMENT hidden_ws video={"width":1280,"height":800,"avg_frame_rate":"6075000/398347","r_frame_rate":"91/6","nb_frames":"135","duration":"8.852156"} {"frames":134,"span_s":8.786,"mean_fps":15.14,"max_gap_ms":66.8,"max_gap_at_s":0.397} 
+19:26:10.868 PLACEMENT special_ws host_window={"workspace":"special:keek-spike","at":[20,20],"size":[1280,800],"floating":true,"hidden":false,"mapped":true} no_focus=true nested_output={"output":"1280x800","refresh":60.00000}
+19:26:11.208 PLACEMENT special_ws video={"width":1280,"height":800,"avg_frame_rate":"12150000/796553","r_frame_rate":"91/6","nb_frames":"135","duration":"8.850589"} {"frames":134,"span_s":8.785,"mean_fps":15.14,"max_gap_ms":67.6,"max_gap_at_s":5.417} 
+19:26:22.979 PLACEMENT offscreen_right host_window={"workspace":"2","at":[3640,100],"size":[1280,800],"floating":true,"hidden":false,"mapped":true} no_focus=true nested_output={"output":"1280x800","refresh":60.00000}
+/home/radimsem/personal/projects/keek/.claude/worktrees/agent-acdda0a25a5884f1b/target/spike-rail/matrix-offscreen_right.mp4: No such file or directory
+/home/radimsem/personal/projects/keek/.claude/worktrees/agent-acdda0a25a5884f1b/target/spike-rail/matrix-offscreen_right.mp4: No such file or directory
+19:26:23.045 PLACEMENT offscreen_right video={"width":null,"height":null,"avg_frame_rate":null,"r_frame_rate":null,"nb_frames":null,"duration":null} {"frames":0} 
+19:26:37.098 PLACEMENT offscreen_left host_window={"workspace":"2","at":[-1500,100],"size":[1280,800],"floating":true,"hidden":false,"mapped":true} no_focus=true nested_output={"output":"1280x800","refresh":60.00000}
+19:26:37.188 PLACEMENT offscreen_left video={"width":1280,"height":800,"avg_frame_rate":"20000/14193","r_frame_rate":"10000/14193","nb_frames":"2","duration":"1.419300"} {"frames":1} 
+19:26:56.105 PLACEMENT offscreen_below host_window={"workspace":"2","at":[100,1640],"size":[1280,800],"floating":true,"hidden":false,"mapped":true} no_focus=true nested_output={"output":"1280x800","refresh":60.00000}
+/home/radimsem/personal/projects/keek/.claude/worktrees/agent-acdda0a25a5884f1b/target/spike-rail/matrix-offscreen_below.mp4: No such file or directory
+/home/radimsem/personal/projects/keek/.claude/worktrees/agent-acdda0a25a5884f1b/target/spike-rail/matrix-offscreen_below.mp4: No such file or directory
+19:26:56.515 PLACEMENT offscreen_below video={"width":null,"height":null,"avg_frame_rate":null,"r_frame_rate":null,"nb_frames":null,"duration":null} {"frames":0} 
+19:27:07.075 PLACEMENT alpha0 host_window={"workspace":"2","at":[2000,40],"size":[1280,800],"floating":true,"hidden":false,"mapped":true} no_focus=true nested_output={"output":"1280x800","refresh":60.00000}
+19:27:08.729 PLACEMENT alpha0 video={"width":1280,"height":800,"avg_frame_rate":"68535000/403489","r_frame_rate":"90000/1","nb_frames":"1523","duration":"8.966422"} {"frames":1522,"span_s":8.961,"mean_fps":169.74,"max_gap_ms":518.8,"max_gap_at_s":4.866} 
+19:27:19.281 PLACEMENT shown host_window={"workspace":"2","at":[2000,40],"size":[1280,800],"floating":true,"hidden":false,"mapped":true} no_focus=true nested_output={"output":"1280x800","refresh":60.00000}
+19:27:21.069 PLACEMENT shown video={"width":1280,"height":800,"avg_frame_rate":"202000/1121","r_frame_rate":"90000/1","nb_frames":"1616","duration":"8.968000"} {"frames":1615,"span_s":8.962,"mean_fps":180.08,"max_gap_ms":7.4,"max_gap_at_s":7.957} 
+19:27:21.186 host after: active=0x559a32d23080 ws=2 windows=0x559a32b8f690,0x559a32d23080,0x559a32da72e0,0x559a32ddd1a0

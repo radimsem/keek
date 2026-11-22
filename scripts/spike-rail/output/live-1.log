@@ -1,0 +1,23 @@
+   Compiling keek v0.1.1 (/home/radimsem/personal/projects/keek/.claude/worktrees/agent-acdda0a25a5884f1b)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.79s
+     Running tests/live_rail_spike.rs (target/debug/deps/live_rail_spike-ae5dbfa274a6116d)
+
+running 1 test
+2026-11-22T18:44:14.449353Z  INFO serve_inner: rmcp::service: Service initialized as server peer_info=Some(InitializeRequestParams { meta: None, protocol_version: ProtocolVersion("2025-11-25"), capabilities: ClientCapabilities { experimental: None, extensions: None, roots: None, sampling: None, elicitation: None }, client_info: Implementation { name: "rmcp", title: None, version: "3.8.0", description: None, icons: None, website_url: None } })
+2026-11-22T18:44:14.449593Z  INFO serve_inner: rmcp::service: received notification notification=InitializedNotification(NotificationNoParam { method: InitializedNotificationMethod, extensions: Extensions })
+2026-11-22T18:44:14.449670Z  INFO serve_inner: rmcp::handler::server: client initialized
+2026-11-22T18:44:14.901562Z  INFO serve_inner: rmcp::service: input stream terminated
+2026-11-22T18:44:14.901620Z  INFO serve_inner: rmcp::service: serve finished quit_reason=Closed
+daemon 1161932: stopped by SIGTERM
+host state before={"address":"0x559a32d23080","workspace_id":2,"workspace_name":"2"}, after={"address":"0x559a32d23080","workspace_id":2,"workspace_name":"2"}
+Error: open_session refused: {"content":[{"text":"Agent Session desktop did not start. Cua Driver could not complete its MCP handshake: connection closed: initialize response. Open again. Its last log lines:\nsandbox.err:\nbwrap: setting up uid map: Operation not permitted","type":"text"}],"isError":true}
+test live_a_session_window_out_of_sight_keeps_recording_and_gives_stills ... FAILED
+
+failures:
+
+failures:
+    live_a_session_window_out_of_sight_keeps_recording_and_gives_stills
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+error: test failed, to rerun pass `--test live_rail_spike`

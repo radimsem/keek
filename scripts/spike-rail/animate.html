@@ -1,0 +1,16 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>keek spike animation</title>
+<body style="margin:0;background:#fff">
+<canvas id="c" width="1280" height="800"></canvas>
+<script>
+// Draws a new picture on every animation frame, so a stalled compositor shows as a frozen frame.
+const c = document.getElementById('c'), x = c.getContext('2d');
+function draw(t) {
+  x.fillStyle = '#fff'; x.fillRect(0, 0, 1280, 800);
+  x.fillStyle = '#c00'; x.fillRect((t / 4) % 1100, 100, 160, 160);
+  x.fillStyle = '#000'; x.font = '64px monospace'; x.fillText(t.toFixed(0), 40, 500);
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+</script>

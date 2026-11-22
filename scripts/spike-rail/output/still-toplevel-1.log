@@ -1,0 +1,14 @@
+19:41:35.717 host before: active=0x559a32d23080 ws=2 windows=0x559a32b8f690,0x559a32d23080,0x559a32da72e0,0x559a32ddd1a0; still path toplevel every 3 s
+19:41:35.722 hyprland: Hyprland 0.56.2 built from branch v0.56.2 at commit efb50993780079460b0cbed1363e2166a2de1d9f clean ([gha] Nix: update inputs).; grim: Usage: grim [options...] [output-file]
+19:41:35.724 loadavg before: 0.47 3.12 3.29 on 12 cores
+19:41:35.946 nested Hyprland pid=1153694 window=0x559a32ba28b0 signature=efb50993780079460b0cbed1363e2166a2de1d9f_1795372895_949452815
+19:41:39.954 window: {"ws":"keek-spike","size":[1280,800],"stableId":"1800004f"}
+19:41:47.956 stills begin
+19:41:48.079 still 1 exit=0 real/user/sys s=[0.052 0.039 0.006] 640x400 YAVG=114.511 bytes=25157
+19:41:51.219 still 2 exit=0 real/user/sys s=[0.050 0.038 0.006] 640x400 YAVG=114.473 bytes=25252
+19:41:54.350 still 3 exit=0 real/user/sys s=[0.048 0.043 0.002] 640x400 YAVG=114.369 bytes=25440
+19:41:57.480 still 4 exit=0 real/user/sys s=[0.047 0.043 0.003] 640x400 YAVG=114.397 bytes=24470
+19:42:01.258 video={"width":1280,"height":800,"avg_frame_rate":"29610000/1930877","r_frame_rate":"91/6","nb_frames":"329","duration":"21.454189"} {"frames":328,"span_s":21.388,"mean_fps":15.29,"max_gap_ms":66.5,"max_gap_at_s":1.650} 
+frames per second of video: 16 15 15 15 15 15 16 15 16 15 15 15 15 16 15 16 15 15 16 15 16 6
+gaps over 120 ms: none
+19:42:02.088 host after: active=0x559a32d23080 ws=2 windows=0x559a32b8f690,0x559a32d23080,0x559a32da72e0,0x559a32ddd1a0

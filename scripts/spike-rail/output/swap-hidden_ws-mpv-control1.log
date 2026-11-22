@@ -1,0 +1,38 @@
+19:35:27.003 host before: active=0x559a32d23080 ws=2 windows=0x559a32b8f690,0x559a32d23080,0x559a32da72e0,0x559a32ddd1a0; hidden placement hidden_ws; 10 round trips
+19:35:27.006 hyprland: Hyprland 0.56.2 built from branch v0.56.2 at commit efb50993780079460b0cbed1363e2166a2de1d9f clean ([gha] Nix: update inputs).
+19:35:27.008 loadavg before: 7.54 4.58 3.21 on 12 cores
+19:35:27.229 nested Hyprland pid=1131594 window=0x559a32ba28b0 signature=efb50993780079460b0cbed1363e2166a2de1d9f_1795372527_796553631
+19:35:36.543 t=1.804s swap 1 show took 0 ms
+19:35:36.555 after show 1 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:35:37.773 t=3.034s swap 1 hide took 4 ms
+19:35:37.784 after hide 1 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:35:39.599 t=4.860s swap 2 show took 0 ms
+19:35:39.645 after show 2 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:35:40.886 t=6.147s swap 2 hide took 4 ms
+19:35:40.898 after hide 2 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:35:42.716 t=7.977s swap 3 show took 0 ms
+19:35:42.727 after show 3 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:35:43.947 t=9.208s swap 3 hide took 5 ms
+19:35:43.957 after hide 3 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:35:45.772 t=11.033s swap 4 show took 0 ms
+19:35:45.782 after show 4 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:35:47.001 t=12.262s swap 4 hide took 4 ms
+19:35:47.012 after hide 4 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:35:48.827 t=14.088s swap 5 show took 0 ms
+19:35:48.838 after show 5 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:35:50.055 t=15.316s swap 5 hide took 4 ms
+19:35:50.066 after hide 5 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:35:51.882 t=17.143s swap 6 show took 0 ms
+19:35:51.893 after show 6 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:35:53.112 t=18.373s swap 6 hide took 4 ms
+19:35:53.123 after hide 6 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:35:54.938 t=20.199s swap 7 show took 0 ms
+19:35:54.949 after show 7 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:35:56.167 t=21.428s swap 7 hide took 3 ms
+19:35:56.178 after hide 7 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:35:57.996 t=23.256s swap 8 show took 0 ms
+19:35:58.009 after show 8 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:35:59.229 t=24.490s swap 8 hide took 4 ms
+19:35:59.242 after hide 8 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:35:59.254 HOST CHANGED: was [active=0x559a32d23080 ws=2 windows=0x559a32b8f690,0x559a32d23080,0x559a32da72e0,0x559a32ddd1a0] now [active=0x559a32f15360 ws=2 windows=0x559a32b8f690,0x559a32d23080,0x559a32da72e0,0x559a32ddd1a0,0x559a32f15360]; stopping
+19:36:21.005 host after: active=0x559a33026040 ws=2 windows=0x559a32b8f690,0x559a32d23080,0x559a32da72e0,0x559a32ddd1a0,0x559a33026040

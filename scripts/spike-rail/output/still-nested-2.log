@@ -1,0 +1,20 @@
+19:46:43.632 host before: active=0x559a32d23080 ws=2 windows=0x559a32b8f690,0x559a32d23080,0x559a32da72e0,0x559a32ddd1a0; still path nested every 3 s
+19:46:43.637 hyprland: Hyprland 0.56.2 built from branch v0.56.2 at commit efb50993780079460b0cbed1363e2166a2de1d9f clean ([gha] Nix: update inputs).; grim: Usage: grim [options...] [output-file]
+19:46:43.639 loadavg before: 0.67 1.86 2.71 on 12 cores
+19:46:43.860 nested Hyprland pid=1166410 window=0x559a32ba28b0 signature=efb50993780079460b0cbed1363e2166a2de1d9f_1795373203_1466135804
+19:46:47.867 window: {"ws":"keek-spike","size":[1280,800],"stableId":"18000051"}
+19:47:02.869 stills begin
+19:47:03.110 still 1 exit=0 real/user/sys s=[0.101 0.037 0.002] 640x400 YAVG=127.517 bytes=26965
+19:47:06.280 still 2 exit=0 real/user/sys s=[0.086 0.036 0.002] 640x400 YAVG=127.482 bytes=25974
+19:47:09.446 still 3 exit=0 real/user/sys s=[0.083 0.037 0.002] 640x400 YAVG=127.492 bytes=25892
+19:47:12.613 still 4 exit=0 real/user/sys s=[0.086 0.036 0.002] 640x400 YAVG=127.464 bytes=27228
+19:47:15.782 still 5 exit=0 real/user/sys s=[0.086 0.037 0.002] 640x400 YAVG=126.942 bytes=27216
+19:47:18.952 still 6 exit=0 real/user/sys s=[0.087 0.037 0.002] 640x400 YAVG=127.531 bytes=26423
+19:47:22.121 still 7 exit=0 real/user/sys s=[0.085 0.038 0.000] 640x400 YAVG=127.478 bytes=25694
+19:47:25.291 still 8 exit=0 real/user/sys s=[0.088 0.040 0.001] 640x400 YAVG=127.506 bytes=27448
+19:47:28.460 still 9 exit=0 real/user/sys s=[0.084 0.035 0.003] 640x400 YAVG=127.542 bytes=26472
+19:47:31.627 still 10 exit=0 real/user/sys s=[0.084 0.037 0.002] 640x400 YAVG=126.425 bytes=26929
+19:47:36.173 video={"width":1280,"height":800,"avg_frame_rate":"4338000/286039","r_frame_rate":"181/12","nb_frames":"723","duration":"47.673167"} {"frames":722,"span_s":47.607,"mean_fps":15.14,"max_gap_ms":69.8,"max_gap_at_s":2.773} 
+frames per second of video: 16 15 15 15 15 15 15 16 15 15 15 15 15 15 16 15 15 15 15 15 15 16 15 15 15 15 15 15 16 15 15 15 15 15 16 15 15 15 15 15 15 16 15 15 15 15 15 10
+gaps over 120 ms: none
+19:47:37.720 host after: active=0x559a32d23080 ws=2 windows=0x559a32b8f690,0x559a32d23080,0x559a32da72e0,0x559a32ddd1a0

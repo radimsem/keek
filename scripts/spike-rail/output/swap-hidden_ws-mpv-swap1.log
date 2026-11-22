@@ -1,0 +1,52 @@
+19:36:21.025 host before: active=0x559a33026040 ws=2 windows=0x559a32b8f690,0x559a32d23080,0x559a32da72e0,0x559a32ddd1a0,0x559a33026040; hidden placement hidden_ws; 10 round trips
+19:36:21.029 hyprland: Hyprland 0.56.2 built from branch v0.56.2 at commit efb50993780079460b0cbed1363e2166a2de1d9f clean ([gha] Nix: update inputs).
+19:36:21.031 loadavg before: 18.77 7.73 4.34 on 12 cores
+19:36:21.255 nested Hyprland pid=1138183 window=0x559a32ba28b0 signature=efb50993780079460b0cbed1363e2166a2de1d9f_1795372581_1507247023
+19:36:30.573 t=1.808s swap 1 show took 4 ms
+19:36:30.593 after show 1 no_focus=true nested_output=1280x800 host_window={"ws":"2","size":[1280,800],"floating":true}
+19:36:31.822 t=3.057s swap 1 hide took 5 ms
+19:36:31.837 after hide 1 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:36:33.659 t=4.894s swap 2 show took 4 ms
+19:36:33.673 after show 2 no_focus=true nested_output=1280x800 host_window={"ws":"2","size":[1280,800],"floating":true}
+19:36:34.898 t=6.133s swap 2 hide took 5 ms
+19:36:34.913 after hide 2 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:36:36.737 t=7.972s swap 3 show took 4 ms
+19:36:36.753 after show 3 no_focus=true nested_output=1280x800 host_window={"ws":"2","size":[1280,800],"floating":true}
+19:36:37.979 t=9.212s swap 3 hide took 5 ms
+19:36:37.994 after hide 3 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:36:39.818 t=11.052s swap 4 show took 4 ms
+19:36:39.834 after show 4 no_focus=true nested_output=1280x800 host_window={"ws":"2","size":[1280,800],"floating":true}
+19:36:41.058 t=12.293s swap 4 hide took 5 ms
+19:36:41.072 after hide 4 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:36:42.895 t=14.130s swap 5 show took 4 ms
+19:36:42.911 after show 5 no_focus=true nested_output=1280x800 host_window={"ws":"2","size":[1280,800],"floating":true}
+19:36:44.136 t=15.371s swap 5 hide took 5 ms
+19:36:44.151 after hide 5 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:36:45.978 t=17.213s swap 6 show took 4 ms
+19:36:45.992 after show 6 no_focus=true nested_output=1280x800 host_window={"ws":"2","size":[1280,800],"floating":true}
+19:36:47.216 t=18.451s swap 6 hide took 4 ms
+19:36:47.231 after hide 6 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:36:49.053 t=20.287s swap 7 show took 4 ms
+19:36:49.067 after show 7 no_focus=true nested_output=1280x800 host_window={"ws":"2","size":[1280,800],"floating":true}
+19:36:50.291 t=21.526s swap 7 hide took 5 ms
+19:36:50.305 after hide 7 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:36:52.142 t=23.376s swap 8 show took 4 ms
+19:36:52.157 after show 8 no_focus=true nested_output=1280x800 host_window={"ws":"2","size":[1280,800],"floating":true}
+19:36:53.380 t=24.615s swap 8 hide took 5 ms
+19:36:53.394 after hide 8 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:36:55.218 t=26.452s swap 9 show took 4 ms
+19:36:55.234 after show 9 no_focus=true nested_output=1280x800 host_window={"ws":"2","size":[1280,800],"floating":true}
+19:36:56.458 t=27.693s swap 9 hide took 5 ms
+19:36:56.473 after hide 9 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:36:58.297 t=29.531s swap 10 show took 4 ms
+19:36:58.312 after show 10 no_focus=true nested_output=1280x800 host_window={"ws":"2","size":[1280,800],"floating":true}
+19:36:59.536 t=30.770s swap 10 hide took 5 ms
+19:36:59.552 after hide 10 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:37:01.405 loadavg after: 10.88 7.08 4.26
+19:37:04.720 video={"width":1280,"height":800,"avg_frame_rate":"253440000/3013723","r_frame_rate":"91/6","nb_frames":"2816","duration":"33.485811"} {"frames":2815,"span_s":33.420,"mean_fps":84.20,"max_gap_ms":66.5,"max_gap_at_s":13.806} 
+frames per second of video: 16 15 61 180 36 47 180 50 34 180 61 22 180 73 16 173 89 15 159 101 15 147 115 15 132 127 15 121 142 15 106 155 15 7
+gaps over 120 ms: none
+shown spans (start+length, s): 2.71+1.41 5.81+1.39 8.89+1.38 11.95+1.40 15.04+1.40 18.10+1.41 21.20+1.39 24.29+1.40 27.34+1.41 30.45+1.39
+19:37:11.193 freezedetect (n=-60dB, d=0.2 s):
+no frozen span of 0.2 s or more
+19:37:12.385 host after: active=0x559a33026040 ws=2 windows=0x559a32b8f690,0x559a32d23080,0x559a32da72e0,0x559a32ddd1a0,0x559a33026040

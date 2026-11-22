@@ -1,0 +1,73 @@
+19:34:15.921 host before: active=0x559a32d23080 ws=2 windows=0x559a32b8f690,0x559a32d23080,0x559a32da72e0,0x559a32ddd1a0; hidden placement hidden_ws; 10 round trips
+19:34:15.924 hyprland: Hyprland 0.56.2 built from branch v0.56.2 at commit efb50993780079460b0cbed1363e2166a2de1d9f clean ([gha] Nix: update inputs).
+19:34:16.146 nested Hyprland pid=1118845 window=0x559a32ba28b0 signature=efb50993780079460b0cbed1363e2166a2de1d9f_1795372455_1350635201
+19:34:25.464 t=1.809s swap 1 show took 4 ms
+19:34:25.482 after show 1 no_focus=true nested_output=1280x800 host_window={"ws":"2","size":[1280,800],"floating":true}
+19:34:26.741 t=3.084s swap 1 hide took 6 ms
+19:34:26.757 after hide 1 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:34:28.581 t=4.925s swap 2 show took 4 ms
+19:34:28.596 after show 2 no_focus=true nested_output=1280x800 host_window={"ws":"2","size":[1280,800],"floating":true}
+19:34:29.835 t=6.174s swap 2 hide took 12 ms
+19:34:29.889 after hide 2 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:34:31.796 t=8.132s swap 3 show took 21 ms
+19:34:31.852 after show 3 no_focus=true nested_output=1280x800 host_window={"ws":"2","size":[1280,800],"floating":true}
+19:34:33.148 t=9.490s swap 3 hide took 13 ms
+19:34:33.219 after hide 3 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:34:35.058 t=11.402s swap 4 show took 4 ms
+19:34:35.070 after show 4 no_focus=true nested_output=1280x800 host_window={"ws":"2","size":[1280,800],"floating":true}
+19:34:36.290 t=12.635s swap 4 hide took 4 ms
+19:34:36.301 after hide 4 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:34:38.137 t=14.478s swap 5 show took 13 ms
+19:34:38.165 after show 5 no_focus=true nested_output=1280x800 host_window={"ws":"2","size":[1280,800],"floating":true}
+19:34:39.399 t=15.743s swap 5 hide took 4 ms
+19:34:39.411 after hide 5 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:34:41.784 t=18.128s swap 6 show took 5 ms
+19:34:41.796 after show 6 no_focus=true nested_output=1280x800 host_window={"ws":"2","size":[1280,800],"floating":true}
+19:34:43.269 t=19.612s swap 6 hide took 7 ms
+19:34:43.290 after hide 6 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:34:45.118 t=21.461s swap 7 show took 4 ms
+19:34:45.134 after show 7 no_focus=true nested_output=1280x800 host_window={"ws":"2","size":[1280,800],"floating":true}
+19:34:46.360 t=22.703s swap 7 hide took 5 ms
+19:34:46.374 after hide 7 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:34:48.212 t=24.552s swap 8 show took 14 ms
+19:34:48.229 after show 8 no_focus=true nested_output=1280x800 host_window={"ws":"2","size":[1280,800],"floating":true}
+19:34:49.458 t=25.801s swap 8 hide took 9 ms
+19:34:49.483 after hide 8 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:34:51.314 t=27.658s swap 9 show took 4 ms
+19:34:51.325 after show 9 no_focus=true nested_output=1280x800 host_window={"ws":"2","size":[1280,800],"floating":true}
+19:34:52.544 t=28.888s swap 9 hide took 4 ms
+19:34:52.555 after hide 9 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:34:54.376 t=30.719s swap 10 show took 5 ms
+19:34:54.392 after show 10 no_focus=true nested_output=1280x800 host_window={"ws":"2","size":[1280,800],"floating":true}
+19:34:55.630 t=31.974s swap 10 hide took 5 ms
+19:34:55.646 after hide 10 no_focus=true nested_output=1280x800 host_window={"ws":"keek-spike","size":[1280,800],"floating":true}
+19:34:59.598 video={"width":1280,"height":800,"avg_frame_rate":"3600000/78109","r_frame_rate":"91/6","nb_frames":"1600","duration":"34.715111"} {"frames":1599,"span_s":34.649,"mean_fps":46.12,"max_gap_ms":2712.2,"max_gap_at_s":12.384} 
+frames per second of video: 16 15 51 179 43 40 149 45 15 82 39 15 16 0 0 42 0 13 16 4 2 15 117 143 15 26 51 0 18 128 15 72 183 24 10
+gaps over 120 ms: 9.891s(+249ms) 10.493s(+573ms) 12.384s(+2712ms) 15.601s(+1541ms) 19.068s(+1839ms) 25.568s(+921ms) 26.814s(+2091ms) 29.667s(+260ms)
+shown spans (start+length, s): 2.74+1.43 5.85+1.40 9.04+0.63 9.75+0.14 10.14+0.35 12.32+0.06 15.40+0.20 19.05+0.01 22.36+1.41 25.47+0.10 26.49+0.33 28.91+0.76 29.93+0.03 31.65+1.42
+19:35:03.720 freezedetect (n=-60dB, d=0.2 s):
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_start: 9.885033
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_duration: 0.254922
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_end: 10.139956
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_start: 10.4927
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_duration: 0.572989
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_end: 11.065689
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_start: 12.384111
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_duration: 2.712244
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_end: 15.096356
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_start: 15.600811
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_duration: 1.541422
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_end: 17.142233
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_start: 19.067567
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_duration: 1.838989
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_end: 20.906556
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_start: 25.567589
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_duration: 0.920856
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_end: 26.488444
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_start: 26.814078
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_duration: 2.091078
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_end: 28.905156
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_start: 29.667244
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_duration: 0.259767
+[Parsed_freezedetect_0 @ 0x7f51d0003440] lavfi.freezedetect.freeze_end: 29.927011
+19:35:04.537 host after: active=0x559a32d23080 ws=2 windows=0x559a32b8f690,0x559a32d23080,0x559a32da72e0,0x559a32ddd1a0
