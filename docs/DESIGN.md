@@ -282,6 +282,52 @@ Corners follow Hyprland's 8px rounding everywhere keek draws a container: Verdic
 - **Badge:** a faint 28px circle (7% fill) under the arrow.
 - **Human pointer:** stays the host's white arrow, so the two never read as one.
 
+## Planned: session rail, Step away and live Checks
+
+Designed and approved, not built yet. The screens are in the proposals canvas (https://claude.ai/artifact/JzPWohPGuYshxKJPGUfit9), drawn at 1:1 on a 3440×1440 output with the parts above, and the behaviour is in [`specs/2026-11-22-viewer-enhancements.md`](specs/2026-11-22-viewer-enhancements.md). Values here are measured from that canvas. A ticket that builds one of these moves its rows into the sections above and updates the reference layout.
+
+### Layout with a rail
+- **Focus slot:** x 24, top 50, 2822×1298, with its 76px Session Footer below at the same width. One open session has no rail, and the focus slot spans the workspace.
+- **Rail:** a 560px column at x 2856, 10px right of the focus slot, from top 50. Rail cards are 560×384, 11px apart, stacked from the top.
+- **Session Window:** fills the focus slot when the Project Profile sets no `window`. A smaller window stays centred on black, and no panel over it is wider than the window.
+
+### Session Footer changes
+- **State column:** a fixed 420px. Its left edge never moves; the label and the detail line truncate on the right.
+- **Actions:** 400px, right-aligned.
+- **New state labels:** "Takeover paused" (Skip Yellow) over the time away, and "Reminded the Verifier to mark Checks" (Parchment Dim) over "8 actions since the last mark".
+- **Hand-back detail lines:** "Handed back after 1:12. Help Request answered." and "The screen looks unchanged. The Verifier was told."
+
+### Check in progress
+- **Mark:** the first unmarked Check's tick gets a 15px Harbor Blue ring (1.2px stroke, 4px radius) around the 10px square, and a 3.2px Harbor Blue dot inside it.
+- **Where:** the Session Footer and rail cards, while the Verifier works. Not during a Help Request, a Takeover or after the session ends.
+- **In a Check list:** the row is bold and carries a "checking" tag: 11px Harbor Blue Text in a pill with a 1px Harbor Blue outline at 65%.
+
+### Rail card
+- **Character:** one session at a glance; the whole card is a button that shows the session.
+- **Frame:** 2px Border Inactive, 8px radius, Bar Navy. On hover Border Active and Control Navy. During a Help Request Needs-you Orange.
+- **Still:** 556×256, the Session Window scaled to the card's inner width, on black. An age tag ("Still · 3 s ago") sits 8px from its bottom-left corner: 11px Parchment on Bar Navy at 88%, 4px radius.
+- **Session edge:** 2px in the session colour, under the still.
+- **Text block:** 14px by 16px padding, three rows spread evenly at 12px. Row one: arrow glyph, project in 13px bold, branch in Parchment Dim with an ellipsis, elapsed time bold and right-aligned. Row two: the last Action in Parchment Dim, or "Needs you" in bold orange followed by the reason in Parchment. Row three: "2 of 4" in bold, the ticks, and the `Super` `2` keys right-aligned in Parchment Dim.
+- **Locked:** at 55% opacity while a Takeover is running or paused, with one line under the rail: "Other sessions unlock when you press Done."
+
+### Rail card hover panel
+- **Placement:** 440px wide, 12px left of the card, top edges aligned.
+- **Style:** Bar Navy, 2px Border Active, 8px radius, 16px by 18px padding, 12px between blocks.
+- **Content:** the goal, then one row per Check (12px square, 10px gap, 9px between rows; passed rows have a filled green square with a tick, unmarked rows are Parchment Dim), then "Click to show this session." in Parchment Dim.
+
+### Step away
+- **Buttons during a Takeover:** `Super` `Tab` and **Step away** in the secondary style, then `Super` `Esc` and **Done**.
+- **Buttons while paused:** **Resume** in the outlined Harbor Blue style, then **Done**.
+- **Paused card:** the whole card takes a Skip Yellow border. The Session Window is dimmed with `darker_background` at 55%, and one panel is centred over it: Bar Navy, 2px Skip Yellow border, 20px by 28px padding, "Takeover paused" in 15px bold Skip Yellow over "Click the session to carry on. The Verifier waits until you press Done." at 13px.
+- **Notification:** "Takeover paused · billing" over one line of explanation, sent the way the Help Request toast is.
+
+### Session colours
+- **Session Pink** `#f58fc2` and **Session Green** `#8fd6a0` join Session Cyan and Session Violet for a third and fourth session. Fixed, not themed.
+
+### Rules this changes
+- Skip Yellow now also means a paused Takeover.
+- The paused panel and its dim are the one overlay on a running session's desktop. The developer put it there by stepping away, and it goes on Resume or Done.
+
 ## Do's and Don'ts
 
 ### Do:
