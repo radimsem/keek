@@ -109,6 +109,7 @@ async fn watch_events_reach_only_the_matching_request() {
         control: crate::ipc::ControlState::Verifier,
         state: SessionState::Open,
         checks: vec![],
+        reminded: false,
         last_action: Some(LastAction {
             tool: "click".to_owned(),
             time_ms: crate::timeline::Millis(24),

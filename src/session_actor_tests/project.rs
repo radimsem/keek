@@ -36,6 +36,7 @@ async fn project_prepare_can_outlast_the_desktop_handshake_limit() {
         control: crate::ipc::ControlState::Verifier,
         state: SessionState::Opening,
         checks: vec![],
+        reminded: false,
         last_action: None,
     });
     let (control, control_commands) = control::Control::new();
@@ -76,6 +77,7 @@ async fn project_prepare_can_outlast_the_desktop_handshake_limit() {
         },
         started: chrono::Local::now(),
         checklist: Checklist::new(vec![]),
+        reminder: Default::default(),
         runner: Arc::new(takeover::Runner {
             inner: EvidenceRunner(root.path().join("videos"), Arc::new(AtomicBool::new(false))),
             calls: Arc::new(Mutex::new(vec![])),

@@ -65,6 +65,7 @@ pub fn plan_edit(
             }),
             TimelineEvent::Call { action: false, .. }
             | TimelineEvent::CheckMark { .. }
+            | TimelineEvent::Reminder { .. }
             | TimelineEvent::Takeover { .. }
             | TimelineEvent::HelpRequest { .. } => None,
         })
@@ -145,6 +146,7 @@ pub fn plan_edit(
         }
         TimelineEvent::Call { .. }
         | TimelineEvent::CheckMark { .. }
+        | TimelineEvent::Reminder { .. }
         | TimelineEvent::HelpRequest { .. } => None,
     }));
     segments.sort_by_key(|segment| segment.start);

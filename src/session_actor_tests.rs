@@ -181,6 +181,7 @@ async fn start_configured(
         control: crate::ipc::ControlState::Verifier,
         state: SessionState::Opening,
         checks: vec![],
+        reminded: false,
         last_action: None,
     });
     let render_succeeds = Arc::new(AtomicBool::new(false));
@@ -223,6 +224,7 @@ async fn start_configured(
         },
         started: chrono::Local::now(),
         checklist: crate::checklist::Checklist::new(vec!["fixture works".into()]),
+        reminder: Default::default(),
         runner: Arc::new(takeover::Runner {
             inner: EvidenceRunner(root.join("videos"), render_succeeds.clone()),
             calls: calls.clone(),
@@ -328,6 +330,8 @@ async fn finish(actor: RunningActor) -> Response {
 
 #[path = "session_actor_tests/refusal_hint.rs"]
 mod refusal_hint;
+#[path = "session_actor_tests/reminder.rs"]
+mod reminder;
 #[path = "session_actor_tests/timeline.rs"]
 mod timeline;
 

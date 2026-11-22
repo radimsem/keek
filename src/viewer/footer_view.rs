@@ -1,6 +1,7 @@
 use crate::{
     checklist::Mark,
     ipc::{SessionSnapshot, SessionState},
+    reminder::THRESHOLD,
     timeline::CheckOutcome,
 };
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12,6 +13,7 @@ pub enum Hover {
 pub enum StateLabel {
     Opening,
     LastAction,
+    Reminded,
     ViewOnly,
     Closing,
     NeedsYou,
@@ -33,7 +35,9 @@ impl StateLabel {
             Self::NeedsYou => Some("needs-you"),
             Self::Takeover => Some("takeover"),
             Self::HandBack => Some("hand-back"),
-            Self::Opening | Self::LastAction | Self::ViewOnly | Self::Closing => None,
+            Self::Opening | Self::LastAction | Self::Reminded | Self::ViewOnly | Self::Closing => {
+                None
+            }
         }
     }
     pub fn text(self) -> &'static str {
@@ -45,6 +49,7 @@ impl StateLabel {
             Self::Incomplete => "Incomplete",
             Self::Opening => "Opening",
             Self::LastAction => "Last action",
+            Self::Reminded => "Reminded the Verifier to mark Checks",
             Self::ViewOnly => "View only",
             Self::Closing => "Closing",
             Self::NeedsYou => "Needs you",
@@ -59,6 +64,7 @@ pub enum Tick {
     Failed,
     Skipped,
     Unmarked,
+    InProgress,
 }
 impl Tick {
     pub fn css_class(self) -> &'static str {
@@ -67,6 +73,7 @@ impl Tick {
             Self::Failed => "failed",
             Self::Skipped => "skipped",
             Self::Unmarked => "unmarked",
+            Self::InProgress => "in-progress",
         }
     }
 }
@@ -260,6 +267,11 @@ pub fn for_session(
             "Use Take control to interact.".into(),
             "Elapsed",
         ),
+        SessionState::Open if snapshot.reminded => (
+            StateLabel::Reminded,
+            format!("{THRESHOLD} actions since the last mark"),
+            "Elapsed",
+        ),
         SessionState::Open => (
             StateLabel::LastAction,
             snapshot.last_action.as_ref().map_or_else(
@@ -325,10 +337,16 @@ pub fn for_session(
             }
         }
     }
+    let show_in_progress = snapshot.state == SessionState::Open
+        && matches!(
+            snapshot.control,
+            crate::ipc::ControlState::Verifier | crate::ipc::ControlState::HandBack { .. }
+        );
     let mut counts = [0; 4];
     let mut ticks = Vec::new();
     for check in &snapshot.checks {
         let (index, tick) = match &check.mark {
+            Mark::Unmarked if show_in_progress && counts[3] == 0 => (3, Tick::InProgress),
             Mark::Unmarked => (3, Tick::Unmarked),
             Mark::Outcome { outcome, .. } => match outcome {
                 CheckOutcome::Passed => (0, Tick::Passed),

@@ -284,6 +284,7 @@ impl Actor {
     ) {
         let response = match self.checklist.add(self.credentials.mask(&text)) {
             Ok(check) => {
+                self.reminder.reset();
                 self.publish(SessionState::Open, last_action);
                 Response::CheckAdded { check }
             }
@@ -310,6 +311,7 @@ impl Actor {
                 .mark(check, outcome, self.credentials.mask(&comment), time_ms)
             {
                 Ok(()) => {
+                    self.reminder.reset();
                     timeline.push(TimelineEvent::CheckMark {
                         check,
                         outcome,

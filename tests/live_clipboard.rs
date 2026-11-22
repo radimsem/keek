@@ -187,6 +187,7 @@ async fn live_a_takeover_keeps_the_host_clipboard_apart_from_the_nested_one() ->
             control: keek::ipc::ControlState::Verifier,
             state: keek::ipc::SessionState::Open,
             checks: vec![],
+            reminded: false,
             last_action: None,
         });
         let runner = Arc::new(keek::process::HostRunner);

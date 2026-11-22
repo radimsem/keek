@@ -31,6 +31,7 @@ fn snapshots_round_trip_every_control_and_shortcut_state() {
             control,
             state: SessionState::Open,
             checks: vec![],
+            reminded: false,
             last_action: None,
         };
         let value = serde_json::to_value(&snapshot).unwrap();
@@ -139,6 +140,7 @@ fn every_message() -> Result<Vec<Message>> {
                         mark: keek::checklist::Mark::Unmarked,
                     },
                 ],
+                reminded: false,
                 last_action: Some(keek::ipc::LastAction {
                     tool: "click".into(),
                     time_ms: keek::timeline::Millis(12),
@@ -155,6 +157,7 @@ fn every_message() -> Result<Vec<Message>> {
                     elapsed: keek::timeline::Millis(1234),
                 },
                 checks: vec![],
+                reminded: false,
                 last_action: None,
             }),
         },
@@ -180,6 +183,7 @@ fn every_message() -> Result<Vec<Message>> {
                     elapsed: keek::timeline::Millis(1234),
                 })),
                 checks: vec![],
+                reminded: false,
                 last_action: None,
             }),
         },

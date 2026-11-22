@@ -208,6 +208,7 @@ impl Registry {
             control: crate::ipc::ControlState::Verifier,
             state: SessionState::Opening,
             checks: vec![],
+            reminded: false,
             last_action: None,
         });
         // Set when a close is queued, before the actor can report it, and cleared if the actor refuses it.
@@ -269,6 +270,7 @@ impl Registry {
                 revision,
                 started,
                 checklist: crate::checklist::Checklist::new(checks),
+                reminder: Default::default(),
                 runner: Arc::clone(&self.dependencies.runner),
                 closing,
                 name,

@@ -33,6 +33,7 @@ pub(crate) fn ended(end: SessionEnd) -> SessionSnapshot {
                 at: Millis(100),
             },
         }],
+        reminded: false,
         last_action: None,
     }
 }
@@ -44,6 +45,7 @@ fn rendering_shows_the_whole_percentage() {
             frame: None,
             elapsed: Millis(0),
         },
+        reminded: false,
         ..ended(SessionEnd::Verdict(Verdict::Pass))
     };
     let v = for_snapshot(&s).unwrap();

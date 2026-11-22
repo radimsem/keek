@@ -8,6 +8,10 @@ What changed in each keek release, for a person who uses it. The format follows 
 
 - The Session Footer's state text keeps its left edge when it changes, and long text is cut on the right.
 
+### Changed
+
+- The Verifier is reminded every 8 calls to mark the Checks it has already observed, and the Session Footer rings the Check in progress, so the ticks fill in during the session.
+
 ## 0.1.1 - 2026-11-15
 
 ### Fixed

@@ -155,6 +155,7 @@ pub struct Actor {
     pub revision: Revision,
     pub started: chrono::DateTime<chrono::Local>,
     pub checklist: Checklist,
+    pub(crate) reminder: crate::reminder::Reminder,
     pub runner: Arc<dyn crate::process::ProcessRunner>,
     pub closing: Arc<AtomicBool>,
     pub name: SessionName,

@@ -191,6 +191,8 @@ pub struct SessionSnapshot {
     pub state: SessionState,
     pub checks: Vec<CheckStatus>,
     pub last_action: Option<LastAction>,
+    #[serde(default)]
+    pub reminded: bool,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CheckStatus {
