@@ -40,13 +40,19 @@ async fn move_window(address: &str, workspace: &str, x: i64, y: i64) -> Result<(
     .await
 }
 
-/// The developer's focus and workspace must stay put, and nothing may grab focus (an Application Not Responding dialog would).
+/// The developer's workspace must stay put and the Session Window must never take focus.
 async fn guard(before: &Value, address: &str) -> Result<()> {
     let now = host_state().await?;
+    // The developer may switch between their own windows while this runs.
     anyhow::ensure!(
-        &now == before,
-        "host focus or workspace moved: before={before}, now={now}"
+        now["workspace_id"] == before["workspace_id"] && now["address"] != address,
+        "the workspace moved or the Session Window took focus: before={before}, now={now}"
     );
+    if &now != before {
+        let active = run("hyprctl", &["activewindow", "-j"], None).await?;
+        let active: Value = serde_json::from_str(&active)?;
+        println!("focus is on {} ({})", active["class"], now["address"]);
+    }
     let no_focus = run(
         "hyprctl",
         &["getprop", &format!("address:{address}"), "no_focus"],
@@ -304,6 +310,9 @@ async fn live_a_session_window_out_of_sight_keeps_recording_and_gives_stills() -
     let after = host_state().await?;
     println!("host state before={before}, after={after}");
     result?;
-    anyhow::ensure!(before == after, "host focus or workspace changed");
+    anyhow::ensure!(
+        before["workspace_id"] == after["workspace_id"],
+        "host workspace changed"
+    );
     cleanup
 }
