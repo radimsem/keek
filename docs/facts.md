@@ -56,7 +56,7 @@ What the sandbox needs beyond its plan:
 - The plugin's `cua-input-v3-2.sock` lives under `$XDG_RUNTIME_DIR/hypr/<signature>/` and has to fit in `sun_path`. With a 25-character runtime folder it can't open, `hyprctl plugin list` still shows the plugin as loaded, and every `foreground` click fails with `production Hyprland input plugin is unavailable`. An 18-character folder fits, so keek always uses `/run/user/<uid>` inside the sandbox. Checked on 2026-11-01 with the versions above.
 - Hyprland's Xwayland sets its own `DISPLAY`, never the host's. keek turns it off, which is what makes `DISPLAY` absent.
 - `misc.disable_watchdog_warning` keeps Hyprland's warning out of the video.
-- A hidden nested window needs a `render_unfocused` window rule to keep rendering, and then records at the host's `misc:render_unfocused_fps` (15 by default). A visible window wasn't measured.
+- A hidden nested window needs a `render_unfocused` window rule to keep rendering, and then records at the host's `misc:render_unfocused_fps` (15 by default). A visible window recorded at the monitor's refresh rate in the [session rail spike](#session-rail-spike-results).
 - A Session Window's client pid on the host is that of the process that made the connection.
 - Every input tool in 0.38.0 takes `delivery_mode`, with `background` as its default (`click`, `double_click`, `right_click`, `type_text`, `press_key`, `hotkey`, `scroll`, `drag`, `set_value`). `foreground` was run for `click` and `type_text`, and the driver requires `get_window_state` before pixel clicks.
 - Driver variables, from `health_report` with each one removed: `CUA_DRIVER_RS_ENABLE_WAYLAND`, `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR` turn it degraded. Removing `HYPRLAND_INSTANCE_SIGNATURE` or `DBUS_SESSION_BUS_ADDRESS` still reports ok, but `health_report` doesn't test input.
@@ -202,6 +202,69 @@ Checked on 2026-11-09 with Cua Driver 0.38.0, Hyprland 0.56.2 and Chromium 155.0
 - `${NAME}` substitution ran in four sessions, and a grep of all Evidence and logs for the value found nothing.
 - `type_text` into a password field returns `effect: unverifiable`, and the field can't be read back.
 - `get_window_state` on the portal's file dialog failed once with `surface_identity_unproven` and worked in another session. Seen once, not reproduced.
+
+## Session rail spike results
+
+Run on 2026-11-22 for #88 with Hyprland 0.56.2 (`efb5099`), aquamarine 0.15.1, wf-recorder 0.6.0, mpv and Chromium, on one monitor of 3440x1440 at 180 Hz and scale 1. The scripts and raw output are kept at commit [`be4fbc1`](https://github.com/radimsem/keek/tree/be4fbc1804da3640056f8306e6d814628f462981/scripts/spike-rail) and are not in the tree. The videos were not kept.
+
+How it was run: a nested Hyprland with a bare config under the developer's uid, not a keek Agent Session (no sandbox, no Cua Driver). The host rule is keek's (`float`, 1280x800, `no_initial_focus`, `no_focus`, `render_unfocused`, a workspace with `silent`). The client is mpv's `testsrc2` or a Chromium canvas that draws on every animation frame. The recorder is `wf-recorder --no-damage -c libx264 -x yuv420p`, the flags Cua Driver 0.38.0 passes (read from the binary's strings). After every move the script checked that the developer's focused window and active workspace were as before, that `no_focus` was still true and that the nested output was still 1280x800.
+
+### Placements tried
+
+Each was recorded for 8 s with mpv ([`matrix-1.log`](https://github.com/radimsem/keek/blob/be4fbc1804da3640056f8306e6d814628f462981/scripts/spike-rail/output/matrix-1.log)):
+
+| Placement of the host window | Raw Recording | Result |
+| --- | --- | --- |
+| A named workspace nobody views (`name:keek-spike`) | 1280x800, 15.14 fps, longest gap 66.8 ms | Works |
+| A special workspace left closed | 1280x800, 15.14 fps, longest gap 67.6 ms | Works |
+| In view on the active workspace | 1280x800, 180.08 fps, longest gap 7.4 ms | The monitor's refresh rate |
+| On the active workspace, fully right of the monitor | wf-recorder wrote no file | Fails: no frames |
+| On the active workspace, fully below the monitor | wf-recorder wrote no file | Fails: no frames |
+| On the active workspace, fully left of the monitor | 1 frame | Fails |
+| In view with `opacity` 0 | 1280x800, 169.74 fps, one 518.8 ms stall | Rejected: records at the monitor's rate, sits over the developer's screen, stalled |
+
+A window outside the monitor's bounds isn't rendered, so `render_unfocused` doesn't keep it going. `hyprctl setprop` answers `unknown request` on 0.56.2, so props go through `hl.dsp.window.set_prop` in `hyprctl eval`, and the opacity prop is named `opacity`.
+
+The placement that works is a workspace nobody views, with the window rule keek already has. The rail's Session Windows would sit on one such workspace (a name of its own, or a special workspace) and the focus slot's on `keek`. Both keep 1280x800 and 15 fps while hidden, which is `render_unfocused_fps`, and `no_focus` stayed true throughout. A window shown records at the monitor's refresh rate (180 fps here, as variable frame rate), so a Raw Recording changes its rate when a window is swapped in, as it already does when the developer opens `keek`.
+
+Not run:
+
+- A headless output as an unseen screen. Omarchy's `monitor-workspaces.lua` renumbers and moves workspaces on `monitor.added` and `monitor.removed`, and its own comment says moving workspaces during a removal can crash Hyprland. That is a risk to the developer's session.
+- Showing the window on `keek` on the real monitor. Switching the developer's workspace would hide the window they are working in, so "shown" was the active workspace (2), with the window floated at 2000,40 for a few seconds at a time.
+- Stacking a window under another window on a visible `keek`, for the same reason.
+
+### Swapping ten times
+
+`swap-test.sh` moves the window between the active workspace (1.2 s) and the hidden one (1.8 s) ten times while recording. A move took 4 to 26 ms (`hl.dsp.window.move` with `follow = false`). Focus, workspace, `no_focus` and the nested output's size were checked after each move and never changed in a completed run. Eight runs swapped:
+
+| Run | Client | Load average before | Result |
+| --- | --- | --- | --- |
+| [`mpv-a`](https://github.com/radimsem/keek/blob/be4fbc1804da3640056f8306e6d814628f462981/scripts/spike-rail/output/swap-hidden_ws-mpv-a.log), [`r1`](https://github.com/radimsem/keek/blob/be4fbc1804da3640056f8306e6d814628f462981/scripts/spike-rail/output/swap-hidden_ws-mpv-r1.log), [`r2`](https://github.com/radimsem/keek/blob/be4fbc1804da3640056f8306e6d814628f462981/scripts/spike-rail/output/swap-hidden_ws-mpv-r2.log), [`swap1`](https://github.com/radimsem/keek/blob/be4fbc1804da3640056f8306e6d814628f462981/scripts/spike-rail/output/swap-hidden_ws-mpv-swap1.log) | mpv | not logged, not logged, not logged, 18.8 | Continuous: 1280x800, ten shown spans of 1.4 s, longest gap 66.3 to 71.0 ms, no frozen span of 0.2 s |
+| [`chromium-b`](https://github.com/radimsem/keek/blob/be4fbc1804da3640056f8306e6d814628f462981/scripts/spike-rail/output/swap-hidden_ws-chromium-b.log) | Chromium | 1.9 | Continuous: longest gap 66.3 ms, no frozen span |
+| [first run](https://github.com/radimsem/keek/blob/be4fbc1804da3640056f8306e6d814628f462981/scripts/spike-rail/output/swap-hidden_ws.log) | mpv | not logged | Three gaps of 539 to 893 ms and three frozen spans, each at a swap to shown |
+| [`r3`](https://github.com/radimsem/keek/blob/be4fbc1804da3640056f8306e6d814628f462981/scripts/spike-rail/output/swap-hidden_ws-mpv-r3.log) | mpv | not logged (9.3 read just after) | Eight gaps of 249 ms to 2.7 s, in both shown and hidden spans |
+| [first Chromium run](https://github.com/radimsem/keek/blob/be4fbc1804da3640056f8306e6d814628f462981/scripts/spike-rail/output/swap-hidden_ws-chromium.log) | Chromium | not logged | No gap, three frozen spans of 0.7 to 2.1 s |
+
+In the five continuous runs the Raw Recording kept its size and its length matched the wall clock, with 15 fps while hidden and 180 fps while shown. The three stalled runs were all on a desktop where other builds were running, but a run at load 18.8 was clean, so load is a suspect and not a proven cause. A control that never showed the window, `control1`, also stalled badly enough to trigger the dialog below, so the stalls aren't caused by the swap. `control2` ([log](https://github.com/radimsem/keek/blob/be4fbc1804da3640056f8306e6d814628f462981/scripts/spike-rail/output/swap-hidden_ws-mpv-control2.log)), the same schedule with no show, was clean at 15.15 fps.
+
+A hazard found on the way: Hyprland's "Application Not Responding" dialog. With `misc:enable_anr_dialog` true and `misc:anr_missed_pings` 3 (this host), two runs under load made the host open a `hyprland-dialog` for the nested window ("An application aquamarine - WAYLAND-1 - aquamarine is not responding"). It took focus on the developer's workspace, `no_focus` on the window notwithstanding. The first appeared during `control1` and ended that run. The second stayed open after its window was gone, and focus came back to the developer's window when its process was terminated. The dialog offers Terminate and Wait. #89 has to decide what keek does when a busy desktop makes a Session Window miss its pings, because the dialog's Terminate would end the session's desktop.
+
+### Stills
+
+Both paths bypass Cua Driver and keek's MCP proxy: `grim` is a separate Wayland client, so it can't write an Action Log turn, and keek's Session Timeline is built from the calls its proxy forwards. Both returned the current frame, with the clock drawn on the test pattern matching the recording's time. A still was a 640x400 JPEG (`-s 0.5 -q 70`), 24 to 27 KB. `time` measured the process, with 10 stills 3 s apart over 30 s after 15 s without any, hidden, load average about 1:
+
+| Path | Wall per still | CPU per still | Raw Recording during the stills |
+| --- | --- | --- | --- |
+| `grim -T <stableId>` on the host (ext-image-copy-capture of the toplevel; the id is `stableId` from `hyprctl clients -j`) | 48 to 52 ms | about 45 ms | 15.36 fps over 47.1 s, longest gap 67.4 ms, 15 to 16 frames in every second, with and without stills ([log](https://github.com/radimsem/keek/blob/be4fbc1804da3640056f8306e6d814628f462981/scripts/spike-rail/output/still-toplevel-2.log)) |
+| `grim` on the nested Hyprland's own socket (wlr-screencopy of its output) | 83 to 101 ms | about 39 ms | 15.14 fps over 47.6 s, longest gap 69.8 ms, 15 to 16 frames in every second ([log](https://github.com/radimsem/keek/blob/be4fbc1804da3640056f8306e6d814628f462981/scripts/spike-rail/output/still-nested-2.log)) |
+
+The host path captures a window on a hidden workspace without showing it and needs nothing from the sandbox, so it is the path to build on. Its colours came out about 10% darker (mean luma 114 against 127 for the nested path). The cause wasn't checked. The nested path needs the nested socket, which lives on the sandbox's private `/run/user/<uid>`; how to reach it was not checked.
+
+### Not run
+
+- A real Agent Session. [`tests/live_rail_spike.rs`](https://github.com/radimsem/keek/blob/be4fbc1804da3640056f8306e6d814628f462981/tests/live_rail_spike.rs) opens one, hides and shows its window ten times, takes stills with `grim -T` while the Verifier clicks, and checks `actions/` and `timeline.json` against the click count. It could not start in the shell that ran this spike: `open_session` failed with `bwrap: setting up uid map: Operation not permitted` ([log](https://github.com/radimsem/keek/blob/be4fbc1804da3640056f8306e6d814628f462981/scripts/spike-rail/output/live-1.log)), and a bare `pasta -- bwrap --unshare-user` fails the same way there. Running the test outside that restriction was not tried. So the Raw Recording with Cua Driver, the Verifier's call latency during a still and the contents of `actions/` and `timeline.json` after stills are not measured. That stills enter neither follows from `grim` not going through Cua or the proxy, and is not shown.
+- Whether `/proc/<pid>/root` reaches the nested socket from the host.
+- Stills of a window shown on `keek`.
 
 ## Facts this design rests on
 
