@@ -73,6 +73,7 @@ pub struct Controller {
     pub opened: Instant,
     pub window: Option<WindowAddress>,
     pub project: String,
+    pub clipboard: Arc<dyn crate::takeover_clipboard::NestedClipboard>,
 }
 struct Taking {
     start: Instant,

@@ -121,6 +121,7 @@ impl Controller {
             phase: TakingPhase::Running,
             paused: Vec::new(),
         };
+        self.carry_host_clipboard().await;
         self.publish_takeover(&taking);
         drop(permit);
         Ok((taking, events))
@@ -149,8 +150,20 @@ impl Controller {
         taking.shortcuts = shortcuts;
         taking.phase = TakingPhase::Running;
         *lines = events;
+        self.carry_host_clipboard().await;
         self.publish_takeover(taking);
         Ok(())
+    }
+
+    async fn carry_host_clipboard(&self) {
+        let result = match crate::takeover_clipboard::read_host_text(self.runner.as_ref()).await {
+            Ok(Some(text)) => self.clipboard.copy(text).await,
+            Ok(None) => return,
+            Err(error) => Err(error),
+        };
+        if let Err(error) = result {
+            tracing::warn!(%error, "Paste from the host is unavailable in this Takeover");
+        }
     }
 
     async fn restore_paused_takeover(&self, taking: &Taking, stage: EngageStage) {

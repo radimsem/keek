@@ -4,6 +4,8 @@ mod failure;
 mod focus_restore;
 #[path = "session_control_tests/hand_back.rs"]
 mod hand_back;
+#[path = "session_control_tests/paste.rs"]
+mod paste;
 #[path = "session_control_tests/step_away.rs"]
 mod step_away;
 #[path = "session_control_tests/step_away_failure.rs"]
@@ -15,6 +17,18 @@ use crate::compositor::{
     CompositorFuture, EventsFuture, Placement, SlotFuture, WindowEvents, WindowFuture, WindowPid,
 };
 use std::sync::Mutex as StdMutex;
+struct NoClipboard;
+impl crate::takeover_clipboard::NestedClipboard for NoClipboard {
+    fn copy(
+        &self,
+        _: crate::takeover_clipboard::CarriedText,
+    ) -> crate::takeover_clipboard::ClipboardFuture<'_> {
+        Box::pin(async { Ok(()) })
+    }
+    fn clear(&self) -> crate::takeover_clipboard::ClipboardFuture<'_> {
+        Box::pin(async { Ok(()) })
+    }
+}
 struct DelayedConfirmation {
     entered: Arc<tokio::sync::Notify>,
     release: Arc<tokio::sync::Notify>,
@@ -66,6 +80,7 @@ async fn help_arriving_during_done_does_not_leave_a_stale_request() {
         opened: Instant::now(),
         window: Some(WindowAddress("0xabc".into())),
         project: "app".into(),
+        clipboard: Arc::new(NoClipboard),
     };
     let task = tokio::spawn(controller.run(receiver, Box::pin(std::future::pending())));
     control.commands.send(Command::TakeControl).await.unwrap();
@@ -132,6 +147,7 @@ async fn failure_before_host_changes_reopens_the_gate_without_a_span() {
         opened: Instant::now(),
         window: Some(WindowAddress("0xabc".into())),
         project: "app".into(),
+        clipboard: Arc::new(NoClipboard),
     };
     assert!(controller.take_control(None).await.is_err());
     assert!(matches!(
@@ -264,6 +280,7 @@ fn fixture_with_output(
         opened: Instant::now(),
         window: Some(WindowAddress("0xabc".into())),
         project: "app".into(),
+        clipboard: Arc::new(NoClipboard),
     };
     (
         control,

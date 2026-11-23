@@ -129,7 +129,9 @@ Leaving the `keek` submap means Done, so Step away has its own signal: Super+Tab
 
 The nested desktop types as `us` during a Takeover, whatever the developer's own layout is, because the Cua plugin requires that keymap. keek's docs say so.
 
-The nested desktop doesn't bind the host clipboard, so type a 2FA code or password during a Takeover instead of pasting it ([`facts.md`](facts.md#takeover-clipboard-results)).
+Paste from your own desktop during a Takeover. At Take control and at every Resume, keek copies the plain text on the host clipboard into the session's clipboard, so a 2FA code or recovery key copied from your password manager pastes with the nested desktop's paste shortcut. An image or other non-text copy is skipped and the session's clipboard keeps what it had. On Done keek sends the session a clear for its clipboard before it releases the Verifier's held call, so `clipboard_read` doesn't return what you carried in. The clear runs inside the session a few milliseconds after it is sent, and if it can't be sent, the daemon log says so. Nothing copied inside the session reaches your clipboard. If keek can't read the host clipboard or reach the session's, the Takeover still runs and the daemon log says paste is unavailable; type the text instead.
+
+What you paste is visible on screen like anything you type, so it shows in the Raw Recording and the Verification Video. The text itself never goes on a command line, through Cua Driver, into the Action Log or into the Session Timeline. keek copies it with the hint password managers use, so the nested Omarchy shell's clipboard history skips it ([`facts.md`](facts.md#takeover-clipboard-results)).
 
 Recording during a Takeover:
 

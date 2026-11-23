@@ -82,6 +82,7 @@ async fn project_prepare_can_outlast_the_desktop_handshake_limit() {
             inner: EvidenceRunner(root.path().join("videos"), Arc::new(AtomicBool::new(false))),
             calls: Arc::new(Mutex::new(vec![])),
             fail_no_focus: Arc::new(AtomicBool::new(false)),
+            host_clipboard: Arc::new(Mutex::new(None)),
         }),
         closing: Arc::new(AtomicBool::new(false)),
         name,

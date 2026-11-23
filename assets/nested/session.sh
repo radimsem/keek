@@ -62,4 +62,5 @@ hyprctl eval "hl.exec_cmd('/keek/nested/start-app.sh')" >"$KEEK_SESSION/exec.log
   done
 ) 8<&- 9>&- &
 
+/keek/nested/clipboard.sh "$KEEK_SESSION/clipboard.fifo" </dev/null >>"$KEEK_SESSION/clipboard.log" 2>&1 8<&- 9>&- &
 exec "$KEEK_DRIVER" mcp <&8 >&9 2>"$KEEK_SESSION/driver.log" 8<&- 9>&-

@@ -88,6 +88,7 @@ struct RunningActor {
     stop_hangs: Arc<AtomicBool>,
     fail_close: Arc<AtomicBool>,
     fail_no_focus: Arc<AtomicBool>,
+    host_clipboard: Arc<Mutex<Option<&'static str>>>,
     clock: Arc<FakeClock>,
     render_succeeds: Arc<AtomicBool>,
 }
@@ -145,6 +146,7 @@ async fn start_configured(
     let stop_hangs = Arc::new(AtomicBool::new(false));
     let fail_close = Arc::new(AtomicBool::new(false));
     let fail_no_focus = Arc::new(AtomicBool::new(false));
+    let host_clipboard = Arc::new(Mutex::new(None));
     let (ended, end_receiver) = watch::channel(());
     let screenshot = Arc::new(Mutex::new(fake_driver::Screenshot::Ready));
     let cause = Arc::new(Mutex::new(None));
@@ -229,6 +231,7 @@ async fn start_configured(
             inner: EvidenceRunner(root.join("videos"), render_succeeds.clone()),
             calls: calls.clone(),
             fail_no_focus: fail_no_focus.clone(),
+            host_clipboard: host_clipboard.clone(),
         }),
         closing: closing.clone(),
         name,
@@ -274,6 +277,7 @@ async fn start_configured(
             stop_hangs,
             fail_close,
             fail_no_focus,
+            host_clipboard,
             clock,
             render_succeeds,
         },
@@ -540,6 +544,8 @@ mod takeover;
 #[path = "session_actor_tests/recording_keepalive.rs"]
 mod recording_keepalive;
 
+#[path = "session_actor_tests/paste.rs"]
+mod paste;
 #[path = "session_actor_tests/step_away.rs"]
 mod step_away;
 

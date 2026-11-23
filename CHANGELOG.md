@@ -7,6 +7,7 @@ What changed in each keek release, for a person who uses it. The format follows 
 ### Added
 
 - Step away from a Takeover with the footer button or Super+Tab to use your own desktop, then click the session to resume. The Verifier keeps waiting until you press Done. Add the Super+Tab bind from the updated submap snippet in the viewer docs to use the shortcut.
+- Paste text copied on your own desktop into the session during a Takeover, such as a 2FA code from your password manager. keek clears the session's clipboard when you press Done, and nothing copied in the session reaches yours.
 
 ### Fixed
 
