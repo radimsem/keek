@@ -79,11 +79,13 @@ It shows that session's:
 - Project and branch (`myapp`, `fix/17-login-redirect`), after a small arrow in the session's cursor colour. The start time stays in the Evidence file names, not on screen.
 - Goal.
 - Last Action in plain words (`click "Sign in"`) and the time since it, counting up.
-- The Verification Checklist's progress ("Checked 2 of 4", counting marked Checks) with one tick per Check: filled green for passed, filled red for failed, an outlined yellow dash for skipped, a dim outline for not yet marked.
+- The Verification Checklist's progress ("Checked 2 of 4", counting marked Checks) with one tick per Check: filled green for passed, filled red for failed, an outlined yellow dash for skipped, a dim outline for not yet marked. While the Verifier works, the first unmarked Check's tick wears a Harbor Blue ring and dot, so the footer shows which Check is being checked. The ring is absent during a Help Request or a Takeover and once the session ends.
 - Elapsed time since the session opened, so a stuck session stands out. Once the session ends it reads "Ran" with the total.
 - Help Request state: the whole card turns orange, the window border through a window rule and the footer and any black backdrop with it, and the footer shows the Verifier's reason.
 - During a Takeover: "You are in control" and its running time, with the window border in the active colour.
 - The **Take control** button, which becomes **Done** during a Takeover.
+
+When keek reminds the Verifier to mark Checks (see [`design.md`](design.md#agent-interface)), the state column reads "Reminded the Verifier to mark Checks" over "8 actions since the last mark" until the Verifier's next call. A Help Request, a Takeover and the view-only hint take precedence.
 
 The keek daemon already sees every Action on its way to Cua Driver, so it pushes an update to the footer per Action and per state change; nothing polls. *(my call)*
 

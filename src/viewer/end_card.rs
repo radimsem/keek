@@ -311,7 +311,7 @@ fn check_icon(tick: Tick, theme: &Theme) -> gtk::DrawingArea {
                 Tick::Passed => &theme.green,
                 Tick::Failed => &theme.red,
                 Tick::Skipped => &theme.yellow,
-                Tick::Unmarked => &theme.dim,
+                Tick::Unmarked | Tick::InProgress => &theme.dim,
             },
             c,
         );
@@ -332,7 +332,7 @@ fn check_icon(tick: Tick, theme: &Theme) -> gtk::DrawingArea {
                 c.move_to(3.0, 10.0);
                 c.line_to(13.0, 10.0);
             }
-            Tick::Unmarked => c.arc(8.0, 10.0, 5.0, 0.0, std::f64::consts::TAU),
+            Tick::Unmarked | Tick::InProgress => c.arc(8.0, 10.0, 5.0, 0.0, std::f64::consts::TAU),
         }
         let _ = c.stroke();
     });

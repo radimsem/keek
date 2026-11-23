@@ -236,14 +236,17 @@ impl Checklist {
     pub fn checks(&self) -> &[Check] {
         &self.checks
     }
+    pub(crate) fn unmarked(&self) -> impl Iterator<Item = &Check> {
+        self.checks
+            .iter()
+            .filter(|c| matches!(c.mark, Mark::Unmarked))
+    }
     pub fn verdict(&self) -> Result<Verdict, ChecklistError> {
         if self.checks.is_empty() {
             return Err(ChecklistError::Empty);
         }
         let unmarked = self
-            .checks
-            .iter()
-            .filter(|c| matches!(c.mark, Mark::Unmarked))
+            .unmarked()
             .map(|c| format!("{}: {}", c.id.0, c.text))
             .collect::<Vec<_>>();
         if !unmarked.is_empty() {

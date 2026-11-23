@@ -69,6 +69,7 @@ pub fn title_cards(events: &[TimelineEvent]) -> Vec<(Span, TitleCard)> {
                             TimelineEvent::Takeover { .. }
                             | TimelineEvent::Call { .. }
                             | TimelineEvent::CheckMark { .. }
+                            | TimelineEvent::Reminder { .. }
                             | TimelineEvent::HelpRequest { .. } => None,
                         })
                     })
@@ -102,6 +103,7 @@ pub fn title_cards(events: &[TimelineEvent]) -> Vec<(Span, TitleCard)> {
             }
             TimelineEvent::Call { .. }
             | TimelineEvent::CheckMark { .. }
+            | TimelineEvent::Reminder { .. }
             | TimelineEvent::Takeover { .. } => None,
         })
         .collect();
@@ -123,6 +125,7 @@ pub fn title_cards(events: &[TimelineEvent]) -> Vec<(Span, TitleCard)> {
         TimelineEvent::Takeover { .. }
         | TimelineEvent::Call { .. }
         | TimelineEvent::CheckMark { .. }
+        | TimelineEvent::Reminder { .. }
         | TimelineEvent::HelpRequest { .. } => None,
     }));
     cards.sort_by_key(|(span, _)| span.start);
@@ -156,6 +159,7 @@ pub fn cut_spans(timeline: &SessionTimeline, duration: Millis, after: Millis) ->
                         } if action < start_ms => Some(Millis(done.0.saturating_add(after.0))),
                         TimelineEvent::Call { .. }
                         | TimelineEvent::CheckMark { .. }
+                        | TimelineEvent::Reminder { .. }
                         | TimelineEvent::Takeover { .. }
                         | TimelineEvent::HelpRequest { .. } => None,
                     })
@@ -166,7 +170,9 @@ pub fn cut_spans(timeline: &SessionTimeline, duration: Millis, after: Millis) ->
                     end: *end_ms,
                 })
             }
-            TimelineEvent::Call { .. } | TimelineEvent::CheckMark { .. } => None,
+            TimelineEvent::Call { .. }
+            | TimelineEvent::CheckMark { .. }
+            | TimelineEvent::Reminder { .. } => None,
         })
         .map(|span| Span {
             start: Millis(span.start.0.min(duration.0)),

@@ -40,6 +40,7 @@ async fn help_arriving_during_done_does_not_leave_a_stale_request() {
         control: ControlState::Verifier,
         state: crate::ipc::SessionState::Open,
         checks: vec![],
+        reminded: false,
         last_action: None,
     });
     let entered = Arc::new(tokio::sync::Notify::new());
@@ -124,6 +125,7 @@ fn focus_case(
         },
         state: crate::ipc::SessionState::Open,
         checks: vec![],
+        reminded: false,
         last_action: None,
     });
     (
@@ -224,6 +226,7 @@ async fn failure_before_host_changes_reopens_the_gate_without_a_span() {
         control: ControlState::Verifier,
         state: crate::ipc::SessionState::Open,
         checks: vec![],
+        reminded: false,
         last_action: None,
     });
     let controller = Controller {
@@ -267,6 +270,7 @@ async fn done_without_another_client_keeps_the_gate_closed() {
         control: ControlState::Verifier,
         state: crate::ipc::SessionState::Open,
         checks: vec![],
+        reminded: false,
         last_action: None,
     });
     let controller = Controller {
@@ -404,6 +408,7 @@ fn fixture_with_output(
         control: ControlState::Verifier,
         state: crate::ipc::SessionState::Open,
         checks: vec![],
+        reminded: false,
         last_action: None,
     });
     let controller = Controller {

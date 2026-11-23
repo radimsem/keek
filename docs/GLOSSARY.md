@@ -57,7 +57,7 @@ The record of every Action in an Agent Session and what it returned.
 _Avoid_: trajectory, trace, history
 
 **Session Timeline**:
-The timed record of an Agent Session's calls, Actions, Check marks, Help Requests and Takeovers, counted from the start of its Raw Recording. Times in the Verification Video and Verdict Report come from it.
+The timed record of an Agent Session's calls, Actions, Check marks, reminders to mark Checks, Help Requests and Takeovers, counted from the start of its Raw Recording. Times in the Verification Video and Verdict Report come from it.
 _Avoid_: action history, activity graph, trace
 
 **Raw Recording**:

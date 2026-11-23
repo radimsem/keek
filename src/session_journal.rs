@@ -109,11 +109,11 @@ pub async fn remove(path: PathBuf) {
 impl Journal {
     pub fn recovery_timeline(&self, recording_end: Millis) -> SessionTimeline {
         let mut timeline = self.timeline.clone();
-        if timeline.events().iter().any(|event| {
-            matches!(
-                event,
-                TimelineEvent::Takeover { .. } | TimelineEvent::HelpRequest { .. }
-            )
+        if timeline.events().iter().any(|event| match event {
+            TimelineEvent::Takeover { .. } | TimelineEvent::HelpRequest { .. } => true,
+            TimelineEvent::Call { .. }
+            | TimelineEvent::CheckMark { .. }
+            | TimelineEvent::Reminder { .. } => false,
         }) {
             return timeline;
         }

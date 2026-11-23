@@ -44,6 +44,7 @@ fn controller(
         control: ControlState::Verifier,
         state: crate::ipc::SessionState::Open,
         checks: vec![],
+        reminded: false,
         last_action: None,
     });
     let controller = Controller {

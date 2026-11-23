@@ -73,16 +73,32 @@ impl Card {
         let value = gtk::Box::new(gtk::Orientation::Horizontal, 4);
         value.append(&label(&checked.count, "value"));
         for kind in checked.ticks {
-            let tick = label(
-                if kind == footer_view::Tick::Skipped {
-                    "−"
-                } else {
-                    ""
-                },
-                kind.css_class(),
-            );
+            // An empty Box is exactly the CSS 10px square; a Label would be as tall as its line.
+            let tick = gtk::Box::new(gtk::Orientation::Horizontal, 0);
             tick.add_css_class("tick");
-            value.append(&tick);
+            tick.add_css_class(kind.css_class());
+            tick.set_valign(gtk::Align::Center);
+            let mark = match kind {
+                footer_view::Tick::Skipped => Some(label("−", "skipped")),
+                footer_view::Tick::InProgress => Some(label("", "check-ring")),
+                footer_view::Tick::Passed
+                | footer_view::Tick::Failed
+                | footer_view::Tick::Unmarked => None,
+            };
+            let Some(mark) = mark else {
+                value.append(&tick);
+                continue;
+            };
+            // The mark is drawn over the square without changing its size.
+            let cell = gtk::Overlay::new();
+            cell.set_child(Some(&tick));
+            cell.set_valign(gtk::Align::Center);
+            mark.set_halign(gtk::Align::Center);
+            mark.set_valign(gtk::Align::Center);
+            mark.set_can_target(false);
+            cell.add_overlay(&mark);
+            cell.set_measure_overlay(&mark, false);
+            value.append(&cell);
         }
         if checked.overflow > 0 {
             value.append(&label(&format!("+{}", checked.overflow), "dim"));

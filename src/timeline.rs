@@ -41,6 +41,9 @@ pub enum TimelineEvent {
         end_ms: Millis,
         is_error: bool,
     },
+    Reminder {
+        at_ms: Millis,
+    },
     CheckMark {
         check: CheckId,
         outcome: CheckOutcome,
@@ -116,7 +119,7 @@ impl SessionTimeline {
             TimelineEvent::Call { start_ms, .. }
             | TimelineEvent::Takeover { start_ms, .. }
             | TimelineEvent::HelpRequest { start_ms, .. } => *start_ms,
-            TimelineEvent::CheckMark { at_ms, .. } => *at_ms,
+            TimelineEvent::CheckMark { at_ms, .. } | TimelineEvent::Reminder { at_ms } => *at_ms,
         });
     }
 }

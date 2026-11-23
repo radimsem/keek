@@ -47,6 +47,8 @@ impl Actor {
                 return CallEnd::Replied;
             }
         };
+        self.events
+            .send_if_modified(|snapshot| std::mem::take(&mut snapshot.reminded));
         let (mut arguments, action) = match self.catalog.prepare_call(&tool, &self.name, arguments)
         {
             Ok(args) => args,
@@ -119,16 +121,25 @@ impl Actor {
             });
             self.publish(SessionState::Open, &state.last_action);
         }
-        self.persist(&state.timeline).await;
         state.deadline = tokio::time::Instant::now() + self.idle_limit;
         let result = if interrupted.is_none() && accepted_close.is_none() {
             match result {
-                Ok(value) => Ok(refusal_hint::add(state.driver.as_mut(), value).await),
+                Ok(value) => {
+                    let mut value = refusal_hint::add(state.driver.as_mut(), value).await;
+                    if self.reminder.record_call(&self.checklist, &mut value) {
+                        state
+                            .timeline
+                            .push(TimelineEvent::Reminder { at_ms: end_ms });
+                        self.events.send_modify(|snapshot| snapshot.reminded = true);
+                    }
+                    Ok(value)
+                }
                 Err(error) => Err(error),
             }
         } else {
             result
         };
+        self.persist(&state.timeline).await;
         let _ = reply.send(self.mask_reply(if accepted_close.is_some() {
             refusal(format!(
                 "Agent Session {} is closing, so {tool} was stopped. Open a new Agent Session.",

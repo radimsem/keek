@@ -163,6 +163,7 @@ mod tests {
             },
             state: SessionState::Open,
             checks: vec![],
+            reminded: false,
             last_action: None,
         });
         let (stop, stopped) = oneshot::channel();

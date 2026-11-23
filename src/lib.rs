@@ -19,6 +19,7 @@ pub mod process;
 pub mod project;
 pub mod project_prepare;
 pub mod registry;
+mod reminder;
 pub mod report;
 pub mod sandbox;
 pub mod security_context;
