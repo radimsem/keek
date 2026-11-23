@@ -258,7 +258,7 @@ Not run:
 
 In the five continuous runs the Raw Recording kept its size and its length matched the wall clock, with 15 fps while hidden and 180 fps while shown. The three stalled runs were all on a desktop where other builds were running, but a run at load 18.8 was clean, so load is a suspect and not a proven cause. A control that never showed the window, `control1`, also stalled badly enough to trigger the dialog below, so the stalls aren't caused by the swap. `control2` ([log](https://github.com/radimsem/keek/blob/be4fbc1804da3640056f8306e6d814628f462981/scripts/spike-rail/output/swap-hidden_ws-mpv-control2.log)), the same schedule with no show, was clean at 15.15 fps.
 
-A hazard found on the way: Hyprland's "Application Not Responding" dialog. With `misc:enable_anr_dialog` true and `misc:anr_missed_pings` 3 (this host), two runs under load made the host open a `hyprland-dialog` for the nested window ("An application aquamarine - WAYLAND-1 - aquamarine is not responding"). It took focus on the developer's workspace, `no_focus` on the window notwithstanding. The first appeared during `control1` and ended that run. The second stayed open after its window was gone, and focus came back to the developer's window when its process was terminated. The dialog offers Terminate and Wait. #89 has to decide what keek does when a busy desktop makes a Session Window miss its pings, because the dialog's Terminate would end the session's desktop.
+A hazard found on the way: Hyprland's "Application Not Responding" dialog. With `misc:enable_anr_dialog` true and `misc:anr_missed_pings` 3 (this host), two runs under load made the host open a `hyprland-dialog` for the nested window ("An application aquamarine - WAYLAND-1 - aquamarine is not responding"). It took focus on the developer's workspace, `no_focus` on the window notwithstanding. The first appeared during `control1` and ended that run. The second stayed open after its window was gone, and focus came back to the developer's window when its process was terminated. The dialog offers Terminate and Wait, and its Terminate would end the session's desktop. It did not appear in the real Agent Session below, and keek does not handle it.
 
 ### Stills
 
@@ -271,9 +271,22 @@ Both paths bypass Cua Driver and keek's MCP proxy: `grim` is a separate Wayland 
 
 The host path captures a window on a hidden workspace without showing it and needs nothing from the sandbox, so it is the path to build on. Its colours came out about 10% darker (mean luma 114 against 127 for the nested path). The cause wasn't checked. The nested path needs the nested socket, which lives on the sandbox's private `/run/user/<uid>`; how to reach it was not checked.
 
+### In a real Agent Session
+
+Run on 2026-11-23 with Hyprland 0.56.2 and the pinned Cua Driver, in a real keek Agent Session with a 1690x1298 Session Window, while nobody touched the desktop. [`tests/live_rail_spike.rs`](../tests/live_rail_spike.rs) opens the session, hides and shows its window ten times, takes stills with `grim -T` while the Verifier clicks, and checks `actions/` and `timeline.json` against the click count. Its first runs failed its own focus check whenever the developer switched windows, so it now requires only that the workspace stays put and that the Session Window never takes focus.
+
+- **Out of sight.** The Session Window sat on a workspace nobody viewed, with keek's `render_unfocused` rule. `hl.dsp.window.move` with `follow = false` moved it in 3 to 10 ms. `no_focus` held throughout and the window never took focus.
+- **Swaps.** Ten swaps between shown and hidden left the Raw Recording continuous: 4862 frames over 94.4 s at 1690x1298, largest gap between frames 73 ms overall and 68 ms during the swaps, no gap over 120 ms and no frozen span.
+- **Stills.** `grim -T <stableId>` on the host captured the hidden window. Nine stills took 88 to 120 ms of wall time and about 90 ms of CPU each, about 17 KB per half-scale JPEG.
+- **Verifier latency.** A Verifier click took 279 to 309 ms alone and 261 to 307 ms while a still was taken.
+- **Evidence.** `actions/` and the Session Timeline held exactly the 13 Verifier clicks, so stills enter neither.
+- **Not to use.** A window outside the monitor's bounds records nothing, and opacity 0 stalled (see Placements tried).
+- **Application Not Responding.** The dialog seen under load in the harness runs above did not appear in the real session. keek has no handling for it.
+
+keek's session rail builds on this: a rail session's Session Window waits on the `keek-rail` workspace and its card shows a `grim -T` still taken every 3 s.
+
 ### Not run
 
-- A real Agent Session. [`tests/live_rail_spike.rs`](https://github.com/radimsem/keek/blob/be4fbc1804da3640056f8306e6d814628f462981/tests/live_rail_spike.rs) opens one, hides and shows its window ten times, takes stills with `grim -T` while the Verifier clicks, and checks `actions/` and `timeline.json` against the click count. It could not start in the shell that ran this spike: `open_session` failed with `bwrap: setting up uid map: Operation not permitted` ([log](https://github.com/radimsem/keek/blob/be4fbc1804da3640056f8306e6d814628f462981/scripts/spike-rail/output/live-1.log)), and a bare `pasta -- bwrap --unshare-user` fails the same way there. Running the test outside that restriction was not tried. So the Raw Recording with Cua Driver, the Verifier's call latency during a still and the contents of `actions/` and `timeline.json` after stills are not measured. That stills enter neither follows from `grim` not going through Cua or the proxy, and is not shown.
 - Whether `/proc/<pid>/root` reaches the nested socket from the host.
 - Stills of a window shown on `keek`.
 
