@@ -193,7 +193,7 @@ Checked on 2026-11-09 with Cua Driver 0.38.0, Hyprland 0.56.2 and Chromium 155.0
 
 ## Session rail spike results
 
-Run on 2026-11-22 for #88 with Hyprland 0.56.2 (`efb5099`), aquamarine 0.15.1, wf-recorder 0.6.0, mpv and Chromium, on one monitor of 3440x1440 at 180 Hz and scale 1. The scripts and raw output are in [`scripts/spike-rail/` at `be4fbc1`](https://github.com/radimsem/keek/tree/be4fbc1804da3640056f8306e6d814628f462981/scripts/spike-rail). Videos stay in `target/`.
+Run on 2026-11-22 for #88 with Hyprland 0.56.2 (`efb5099`), aquamarine 0.15.1, wf-recorder 0.6.0, mpv and Chromium, on one monitor of 3440x1440 at 180 Hz and scale 1. The scripts and raw output are kept at commit [`be4fbc1`](https://github.com/radimsem/keek/tree/be4fbc1804da3640056f8306e6d814628f462981/scripts/spike-rail) and are not in the tree. The videos were not kept.
 
 How it was run: a nested Hyprland with a bare config under the developer's uid, not a keek Agent Session (no sandbox, no Cua Driver). The host rule is keek's (`float`, 1280x800, `no_initial_focus`, `no_focus`, `render_unfocused`, a workspace with `silent`). The client is mpv's `testsrc2` or a Chromium canvas that draws on every animation frame. The recorder is `wf-recorder --no-damage -c libx264 -x yuv420p`, the flags Cua Driver 0.38.0 passes (read from the binary's strings). After every move the script checked that the developer's focused window and active workspace were as before, that `no_focus` was still true and that the nested output was still 1280x800.
 
