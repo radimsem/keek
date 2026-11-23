@@ -113,6 +113,7 @@ fn timeline_stays_ordered_when_a_completed_takeover_is_added_later() {
         reason: None,
         start_ms: Millis(100),
         end_ms: Millis(400),
+        paused: vec![],
     });
     assert!(matches!(
         timeline.events().first(),

@@ -102,6 +102,10 @@ _Avoid_: needs-you, escalation, blocker
 A stretch in which the developer, not the agent, drives an Agent Session, from Take control to Done. The Verifier waits for its whole length.
 _Avoid_: handoff, intervention, manual mode
 
+**Step away**:
+Pausing a Takeover to use the developer's own desktop, for example to fetch a secret. The Verifier keeps waiting. Resume carries the same Takeover on, and only Done ends it.
+_Avoid_: detach, suspend, leave
+
 ## Outcome
 
 **Verification Checklist**:

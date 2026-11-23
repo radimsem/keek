@@ -31,6 +31,12 @@ pub enum HelpOutcome {
     Withdrawn,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PausedSpan {
+    pub start_ms: Millis,
+    pub end_ms: Millis,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TimelineEvent {
@@ -55,6 +61,8 @@ pub enum TimelineEvent {
         reason: Option<String>,
         start_ms: Millis,
         end_ms: Millis,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        paused: Vec<PausedSpan>,
     },
     HelpRequest {
         reason: String,
@@ -123,5 +131,45 @@ impl SessionTimeline {
             | TimelineEvent::HelpRequest { start_ms, .. } => *start_ms,
             TimelineEvent::CheckMark { at_ms, .. } | TimelineEvent::Reminder { at_ms } => *at_ms,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_takeover_without_paused_spans_reads_and_writes_as_before() {
+        let before = r#"{"kind":"takeover","reason":null,"start_ms":1000,"end_ms":4000}"#;
+        let event: TimelineEvent = serde_json::from_str(before).unwrap();
+        assert_eq!(
+            event,
+            TimelineEvent::Takeover {
+                reason: None,
+                start_ms: Millis(1000),
+                end_ms: Millis(4000),
+                paused: vec![],
+            }
+        );
+        assert_eq!(serde_json::to_string(&event).unwrap(), before);
+    }
+
+    #[test]
+    fn a_takeover_keeps_its_paused_spans() {
+        let event = TimelineEvent::Takeover {
+            reason: None,
+            start_ms: Millis(1000),
+            end_ms: Millis(9000),
+            paused: vec![PausedSpan {
+                start_ms: Millis(2000),
+                end_ms: Millis(5000),
+            }],
+        };
+        let text = serde_json::to_string(&event).unwrap();
+        assert!(
+            text.contains(r#""paused":[{"start_ms":2000,"end_ms":5000}]"#),
+            "{text}"
+        );
+        assert_eq!(serde_json::from_str::<TimelineEvent>(&text).unwrap(), event);
     }
 }

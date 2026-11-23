@@ -1,5 +1,13 @@
-use super::{SessionInfo, SlotId, ViewerMessage, end_card, footer_view};
-use crate::ipc::{SessionSnapshot, SessionState};
+use super::{
+    SessionInfo, SlotId, ViewerCommand, ViewerMessage, end_card,
+    footer_content::FooterContent,
+    footer_view::{self, FooterButton},
+    paused_card,
+};
+use crate::{
+    ipc::{SessionSnapshot, SessionState},
+    slots::Slot,
+};
 use gtk4::{self as gtk, glib, prelude::*};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::{
@@ -16,13 +24,9 @@ struct Card {
     hover: footer_view::Hover,
     footer: gtk::Window,
     surface: gtk::Window,
+    paused: gtk::Window,
     body: gtk::Overlay,
-    state_label: gtk::Label,
-    detail: gtk::Label,
-    checked: gtk::Box,
-    elapsed_label: gtk::Label,
-    elapsed: gtk::Label,
-    actions: end_card::FooterActions,
+    content: FooterContent,
     watcher: Option<glib::JoinHandle<()>>,
     end_card: Option<end_card::EndCard>,
 }
@@ -35,7 +39,6 @@ impl Card {
             self.hover,
             self.frozen,
         );
-        self.actions.draw(&view);
         let mut classes = vec![
             "footer",
             footer_view::SessionColour::for_slot(self.info.slot).css_class(),
@@ -46,65 +49,7 @@ impl Card {
         self.footer.set_css_classes(&classes);
         classes[0] = "hover-surface";
         self.surface.set_css_classes(&classes);
-        self.state_label.set_text(view.label.text());
-
-        self.detail.set_text(&view.detail);
-        self.elapsed_label.set_text(view.elapsed_label);
-        self.elapsed.set_text(&view.elapsed);
-        self.state_label
-            .set_css_classes(&[if view.label == footer_view::StateLabel::ViewOnly {
-                "hint"
-            } else {
-                view.label.css_class().unwrap_or("dim")
-            }]);
-        self.state_label.add_css_class("state");
-        while let Some(child) = self.checked.first_child() {
-            self.checked.remove(&child);
-        }
-        let Some(checked) = view.checked else {
-            self.checked.set_visible(false);
-            return;
-        };
-        self.checked.set_visible(true);
-        self.checked.set_tooltip_text(Some(&checked.accessible));
-        self.checked
-            .update_property(&[gtk::accessible::Property::Label(&checked.accessible)]);
-        let title = label("Checked", "dim");
-        let value = gtk::Box::new(gtk::Orientation::Horizontal, 4);
-        value.append(&label(&checked.count, "value"));
-        for kind in checked.ticks {
-            // An empty Box is exactly the CSS 10px square; a Label would be as tall as its line.
-            let tick = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-            tick.add_css_class("tick");
-            tick.add_css_class(kind.css_class());
-            tick.set_valign(gtk::Align::Center);
-            let mark = match kind {
-                footer_view::Tick::Skipped => Some(label("−", "skipped")),
-                footer_view::Tick::InProgress => Some(label("", "check-ring")),
-                footer_view::Tick::Passed
-                | footer_view::Tick::Failed
-                | footer_view::Tick::Unmarked => None,
-            };
-            let Some(mark) = mark else {
-                value.append(&tick);
-                continue;
-            };
-            // The mark is drawn over the square without changing its size.
-            let cell = gtk::Overlay::new();
-            cell.set_child(Some(&tick));
-            cell.set_valign(gtk::Align::Center);
-            mark.set_halign(gtk::Align::Center);
-            mark.set_valign(gtk::Align::Center);
-            mark.set_can_target(false);
-            cell.add_overlay(&mark);
-            cell.set_measure_overlay(&mark, false);
-            value.append(&cell);
-        }
-        if checked.overflow > 0 {
-            value.append(&label(&format!("+{}", checked.overflow), "dim"));
-        }
-        self.checked.append(&title);
-        self.checked.append(&value);
+        self.content.draw(&view);
     }
     fn close(self) {
         if let Some(handle) = self.watcher {
@@ -112,6 +57,7 @@ impl Card {
         }
         self.footer.close();
         self.surface.close();
+        self.paused.close();
     }
 }
 struct State {
@@ -119,9 +65,38 @@ struct State {
     missing: HashMap<SlotId, glib::JoinHandle<()>>,
     visible: HashSet<String>,
     tick: Option<glib::SourceId>,
-    commands: Option<tokio::sync::mpsc::Sender<super::ViewerCommand>>,
+    commands: Option<tokio::sync::mpsc::Sender<ViewerCommand>>,
 }
 impl State {
+    fn activate(&self, card: &Card, action: FooterButton) {
+        let name = &card.info.name;
+        let command = match action {
+            FooterButton::TakeControl => ViewerCommand::TakeControl(name.clone()),
+            FooterButton::StepAway => ViewerCommand::StepAway(name.clone()),
+            FooterButton::Resume => ViewerCommand::Resume(name.clone()),
+            FooterButton::Done => ViewerCommand::Done(name.clone()),
+            FooterButton::Dismiss => ViewerCommand::Dismiss(name.clone()),
+            FooterButton::OpenVideo | FooterButton::OpenFolder => {
+                if let SessionState::Ended(end) = &card.snapshot.state {
+                    let path = if action == FooterButton::OpenVideo {
+                        &end.verification
+                    } else {
+                        &end.folder
+                    };
+                    if let Some(path) = path {
+                        end_card::open(path);
+                    }
+                }
+                return;
+            }
+        };
+        if let Some(commands) = &self.commands
+            && let Err(error) = commands.try_send(command)
+        {
+            tracing::warn!(%error, "Session Footer command could not be delivered");
+        }
+    }
+
     fn visibility(state: &Rc<RefCell<Self>>) {
         let mut data = state.borrow_mut();
         let visible = data.visible.clone();
@@ -131,8 +106,13 @@ impl State {
                 card.hover = footer_view::Hover::Away;
                 card.draw();
             }
-            // Mapping the footer last keeps it above an ended card's surface on the bottom layer.
+            let paused = shown && footer_view::is_paused(&card.snapshot);
+            if paused && !card.paused.is_visible() {
+                card.footer.set_visible(false);
+            }
+            // Mapping the footer last keeps its overlapping edge above the card surfaces.
             card.surface.set_visible(shown);
+            card.paused.set_visible(paused);
             card.footer.set_visible(shown);
         }
         let ticking = data
@@ -161,51 +141,36 @@ impl State {
         }
     }
 }
-fn label(text: &str, class: &str) -> gtk::Label {
-    let label = gtk::Label::new(Some(text));
-    label.set_xalign(0.0);
-    label.add_css_class(class);
-    label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    label
-}
-fn column(title: &str, value: &str, width: i32) -> (gtk::Box, gtk::Label, gtk::Label) {
-    let column = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    column.set_size_request(width, -1);
-    let title = label(title, "dim");
-    let value = label(value, "value");
-    column.append(&title);
-    column.append(&value);
-    (column, title, value)
-}
-fn surface(
-    info: &SessionInfo,
+pub(super) fn surface(
     monitor: &gtk::gdk::Monitor,
     layer: Layer,
-    footer: bool,
+    namespace: &str,
+    rect: Slot,
 ) -> gtk::Window {
     let window = gtk::Window::new();
     window.init_layer_shell();
     window.set_layer(layer);
-    window.set_namespace(Some("keek-footer"));
+    window.set_namespace(Some(namespace));
     // Slot margins include reserved space, so place surfaces against the full monitor.
     window.set_exclusive_zone(-1);
     window.set_keyboard_mode(KeyboardMode::None);
     window.set_anchor(Edge::Top, true);
     window.set_anchor(Edge::Left, true);
     window.set_monitor(Some(monitor));
-    let rect = if footer {
-        info.placement.footer
-    } else {
-        info.placement.body
-    };
     window.set_margin(Edge::Left, rect.x);
     window.set_margin(Edge::Top, rect.y);
     window.set_default_size(rect.width, rect.height);
     window.set_resizable(false);
-    window.add_css_class(if footer { "footer" } else { "hover-surface" });
-    window.add_css_class(footer_view::SessionColour::for_slot(info.slot).css_class());
     window
 }
+
+fn primary_click(activate: impl Fn() + 'static) -> gtk::GestureClick {
+    let click = gtk::GestureClick::new();
+    click.set_button(gtk::gdk::BUTTON_PRIMARY);
+    click.connect_released(move |_, _, _, _| activate());
+    click
+}
+
 fn create(
     info: SessionInfo,
     snapshot: SessionSnapshot,
@@ -224,20 +189,15 @@ fn create(
         tracing::warn!(connector = %info.monitor, "No GTK monitor matches the Session Card; skipping it");
         return None;
     };
-    let footer = surface(&info, &monitor, Layer::Top, true);
-    let surface = surface(&info, &monitor, Layer::Bottom, false);
+    let footer = surface(&monitor, Layer::Top, "keek-footer", info.placement.footer);
+    let surface = surface(&monitor, Layer::Bottom, "keek-footer", info.placement.body);
+    let paused = paused_card::new(info.placement, &monitor);
     let body = gtk::Overlay::new();
     let edge = gtk::Box::new(gtk::Orientation::Vertical, 0);
     edge.add_css_class("card-edge");
     edge.set_can_target(false);
     body.add_overlay(&edge);
     surface.set_child(Some(&body));
-    let row = gtk::Box::new(gtk::Orientation::Horizontal, 24);
-    row.set_margin_start(16);
-    row.set_margin_end(16);
-    row.set_valign(gtk::Align::Center);
-    let identity = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    identity.set_size_request(100, -1);
     let view = footer_view::for_session(
         &info,
         &snapshot,
@@ -245,66 +205,30 @@ fn create(
         footer_view::Hover::Away,
         None,
     );
-    let heading = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    heading.append(&label("➤", "cursor"));
-    heading.append(&label(&view.project, "value"));
-    heading.append(&label(&view.branch, "dim"));
-    identity.append(&heading);
-    identity.append(&label(&view.goal, "dim"));
-    let (status, state_label, detail) = column("", "", 100);
-    // Equal halves keep the state column's left edge still while its text changes length.
-    let flexible = gtk::Box::new(gtk::Orientation::Horizontal, 24);
-    flexible.set_homogeneous(true);
-    flexible.set_hexpand(true);
-    flexible.append(&identity);
-    flexible.append(&status);
-    row.append(&flexible);
-    let checked = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    checked.set_size_request(190, -1);
-    row.append(&checked);
-    let (clock, elapsed_label, elapsed) = column("Elapsed", "0:00", 96);
-    row.append(&clock);
     let weak = Rc::downgrade(state);
     let slot = info.slot;
-    let actions = end_card::FooterActions::new(move |action| {
+    let content = FooterContent::new(&view, move |action| {
         if let Some(state) = weak.upgrade() {
             let data = state.borrow();
             if let Some(card) = data.cards.get(&slot) {
-                let command = match action {
-                    footer_view::FooterButton::Done => {
-                        super::ViewerCommand::Done(card.info.name.clone())
-                    }
-                    footer_view::FooterButton::TakeControl => {
-                        super::ViewerCommand::TakeControl(card.info.name.clone())
-                    }
-                    footer_view::FooterButton::Dismiss => {
-                        super::ViewerCommand::Dismiss(card.info.name.clone())
-                    }
-                    footer_view::FooterButton::OpenVideo
-                    | footer_view::FooterButton::OpenFolder => {
-                        if let SessionState::Ended(end) = &card.snapshot.state {
-                            let path = if action == footer_view::FooterButton::OpenVideo {
-                                &end.verification
-                            } else {
-                                &end.folder
-                            };
-                            if let Some(path) = path {
-                                end_card::open(path);
-                            }
-                        }
-                        return;
-                    }
-                };
-                if let Some(commands) = &data.commands
-                    && let Err(error) = commands.try_send(command)
-                {
-                    tracing::warn!(%error, "Session Footer command could not be delivered");
-                }
+                data.activate(card, action);
             }
         }
     });
-    row.append(&actions.container);
-    footer.set_child(Some(&row));
+    footer.set_child(Some(&content.row));
+    let weak = Rc::downgrade(state);
+    let activate_body = move || {
+        if let Some(state) = weak.upgrade() {
+            let data = state.borrow();
+            if let Some(card) = data.cards.get(&slot)
+                && let Some(action) = footer_view::body_click(&card.snapshot)
+            {
+                data.activate(card, action);
+            }
+        }
+    };
+    surface.add_controller(primary_click(activate_body.clone()));
+    paused.add_controller(primary_click(activate_body));
     let motion = gtk::EventControllerMotion::new();
     let weak = Rc::downgrade(state);
     let slot = info.slot;
@@ -345,13 +269,9 @@ fn create(
         hover: footer_view::Hover::Away,
         footer,
         surface,
+        paused,
         body,
-        state_label,
-        detail,
-        checked,
-        elapsed_label,
-        elapsed,
-        actions,
+        content,
         watcher: None,
         end_card,
     };

@@ -407,6 +407,7 @@ async fn recovery_uses_recorded_takeovers_instead_of_rounded_journal_spans() {
         reason: None,
         start_ms: Millis(1000),
         end_ms: Millis(2000),
+        paused: vec![],
     });
     let timeline = journal.recovery_timeline(Millis(10000));
     assert_eq!(

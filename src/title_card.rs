@@ -135,6 +135,7 @@ pub fn title_cards(events: &[TimelineEvent]) -> Vec<(Span, TitleCard)> {
             reason,
             start_ms,
             end_ms,
+            ..
         } if !matched_takeovers.contains(start_ms) => Some((
             Span {
                 start: *start_ms,
@@ -342,6 +343,7 @@ mod tests {
             reason: Some("2FA code".into()),
             start_ms: Millis(start),
             end_ms: Millis(end),
+            paused: vec![],
         }
     }
     fn action(start: u64, end: u64) -> TimelineEvent {
@@ -422,6 +424,7 @@ mod tests {
                 reason: None,
                 start_ms: Millis(5_000),
                 end_ms: Millis(47_000),
+                paused: vec![],
             },
         ]);
 

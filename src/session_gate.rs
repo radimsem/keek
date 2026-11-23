@@ -1,10 +1,16 @@
 use std::{sync::Arc, time::Instant};
 use tokio::sync::{Mutex, OwnedMutexGuard, watch};
 #[derive(Debug, Clone)]
+pub struct Paused {
+    pub start: Instant,
+    pub end: Instant,
+}
+#[derive(Debug, Clone)]
 pub struct Span {
     pub start: Instant,
     pub end: Instant,
     pub reason: Option<String>,
+    pub paused: Vec<Paused>,
 }
 #[derive(Clone)]
 enum State {
@@ -141,6 +147,7 @@ mod tests {
             start: now,
             end: now + std::time::Duration::from_secs(42),
             reason: Some("2FA code".into()),
+            paused: vec![],
         });
         assert!(matches!(held.await.unwrap(), Entry::HandBack(_)));
     }

@@ -82,9 +82,10 @@ It shows that session's:
 - The Verification Checklist's progress ("Checked 2 of 4", counting marked Checks) with one tick per Check: filled green for passed, filled red for failed, an outlined yellow dash for skipped, a dim outline for not yet marked. While the Verifier works, the first unmarked Check's tick wears a Harbor Blue ring and dot, so the footer shows which Check is being checked. The ring is absent during a Help Request or a Takeover and once the session ends.
 - Elapsed time since the session opened, so a stuck session stands out. Once the session ends it reads "Ran" with the total.
 - Help Request state: the whole card turns orange, the window border through a window rule and the footer and any black backdrop with it, and the footer shows the Verifier's reason.
-- During a Takeover: "You are in control" and its running time, with the window border in the active colour.
+- During a Takeover: "You are in control" and its running time, with the window border in the active colour. If the `keek` submap has no Step away bind, the detail line says so instead.
+- While a Takeover is paused: "Takeover paused" over the time away ("0:41 away · your shortcuts work again"), and the whole card turns yellow.
 - After Done: "Back to the Verifier" over "Handed back after 1:12. Help Request answered." Without a Help Request behind the Takeover it reads "Handed back after 1:12." When the screen looks unchanged it reads "The screen looks unchanged. The Verifier was told."
-- The **Take control** button, which becomes **Done** during a Takeover.
+- The **Take control** button. During a Takeover it gives way to **Step away** and **Done**, each after its shortcut, and while the Takeover is paused to **Resume** and **Done**.
 
 When keek reminds the Verifier to mark Checks (see [`design.md`](design.md#agent-interface)), the state column reads "Reminded the Verifier to mark Checks" over "8 actions since the last mark" until the Verifier's next call. A Help Request, a Takeover and the view-only hint take precedence.
 
@@ -92,7 +93,7 @@ The keek daemon already sees every Action on its way to Cua Driver, so it pushes
 
 ### View-only hint
 
-Outside a Takeover, `no_focus` makes Hyprland skip the Session Window in pointer hit tests, so the pointer lands on whatever is beneath it. keek puts a layer-shell surface on the bottom layer under each slot to catch that hover. It covers the whole card body, including the black sides around a Session Window smaller than its slot, which stay inert during a Takeover. While the pointer is over the card body, the footer's state column reads "View only" and "Use Take control to interact.", and the Take control button lights up. A click there does the same and nothing else. The footer shows the last Action again when the pointer leaves. *(my call)*
+Outside a Takeover, `no_focus` makes Hyprland skip the Session Window in pointer hit tests, so the pointer lands on whatever is beneath it. keek puts a layer-shell surface on the bottom layer under each slot to catch that hover. It covers the whole card body, including the black sides around a Session Window smaller than its slot, which stay inert during a Takeover. While the pointer is over the card body, the footer's state column reads "View only" and "Use Take control to interact.", and the Take control button lights up. A click there does the same and nothing else. The footer shows the last Action again when the pointer leaves. While a Takeover is paused the hint stays off, and a click on the card body resumes the Takeover. *(my call)*
 
 ### Help Request
 
@@ -106,8 +107,12 @@ Outside a Takeover, `no_focus` makes Hyprland skip the Session Window in pointer
 A Takeover starts only from the **Take control** button. Looking at, hovering over or clicking the Session Window never starts one.
 
 1. Take control: keek holds the Verifier's next tool call (any forwarded Cua tool, or the pending `request_help`). Holding comes first, so no Verifier Action can land after the developer starts.
-2. keek clears `no_focus`, focuses the Session Window and switches the host Hyprland into the `keek` submap. That submap binds only Super+Esc, which means Done, so every other key, host shortcuts included, goes to the nested desktop. The developer's input arrives on the nested Hyprland's own seat, not through Cua, so it never enters the Action Log.
-3. Done, from the footer button or Super+Esc: keek resets the submap, sets `no_focus` again, returns focus to the developer's previous window and releases the held call. Instead of the call's normal result, the Verifier receives a note ("The developer pressed Done and handed control back after 0:42 (reason). If you raised a Help Request, it is answered. The screen may have changed.") and a fresh screenshot, so it re-reads the screen before acting. The note names the screenshot's pixel size, the desktop size and the scale between them. If the image size cannot be read, it says the scale is unknown and to call `get_window_state` before acting on coordinates.
+2. keek clears `no_focus`, focuses the Session Window and switches the host Hyprland into the `keek` submap. That submap binds only Super+Esc, which means Done, and Super+Tab, which means Step away, so every other key, host shortcuts included, goes to the nested desktop. The developer's input arrives on the nested Hyprland's own seat, not through Cua, so it never enters the Action Log.
+3. Step away, from the footer button or Super+Tab, pauses the Takeover so the developer can use their own desktop, for example to fetch a secret from a password manager. keek resets the submap, sets `no_focus` again, returns focus to the developer's previous window and turns the Session Window's border yellow. The Verifier's held call stays held, the idle timeout stays paused and the recording keepalive keeps running. keek sends one desktop notification, "Takeover paused · myapp", which says the Verifier waits until Done.
+
+   While paused, a panel over the dimmed Session Window says to click the session to carry on. No host key or click reaches the session: `no_focus` is set and the panel takes the click.
+4. Resume, from the footer button or a click on the card body: keek dismisses the notification and does what Take control does. It clears `no_focus`, focuses the Session Window and enters the `keek` submap again. The Takeover carries on; its start and the screen keek compares at Done stay those of Take control.
+5. Done, from the footer button or Super+Esc, works while the Takeover runs and while it is paused, and is the only way to hand control back. During a running Takeover keek resets the submap, sets `no_focus` again and returns focus to the developer's previous window. From a pause keek dismisses the notification and leaves the developer's focus where it is. Either way it then releases the held call. Instead of the call's normal result, the Verifier receives a note ("The developer pressed Done and handed control back after 0:42 (reason). If you raised a Help Request, it is answered. The screen may have changed.") and a fresh screenshot, so it re-reads the screen before acting. The note names the screenshot's pixel size, the desktop size and the scale between them. If the image size cannot be read, it says the scale is unknown and to call `get_window_state` before acting on coordinates.
 
    keek cannot see the developer's input, so it compares the screen at Take control with the screen at Done ([`facts.md`](facts.md#screen-comparison-results)). If the screen differs, or either screenshot cannot be read, the note is the one above. If it looks the same, keek still releases the held call, and the note says instead: "The screen looks unchanged, so if you raised a Help Request, it may not be answered. Re-read the screen, then call request_help again or skip the Check with a comment." The Verifier is told rather than assumed answered, so it does not close the session on the same blocker. A caret blink or a clock tick alone is not a change. The footer says which of the two happened, and the Help Request is recorded as unanswered.
 
@@ -116,10 +121,11 @@ The developer adds keek's submap snippet to their Hyprland config once. If it is
 ```lua
 hl.define_submap("keek", function()
   hl.bind("SUPER + Escape", hl.dsp.submap("reset"))
+  hl.bind("SUPER + Tab", hl.dsp.submap("keek-away"))
 end)
 ```
 
-keek checks for the snippet through `hyprctl binds -j`.
+Leaving the `keek` submap means Done, so Step away has its own signal: Super+Tab switches to the `keek-away` submap, and keek reads that as Step away and resets the submap at once. keek checks for the snippet through `hyprctl binds -j`. If the snippet has no Super+Tab bind, the footer says the Step away shortcut is missing, and the Step away button still works. *(my call)*
 
 The nested desktop types as `us` during a Takeover, whatever the developer's own layout is, because the Cua plugin requires that keymap. keek's docs say so.
 
@@ -127,8 +133,8 @@ The nested desktop doesn't bind the host clipboard, so type a 2FA code or passwo
 
 Recording during a Takeover:
 
-- The Raw Recording keeps running and keeps the footage locally.
-- The Session Timeline gets one Takeover entry: start, end and reason. keek reads the start before it clears `no_focus` and the end after it sets `no_focus` again, so the entry spans all of the developer's input. None of that input is logged.
+- The Raw Recording keeps running and keeps the footage locally, paused spans included.
+- The Session Timeline gets one Takeover entry from Take control to Done: start, end, reason and each span the developer stepped away. keek reads the start before it clears `no_focus` and the end after it sets `no_focus` again, so the entry spans all of the developer's input. None of that input is logged.
 - It also gets one Help Request entry: reason, start, end and whether it was answered, unanswered or withdrawn. An answered or unanswered Help Request ends where its Takeover starts. It is unanswered when the developer pressed Done and the screen looked unchanged. One still open when the session ends counts as withdrawn.
 - The Verification Video cuts the Help Request's wait with nothing in its place, whether it was answered or unanswered.
 - Each Takeover shows as about 2 s of its own footage, blurred, with "You were in control" centred on top. The text has no box: it is navy on light footage and cream on dark footage, picked from the footage's mean brightness.
