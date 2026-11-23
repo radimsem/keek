@@ -33,7 +33,7 @@ pub struct Profile {
     /// Host loopback ports forwarded into the install and session sandboxes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ports: Vec<HostPort>,
-    /// Session Window size. Without it the window is 1280x800.
+    /// Session Window size. Without it, the window fills its Session Card slot above the Session Footer, so the Verification Video size follows the developer's monitor.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window: Option<WindowSize>,
 }

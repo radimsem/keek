@@ -8,6 +8,10 @@ What changed in each keek release, for a person who uses it. The format follows 
 
 - The Session Footer's state text keeps its left edge when it changes, and long text is cut on the right.
 
+### Changed
+
+- A Session Window with no `window` in its Project Profile now fills its slot. The Verification Video size follows the developer's monitor, and the Verdict panel stays within the window.
+
 ## 0.1.1 - 2026-11-15
 
 ### Fixed
