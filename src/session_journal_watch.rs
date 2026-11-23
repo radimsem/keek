@@ -172,6 +172,7 @@ mod tests {
             control: crate::ipc::ControlState::Takeover {
                 start_ms: Millis(1000),
                 shortcuts: crate::ipc::HostShortcuts::Captured,
+                phase: crate::ipc::TakeoverPhase::Running,
             },
             state: SessionState::Open,
             checks: vec![],
@@ -247,6 +248,7 @@ mod tests {
             crate::ipc::ControlState::Takeover {
                 start_ms: Millis(5_100),
                 shortcuts: crate::ipc::HostShortcuts::Captured,
+                phase: crate::ipc::TakeoverPhase::Running,
             },
         ]);
         journal.takeovers.push(crate::session_journal::Takeover {

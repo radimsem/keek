@@ -156,7 +156,7 @@ keek's server instructions tell an agent how to verify a change. The repository'
 
 Ask your agent to verify its change with keek. The agent writes a Verification Checklist and hands it to a fresh Verifier. The Verifier opens an Agent Session, uses the app, and marks each Check.
 
-The session appears on the `keek` workspace. When the Verifier needs you, its card turns orange and you get one notification. Take control, do the step, and hand control back with Done or Super+Esc. The video blurs the Takeover, and what you type stays out of the Action Log. Clear any code left on screen before you hand back, because it shows unblurred afterwards.
+The session appears on the `keek` workspace. When the Verifier needs you, its card turns orange and you get one notification. Take control, do the step, and hand control back with Done or Super+Esc. To fetch something from your own desktop on the way, Step away (Super+Tab) and click the session to carry on; the Verifier waits until Done. The video blurs the Takeover, and what you type stays out of the Action Log. Clear any code left on screen before you hand back, because it shows unblurred afterwards.
 
 The Verdict follows from the checklist. It is Pass, Needs fixes or Partly verified.
 

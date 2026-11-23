@@ -3,8 +3,11 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 mod end_card;
 mod events;
+mod footer_actions;
+mod footer_content;
 pub mod footer_view;
 mod missing_card;
+mod paused_card;
 mod style;
 pub mod theme;
 mod ui;
@@ -55,6 +58,8 @@ impl Viewer for NoopViewer {
 }
 pub enum ViewerCommand {
     TakeControl(SessionName),
+    StepAway(SessionName),
+    Resume(SessionName),
     Done(SessionName),
     Dismiss(SessionName),
 }

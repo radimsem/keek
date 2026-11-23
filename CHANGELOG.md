@@ -4,6 +4,10 @@ What changed in each keek release, for a person who uses it. The format follows 
 
 ## Unreleased
 
+### Added
+
+- Step away from a Takeover with the footer button or Super+Tab to use your own desktop, then click the session to resume. The Verifier keeps waiting until you press Done. Add the Super+Tab bind from the updated submap snippet in the viewer docs to use the shortcut.
+
 ### Fixed
 
 - The Session Footer's state text keeps its left edge when it changes, and long text is cut on the right.

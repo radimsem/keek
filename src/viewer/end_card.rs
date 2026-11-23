@@ -1,5 +1,5 @@
 use super::{
-    footer_view::{FooterButton, FooterView, Tick},
+    footer_view::Tick,
     theme::Theme,
     verdict_view::{self, Icon},
 };
@@ -353,86 +353,6 @@ pub fn open(path: &std::path::Path) {
             }
         },
     );
-}
-
-pub struct FooterActions {
-    pub container: gtk::Box,
-    control: gtk::Button,
-    keycaps: gtk::Box,
-    ended: Vec<(FooterButton, gtk::Button)>,
-    action: std::rc::Rc<std::cell::Cell<Option<FooterButton>>>,
-}
-impl FooterActions {
-    pub fn new(callback: impl Fn(FooterButton) + Clone + 'static) -> Self {
-        let container = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-        let keycaps = gtk::Box::new(gtk::Orientation::Horizontal, 4);
-        keycaps.append(&label("Super", "keycap"));
-        keycaps.append(&label("Esc", "keycap"));
-        container.append(&keycaps);
-        let control = gtk::Button::with_label("Take control");
-        control.set_size_request(-1, 40);
-        let action = std::rc::Rc::new(std::cell::Cell::new(None));
-        let selected = action.clone();
-        let callback_control = callback.clone();
-        control.connect_clicked(move |_| {
-            if let Some(kind) = selected.get() {
-                callback_control(kind);
-            }
-        });
-        container.append(&control);
-        let mut ended = Vec::new();
-        for kind in [
-            FooterButton::OpenVideo,
-            FooterButton::OpenFolder,
-            FooterButton::Dismiss,
-        ] {
-            let button = gtk::Button::with_label(if kind == FooterButton::Dismiss {
-                "×"
-            } else {
-                kind.text()
-            });
-            button.set_size_request(
-                if kind == FooterButton::Dismiss {
-                    40
-                } else {
-                    -1
-                },
-                40,
-            );
-            button.add_css_class(if kind == FooterButton::Dismiss {
-                "dismiss"
-            } else {
-                "secondary"
-            });
-            button.update_property(&[gtk::accessible::Property::Label(kind.text())]);
-            let action = callback.clone();
-            button.connect_clicked(move |_| action(kind));
-            container.append(&button);
-            ended.push((kind, button));
-        }
-        Self {
-            container,
-            control,
-            keycaps,
-            ended,
-            action,
-        }
-    }
-    pub fn draw(&self, view: &FooterView) {
-        self.action.set(view.button);
-        self.control.set_visible(view.button.is_some());
-        self.control
-            .set_label(view.button.map_or("", FooterButton::text));
-        self.keycaps.set_visible(view.keycaps);
-        if view.label == super::footer_view::StateLabel::ViewOnly {
-            self.control.add_css_class("hinted");
-        } else {
-            self.control.remove_css_class("hinted");
-        }
-        for (kind, button) in &self.ended {
-            button.set_visible(view.buttons.contains(kind));
-        }
-    }
 }
 
 #[cfg(test)]

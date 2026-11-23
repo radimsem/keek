@@ -352,6 +352,8 @@ pub enum ControlState {
     Takeover {
         start_ms: Millis,
         shortcuts: HostShortcuts,
+        #[serde(default)]
+        phase: TakeoverPhase,
     },
     HandBack {
         end_ms: Millis,
@@ -367,10 +369,21 @@ impl ControlState {
         }
     }
 }
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TakeoverPhase {
+    #[default]
+    Running,
+    Paused {
+        since_ms: Millis,
+    },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HostShortcuts {
     Captured,
+    CapturedWithoutStepAway,
     Live,
 }
 

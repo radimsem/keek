@@ -123,7 +123,7 @@ keek is a workshop with glass walls on the developer's own desktop. The agent wo
 
 The system borrows everything it can from the host. Omarchy's bar, Hyprland's borders and 8px rounding, JetBrains Mono and the theme palette carry over unchanged, so a Session Card reads as one more Omarchy window with a footer, not as an app. keek's own vocabulary is small and strict: one footer, one Verdict panel, one toast, one cursor. Density is that of a status bar, not a dashboard; a glance answers "is it progressing, is it stuck, does it need me".
 
-Colour is reserved for meaning. Navy and parchment carry everything at rest. Orange appears only when the developer is needed, green, coral and yellow only for Check outcomes, and each session's cursor colour only where it ties the card to its cursor.
+Colour is reserved for meaning. Navy and parchment carry everything at rest. Orange appears only when the developer is needed, green and coral only for Check outcomes, yellow for Check outcomes and a paused Takeover, and each session's cursor colour only where it ties the card to its cursor.
 
 The approved comps live in `design/comps/`, kept outside git on the developer's machine, and in the design canvas (https://claude.ai/artifact/LxCSK6QwgvUrNBKL8ftXzq). Values below are measured from those comps on the Cumulus theme; on any other theme the colours follow that theme (see Colors).
 
@@ -136,7 +136,7 @@ The approved comps live in `design/comps/`, kept outside git on the developer's 
 
 ## Colors
 
-A dark Omarchy navy carrying parchment text, with a small set of signal colours that each mean exactly one thing.
+A dark Omarchy navy carrying parchment text, with a small set of signal colours that each mean one thing. Skip Yellow is the one exception: it marks skipped Checks and Partly verified, and also a paused Takeover. The paused card always says "Takeover paused", so word and place tell the two apart.
 
 keek takes these roles from the active Omarchy theme. The values in the frontmatter are the Cumulus theme's, and the comps show them. Resolve each role with `omarchy-theme-color`, which applies Omarchy's own fallbacks, and the two border roles the way Omarchy's Hyprland template does.
 
@@ -169,7 +169,7 @@ Three themes in Omarchy's set have no `orange`, so a Help Request and a skipped 
 ### Tertiary
 - **Pass Green**: passed Checks and the Pass Verdict.
 - **Fail Coral**: failed Checks and the Needs fixes Verdict.
-- **Skip Yellow**: skipped Checks and the Partly verified Verdict.
+- **Skip Yellow**: skipped Checks and the Partly verified Verdict, and a paused Takeover: the card border, the "Takeover paused" label and the paused panel's border.
 - **Session Cyan / Session Violet**: one per open session. The Cua cursor, the footer's 2px top edge and the arrow before the project name.
 
 ### Neutral
@@ -188,7 +188,7 @@ Three themes in Omarchy's set have no `orange`, so a Help Request and a skipped 
 
 **The Session Colour Rule.** A session's colour appears on its cursor, its footer's top edge and its arrow glyph, and nowhere else. It never colours state, text or buttons.
 
-**The Outcome Palette Rule.** Green, coral and yellow belong to Check outcomes. A Verdict's colour is the colour of the outcome that decided it.
+**The Outcome Palette Rule.** Green, coral and yellow belong to Check outcomes. A Verdict's colour is the colour of the outcome that decided it. Yellow's one other use is a paused Takeover, which always carries the words "Takeover paused".
 
 ## Typography
 
@@ -219,7 +219,7 @@ The Session Footer is a single row, 16px side padding, 24px between columns, cen
 2. State column (up to 560px, shrinks first): state label over its detail line.
 3. Checked column (190px): "Checked" over "2 of 4" and its ticks. Hidden when the session has no Checks yet.
 4. Elapsed column (96px): "Elapsed" while running, "Ran" once ended.
-5. Actions (300px, right-aligned).
+5. Actions (400px, right-aligned).
 
 Ended sessions keep the last frame under the Scrim with one Verdict panel centred on it: 720px wide, 560px for the rendering panel. Checklists list Checks with 12px between rows.
 
@@ -237,19 +237,19 @@ keek is flat. Depth comes from the host's own window borders, the footer's borde
 Corners follow Hyprland's 8px rounding everywhere keek draws a container: Verdict panel, toast, buttons. The Session Footer rounds only its bottom corners, so it continues the window above it. Small inline marks (kbd keys, the "added" tag, footer ticks) use 2 to 4px. Window and footer borders are 2px; panels and the toast use 1px. The Cua cursor is the arrow path `M3 3 L24 11 Q17 17 11 24 Z` with a 2.6px white stroke, and every keek arrow glyph uses the same path.
 
 ### Named Rules
-**The One Card Rule.** The footer overlaps the window's bottom 8px, draws its side and bottom border in the window's current border colour, and changes with it: inactive at rest, active during a Takeover, orange for a Help Request.
+**The One Card Rule.** The footer overlaps the window's bottom 8px, draws its side and bottom border in the window's current border colour, and changes with it: inactive at rest, active during a Takeover, yellow while a Takeover is paused, orange for a Help Request.
 
 ## Components
 
 ### Session Card
 - **Character:** the nested Hyprland window and its Session Footer, read as one card.
-- **States:** at rest (Border Inactive), Help Request (whole card Needs-you Orange, footer background stays Bar Navy), Takeover (Border Active, footer Control Navy), ended (last frame dimmed, one Verdict panel).
+- **States:** at rest (Border Inactive), Help Request (whole card Needs-you Orange, footer background stays Bar Navy), Takeover (Border Active, footer Control Navy), paused Takeover (whole card Skip Yellow, footer Bar Navy, the Session Window dimmed under the paused panel), ended (last frame dimmed, one Verdict panel).
 - **Behaviour:** a new session that needs the slot replaces an ended card.
 - **Session Window:** fills the slot above the Session Footer when the Project Profile sets no `window`. A smaller window is centred on black at its true size, and no panel over it is wider than the window.
 
 ### Session Footer
 - **Character:** a status bar for one session; quiet unless it needs the developer.
-- **State labels:** "Last action" (Parchment Dim), "Needs you" (orange), "You are in control" (Harbor Blue Text), "Back to the Verifier" (Harbor Blue Text), "Rendering" (Parchment Dim), then the Verdict in its outcome colour: "Pass", "Needs fixes", "Partly verified". An Incomplete Session has no Verdict and reads "Incomplete" (Parchment Dim).
+- **State labels:** "Last action" (Parchment Dim), "Needs you" (orange), "You are in control" (Harbor Blue Text), "Takeover paused" (Skip Yellow) over the time away ("0:41 away · your shortcuts work again"), "Back to the Verifier" (Harbor Blue Text), "Rendering" (Parchment Dim), then the Verdict in its outcome colour: "Pass", "Needs fixes", "Partly verified". An Incomplete Session has no Verdict and reads "Incomplete" (Parchment Dim).
 - **Hand-back lines:** under "Back to the Verifier", "Handed back after 1:12. Help Request answered." when the developer answered a Help Request, "Handed back after 1:12." when no Help Request was behind the Takeover, and "The screen looks unchanged. The Verifier was told." when Done changed nothing.
 - **Reminder:** "Reminded the Verifier to mark Checks" (Parchment Dim) over "8 actions since the last mark", until the Verifier's next call. A Help Request, a Takeover and the view-only hint take precedence.
 - **View-only hint:** while the pointer is over a window the developer doesn't control, the state column reads "View only" (Harbor Blue) over "Use Take control to interact.", and Take control lights up.
@@ -265,7 +265,9 @@ Corners follow Hyprland's 8px rounding everywhere keek draws a container: Verdic
 ### Buttons
 - **Shape:** 40px tall, 8px radius, 12px bold label.
 - **Take control:** outlined Harbor Blue at 10% fill, 22% on hover or with the view-only hint. During a Help Request it becomes solid Needs-you Orange with Ink on Accent text.
-- **Done:** solid Harbor Blue, preceded by the `Super` `Esc` keys it shares a shortcut with.
+- **Step away:** the secondary style, preceded by its `Super` `Tab` keys, before Done during a Takeover. Without the bind in the `keek` submap it shows without keys, and the state detail says the shortcut is missing.
+- **Resume:** the outlined Harbor Blue style of Take control, before Done while a Takeover is paused.
+- **Done:** solid Harbor Blue, preceded by the `Super` `Esc` keys it shares a shortcut with during a running Takeover. While paused it shows without keys, because the shortcut works only inside the `keek` submap.
 - **Secondary (Open video, Open folder):** parchment outline at 40%, 4% fill.
 - **Dismiss:** a 40px square, transparent, 12px cross.
 
@@ -275,6 +277,16 @@ Corners follow Hyprland's 8px rounding everywhere keek draws a container: Verdic
 - **Icons:** Pass a check in a circle, Needs fixes an exclamation in a circle, Partly verified a half-filled circle, and an Incomplete Session a dashed circle with a pause.
 - **Checklist:** one row per Check with a 16px glyph (tick, cross, dash, open circle), the Check's text, an "added" tag when the Verifier added it, and its comment beneath in Parchment Comment.
 - **Rendering:** title and percentage on one line, a 6px Harbor Blue progress bar beneath.
+
+### Paused panel
+- **Character:** the one overlay on a running session's desktop. The developer put it there by stepping away, and it goes on Resume or Done.
+- **Dim:** the Session Window under `darker_background` at 55%.
+- **Panel:** centred over the window and no wider than it. Bar Navy, 2px Skip Yellow border, 8px radius, 20px by 28px padding, "Takeover paused" in 15px bold Skip Yellow over "Click the session to carry on. The Verifier waits until you press Done." at 13px.
+- **Behaviour:** a click on it, or anywhere on the card body, resumes the Takeover.
+
+### Takeover paused notification
+- **Content:** "Takeover paused · billing" over "The Verifier waits until you press Done. Go back to keek and click the session to carry on."
+- **Behaviour:** sent once per Step away the way the Help Request toast is, and dismissed on Resume or Done.
 
 ### Help Request toast
 - **Style:** Bar Navy, 1px Harbor Blue border, 28px orange-tinted icon tile with the arrow glyph, "Agent needs you" over the reason and project ("2FA code · billing"), and a 2px Harbor Blue countdown bar along the bottom.
@@ -296,8 +308,6 @@ Designed and approved, not built yet. The screens are in the proposals canvas (h
 
 ### Session Footer changes
 - **State column:** a fixed 420px. Its left edge never moves; the label and the detail line truncate on the right.
-- **Actions:** 400px, right-aligned.
-- **New state label:** "Takeover paused" (Skip Yellow) over the time away.
 
 ### Check in progress
 - **Rail cards:** the ring described under "Checked ticks" also marks the first unmarked tick on a rail card.
@@ -316,18 +326,8 @@ Designed and approved, not built yet. The screens are in the proposals canvas (h
 - **Style:** Bar Navy, 2px Border Active, 8px radius, 16px by 18px padding, 12px between blocks.
 - **Content:** the goal, then one row per Check (12px square, 10px gap, 9px between rows; passed rows have a filled green square with a tick, unmarked rows are Parchment Dim), then "Click to show this session." in Parchment Dim.
 
-### Step away
-- **Buttons during a Takeover:** `Super` `Tab` and **Step away** in the secondary style, then `Super` `Esc` and **Done**.
-- **Buttons while paused:** **Resume** in the outlined Harbor Blue style, then **Done**.
-- **Paused card:** the whole card takes a Skip Yellow border. The Session Window is dimmed with `darker_background` at 55%, and one panel is centred over it: Bar Navy, 2px Skip Yellow border, 20px by 28px padding, "Takeover paused" in 15px bold Skip Yellow over "Click the session to carry on. The Verifier waits until you press Done." at 13px.
-- **Notification:** "Takeover paused · billing" over one line of explanation, sent the way the Help Request toast is.
-
 ### Session colours
 - **Session Pink** `#f58fc2` and **Session Green** `#8fd6a0` join Session Cyan and Session Violet for a third and fourth session. Fixed, not themed.
-
-### Rules this changes
-- Skip Yellow now also means a paused Takeover.
-- The paused panel and its dim are the one overlay on a running session's desktop. The developer put it there by stepping away, and it goes on Resume or Done.
 
 ## Do's and Don'ts
 
@@ -339,7 +339,7 @@ Designed and approved, not built yet. The screens are in the proposals canvas (h
 - **Do** check new work against the comps in `design/comps/` before calling it done.
 
 ### Don't:
-- **Don't** restyle or overlay the agent's nested desktop while it runs; keek draws only around it.
+- **Don't** restyle or overlay the agent's nested desktop while it runs; keek draws only around it. The paused panel is the one exception, and only while the developer has stepped away.
 - **Don't** call a Verdict "Fail" or show a bare red failure state.
 - **Don't** use Needs-you Orange for anything but a Help Request.
 - **Don't** add shadows, gradients or a second font family.

@@ -540,6 +540,9 @@ mod takeover;
 #[path = "session_actor_tests/recording_keepalive.rs"]
 mod recording_keepalive;
 
+#[path = "session_actor_tests/step_away.rs"]
+mod step_away;
+
 #[path = "session_actor_tests/queued_help.rs"]
 mod queued_help;
 

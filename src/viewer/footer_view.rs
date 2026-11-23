@@ -1,6 +1,6 @@
 use crate::{
     checklist::Mark,
-    ipc::{SessionSnapshot, SessionState},
+    ipc::{ControlState, HostShortcuts, SessionSnapshot, SessionState, TakeoverPhase},
     reminder::THRESHOLD,
     timeline::CheckOutcome,
 };
@@ -18,6 +18,7 @@ pub enum StateLabel {
     Closing,
     NeedsYou,
     Takeover,
+    TakeoverPaused,
     HandBack,
     Rendering,
     Pass,
@@ -34,6 +35,7 @@ impl StateLabel {
             Self::Rendering | Self::Incomplete => None,
             Self::NeedsYou => Some("needs-you"),
             Self::Takeover => Some("takeover"),
+            Self::TakeoverPaused => Some("paused"),
             Self::HandBack => Some("hand-back"),
             Self::Opening | Self::LastAction | Self::Reminded | Self::ViewOnly | Self::Closing => {
                 None
@@ -54,6 +56,7 @@ impl StateLabel {
             Self::Closing => "Closing",
             Self::NeedsYou => "Needs you",
             Self::Takeover => "You are in control",
+            Self::TakeoverPaused => "Takeover paused",
             Self::HandBack => "Back to the Verifier",
         }
     }
@@ -112,6 +115,8 @@ pub struct CheckedView {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FooterButton {
     TakeControl,
+    StepAway,
+    Resume,
     Done,
     OpenVideo,
     OpenFolder,
@@ -121,12 +126,32 @@ impl FooterButton {
     pub fn text(self) -> &'static str {
         match self {
             Self::TakeControl => "Take control",
+            Self::StepAway => "Step away",
+            Self::Resume => "Resume",
             Self::Done => "Done",
             Self::OpenVideo => "Open video",
             Self::OpenFolder => "Open folder",
             Self::Dismiss => "Dismiss",
         }
     }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shortcut {
+    SuperTab,
+    SuperEsc,
+}
+impl Shortcut {
+    pub fn keys(self) -> [&'static str; 2] {
+        match self {
+            Self::SuperTab => ["Super", "Tab"],
+            Self::SuperEsc => ["Super", "Esc"],
+        }
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Takeover {
+    Running,
+    Paused,
 }
 #[derive(Debug, PartialEq, Eq)]
 pub struct FooterView {
@@ -139,8 +164,22 @@ pub struct FooterView {
     pub elapsed: String,
     pub checked: Option<CheckedView>,
     pub button: Option<FooterButton>,
-    pub keycaps: bool,
+    pub shortcuts: Vec<(FooterButton, Shortcut)>,
     pub buttons: Vec<FooterButton>,
+    pub takeover: Option<Takeover>,
+}
+pub(super) fn is_paused(snapshot: &SessionSnapshot) -> bool {
+    snapshot.state == SessionState::Open
+        && matches!(
+            snapshot.control,
+            ControlState::Takeover {
+                phase: TakeoverPhase::Paused { .. },
+                ..
+            }
+        )
+}
+pub fn body_click(snapshot: &SessionSnapshot) -> Option<FooterButton> {
+    is_paused(snapshot).then_some(FooterButton::Resume)
 }
 pub fn duration(seconds: u64) -> String {
     if seconds >= 3600 {
@@ -288,36 +327,58 @@ pub fn for_session(
         ),
     };
     let mut button = (snapshot.state == SessionState::Open).then_some(FooterButton::TakeControl);
-    let mut keycaps = false;
+    let mut shortcuts = Vec::new();
+    let mut takeover = None;
     if snapshot.state == SessionState::Open {
         match &snapshot.control {
-            crate::ipc::ControlState::Verifier => {}
-            crate::ipc::ControlState::HelpRequest { reason, start_ms } => {
+            ControlState::Verifier => {}
+            ControlState::HelpRequest { reason, start_ms } => {
                 label = StateLabel::NeedsYou;
                 detail = format!(
                     "{reason} · waiting {}",
                     duration(seconds.saturating_sub(start_ms.0 / 1000))
                 );
             }
-            crate::ipc::ControlState::Takeover {
+            ControlState::Takeover {
                 start_ms,
-                shortcuts,
+                shortcuts: host_shortcuts,
+                phase: TakeoverPhase::Running,
             } => {
                 label = StateLabel::Takeover;
-                let shortcuts = match shortcuts {
-                    crate::ipc::HostShortcuts::Captured => {
-                        keycaps = true;
+                let shortcut_detail = match host_shortcuts {
+                    HostShortcuts::Captured => {
+                        shortcuts.push((FooterButton::StepAway, Shortcut::SuperTab));
+                        shortcuts.push((FooterButton::Done, Shortcut::SuperEsc));
                         "host shortcuts go to the session"
                     }
-                    crate::ipc::HostShortcuts::Live => "host shortcuts stay live (no keek submap)",
+                    HostShortcuts::CapturedWithoutStepAway => {
+                        shortcuts.push((FooterButton::Done, Shortcut::SuperEsc));
+                        "Step away shortcut missing from the keek submap"
+                    }
+                    HostShortcuts::Live => "host shortcuts stay live (no keek submap)",
                 };
                 detail = format!(
-                    "{} · {shortcuts}",
+                    "{} · {shortcut_detail}",
                     duration(seconds.saturating_sub(start_ms.0 / 1000))
                 );
                 button = Some(FooterButton::Done);
+                takeover = Some(Takeover::Running);
             }
-            crate::ipc::ControlState::HandBack {
+            ControlState::Takeover {
+                phase: TakeoverPhase::Paused { since_ms },
+                ..
+            } => {
+                label = StateLabel::TakeoverPaused;
+                let now_ms = now
+                    .signed_duration_since(info.opened)
+                    .num_milliseconds()
+                    .max(0) as u64;
+                let away = duration(now_ms.saturating_sub(since_ms.0) / 1000);
+                detail = format!("{away} away · your shortcuts work again");
+                button = Some(FooterButton::Done);
+                takeover = Some(Takeover::Paused);
+            }
+            ControlState::HandBack {
                 end_ms,
                 length,
                 result,
@@ -354,7 +415,7 @@ pub fn for_session(
     let show_in_progress = snapshot.state == SessionState::Open
         && matches!(
             snapshot.control,
-            crate::ipc::ControlState::Verifier | crate::ipc::ControlState::HandBack { .. }
+            ControlState::Verifier | ControlState::HandBack { .. }
         );
     let mut counts = [0; 4];
     let mut ticks = Vec::new();
@@ -399,7 +460,7 @@ pub fn for_session(
         elapsed: duration(seconds),
         checked,
         button,
-        keycaps,
+        shortcuts,
         buttons: match &snapshot.state {
             SessionState::Ended(ended) => {
                 let mut buttons = Vec::new();
@@ -412,13 +473,21 @@ pub fn for_session(
                 buttons.push(FooterButton::Dismiss);
                 buttons
             }
-            SessionState::Opening
-            | SessionState::Open
-            | SessionState::Closing
-            | SessionState::Rendering { .. } => button.into_iter().collect(),
+            SessionState::Open => match takeover {
+                Some(Takeover::Running) => vec![FooterButton::StepAway, FooterButton::Done],
+                Some(Takeover::Paused) => vec![FooterButton::Resume, FooterButton::Done],
+                None => button.into_iter().collect(),
+            },
+            SessionState::Opening | SessionState::Closing | SessionState::Rendering { .. } => {
+                button.into_iter().collect()
+            }
         },
+        takeover,
     }
 }
+#[cfg(test)]
+#[path = "footer_view_step_away_tests.rs"]
+mod step_away_tests;
 #[cfg(test)]
 #[path = "footer_view_tests.rs"]
 mod test_cases;

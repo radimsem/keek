@@ -6,7 +6,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, duplex};
 
 #[test]
 fn snapshots_round_trip_every_control_and_shortcut_state() {
-    use keek::ipc::{ControlState, HostShortcuts, SessionSnapshot};
+    use keek::ipc::{ControlState, HostShortcuts, SessionSnapshot, TakeoverPhase};
     use keek::timeline::Millis;
     for control in [
         ControlState::Verifier,
@@ -17,10 +17,12 @@ fn snapshots_round_trip_every_control_and_shortcut_state() {
         ControlState::Takeover {
             start_ms: Millis(2),
             shortcuts: HostShortcuts::Captured,
+            phase: TakeoverPhase::Running,
         },
         ControlState::Takeover {
             start_ms: Millis(2),
             shortcuts: HostShortcuts::Live,
+            phase: TakeoverPhase::Running,
         },
         ControlState::HandBack {
             end_ms: Millis(3),

@@ -1,5 +1,5 @@
 use super::*;
-use crate::timeline::{CheckId, CheckOutcome};
+use crate::timeline::{CheckId, CheckOutcome, PausedSpan};
 
 pub(super) struct LoopState {
     pub(super) driver: Box<dyn Driver>,
@@ -336,6 +336,14 @@ impl Actor {
                 reason: span.reason,
                 start_ms: timeline_time(zero, span.start),
                 end_ms: timeline_time(zero, span.end),
+                paused: span
+                    .paused
+                    .into_iter()
+                    .map(|pause| PausedSpan {
+                        start_ms: timeline_time(zero, pause.start),
+                        end_ms: timeline_time(zero, pause.end),
+                    })
+                    .collect(),
             });
         }
         for help in self.control.drain_help_requests().await {

@@ -358,6 +358,7 @@ mod tests {
             reason: None,
             start_ms: Millis(3000),
             end_ms: Millis(5000),
+            paused: vec![],
         });
         timeline.push(TimelineEvent::CheckMark {
             check: crate::timeline::CheckId(1),
@@ -401,6 +402,7 @@ mod tests {
                 reason: None,
                 start_ms: Millis(start),
                 end_ms: Millis(end),
+                paused: vec![],
             });
         }
         assert_eq!(
@@ -426,6 +428,7 @@ mod tests {
                 start_ms: Millis(start),
                 end_ms: Millis(end),
                 reason: Some(reason.into()),
+                paused: vec![],
             });
         }
         let plan = plan_edit(
@@ -467,6 +470,7 @@ mod tests {
             reason: Some("2FA code".into()),
             start_ms: Millis(284_000),
             end_ms: Millis(306_000),
+            paused: vec![],
         });
         let plan = plan_edit(
             &timeline,
@@ -514,6 +518,7 @@ mod tests {
             reason: Some("2FA code".into()),
             start_ms: Millis(5000),
             end_ms: Millis(8000),
+            paused: vec![],
         });
         let duration = Millis(8150);
         let plan = plan_edit(

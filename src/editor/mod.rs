@@ -378,6 +378,7 @@ mod takeover_tests {
             reason: Some("2FA code".into()),
             start_ms: Millis(1000),
             end_ms: Millis(4000),
+            paused: vec![],
         });
         let runner = Runner(Mutex::new(Vec::new()), Mutex::new(String::new()));
         let plan = edit(

@@ -9,6 +9,7 @@ fn failed_video_notice_covers_takeover_times_without_double_punctuation() {
         reason: Some("2FA code.".into()),
         start_ms: Millis(1000),
         end_ms: Millis(2000),
+        paused: vec![],
     }];
     let revision = Revision {
         branch: None,

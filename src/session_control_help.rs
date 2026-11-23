@@ -11,25 +11,7 @@ impl Controller {
             }
         });
         let text = format!("{help} · {}", self.project);
-        // Omarchy expires a normal notification after 8 s; a critical one stays until acted on.
-        if let Err(error) = self
-            .runner
-            .output(
-                "omarchy-notification-send",
-                &[
-                    "-u",
-                    "critical",
-                    HELP_SUMMARY,
-                    &text,
-                    "--exec",
-                    "hyprctl",
-                    "eval",
-                    "hl.dispatch(hl.dsp.focus({ workspace = \"name:keek\" }))",
-                ],
-                None,
-            )
-            .await
-        {
+        if let Err(error) = self.send_notification(HELP_SUMMARY, &text).await {
             tracing::warn!(%error, "Could not send Help Request notification");
         }
         let orange = tokio::task::spawn_blocking(|| crate::viewer::theme::load().orange)
@@ -46,11 +28,7 @@ impl Controller {
     /// Omarchy shell keeps a card up after its sender closes it, so keek dismisses it through the
     /// shell, which matches by summary.
     pub(super) async fn dismiss_help_notification(&self) {
-        if let Err(error) = self
-            .runner
-            .output("omarchy-notification-dismiss", &[HELP_SUMMARY], None)
-            .await
-        {
+        if let Err(error) = self.dismiss_notification(HELP_SUMMARY).await {
             tracing::warn!(%error, "Could not dismiss the Help Request notification");
         }
     }
@@ -59,5 +37,64 @@ impl Controller {
     pub(super) async fn withdraw_help(&self, before: ControlState) -> Result<(), ProcessError> {
         self.events.send_modify(|s| s.control = before);
         self.prop("inactive_border_color", "unset").await
+    }
+
+    pub(super) async fn set_paused_border(&self) -> Result<(), ProcessError> {
+        let yellow = tokio::task::spawn_blocking(|| crate::viewer::theme::load().yellow)
+            .await
+            .unwrap_or_else(|_| crate::viewer::theme::parse("").yellow);
+        self.prop(
+            "inactive_border_color",
+            &format!("rgb({})", yellow.trim_start_matches('#')),
+        )
+        .await
+    }
+
+    pub(super) async fn send_paused_notification(&self) {
+        if let Err(error) = self
+            .send_notification(
+                &self.paused_summary(),
+                "The Verifier waits until you press Done. Go back to keek and click the session to carry on.",
+            )
+            .await
+        {
+            tracing::warn!(%error, "Could not send paused Takeover notification");
+        }
+    }
+
+    pub(super) async fn dismiss_paused_notification(&self) {
+        if let Err(error) = self.dismiss_notification(&self.paused_summary()).await {
+            tracing::warn!(%error, "Could not dismiss paused Takeover notification");
+        }
+    }
+
+    fn paused_summary(&self) -> String {
+        format!("Takeover paused · {}", self.project)
+    }
+
+    async fn send_notification(&self, summary: &str, body: &str) -> Result<String, ProcessError> {
+        // Omarchy expires a normal notification after 8 s; a critical one stays until acted on.
+        self.runner
+            .output(
+                "omarchy-notification-send",
+                &[
+                    "-u",
+                    "critical",
+                    summary,
+                    body,
+                    "--exec",
+                    "hyprctl",
+                    "eval",
+                    "hl.dispatch(hl.dsp.focus({ workspace = \"name:keek\" }))",
+                ],
+                None,
+            )
+            .await
+    }
+
+    async fn dismiss_notification(&self, summary: &str) -> Result<String, ProcessError> {
+        self.runner
+            .output("omarchy-notification-dismiss", &[summary], None)
+            .await
     }
 }

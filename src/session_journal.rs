@@ -131,6 +131,7 @@ impl Journal {
                 reason: None,
                 start_ms: span.start,
                 end_ms: span.end.unwrap_or(recording_end),
+                paused: vec![],
             });
         }
         timeline

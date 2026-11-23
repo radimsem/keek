@@ -130,6 +130,12 @@ impl Registry {
             crate::viewer::ViewerCommand::TakeControl(session) => {
                 (session, crate::session::control::Command::TakeControl)
             }
+            crate::viewer::ViewerCommand::StepAway(session) => {
+                (session, crate::session::control::Command::StepAway)
+            }
+            crate::viewer::ViewerCommand::Resume(session) => {
+                (session, crate::session::control::Command::Resume)
+            }
             crate::viewer::ViewerCommand::Done(session) => {
                 (session, crate::session::control::Command::Done)
             }

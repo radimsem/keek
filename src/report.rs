@@ -300,6 +300,7 @@ mod tests {
                     reason: Some("2FA code.".into()),
                     start_ms: Millis(284_000),
                     end_ms: Millis(306_000),
+                    paused: vec![],
                 },
             ],
             checks: &[],

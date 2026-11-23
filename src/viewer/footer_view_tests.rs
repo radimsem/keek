@@ -42,12 +42,16 @@ mod tests {
         s.control = crate::ipc::ControlState::Takeover {
             start_ms: crate::timeline::Millis(1000),
             shortcuts: crate::ipc::HostShortcuts::Captured,
+            phase: crate::ipc::TakeoverPhase::Running,
         };
         let view = render(&s, 19, true);
         assert_eq!(view.label.text(), "You are in control");
         assert_eq!(view.detail, "0:18 · host shortcuts go to the session");
         assert_eq!(view.button, Some(FooterButton::Done));
-        assert!(view.keycaps);
+        assert!(
+            view.shortcuts
+                .contains(&(FooterButton::Done, Shortcut::SuperEsc))
+        );
     }
     #[test]
     fn takeover_warns_when_the_submap_is_missing() {
@@ -55,13 +59,18 @@ mod tests {
         s.control = crate::ipc::ControlState::Takeover {
             start_ms: crate::timeline::Millis(1000),
             shortcuts: crate::ipc::HostShortcuts::Live,
+            phase: crate::ipc::TakeoverPhase::Running,
         };
         let view = render(&s, 19, false);
         assert_eq!(
             view.detail,
             "0:18 · host shortcuts stay live (no keek submap)"
         );
-        assert!(!view.keycaps);
+        assert!(
+            !view
+                .shortcuts
+                .contains(&(FooterButton::Done, Shortcut::SuperEsc))
+        );
         assert_eq!(view.label.text(), "You are in control");
         assert_eq!(view.button, Some(FooterButton::Done));
     }
@@ -131,6 +140,7 @@ mod tests {
             s.control = crate::ipc::ControlState::Takeover {
                 start_ms: crate::timeline::Millis(0),
                 shortcuts: crate::ipc::HostShortcuts::Live,
+                phase: crate::ipc::TakeoverPhase::Running,
             };
             assert_eq!(render(&s, 0, false).button, None);
         }
@@ -539,6 +549,7 @@ mod live_checks {
         takeover.control = ControlState::Takeover {
             start_ms: Millis(0),
             shortcuts: HostShortcuts::Captured,
+            phase: crate::ipc::TakeoverPhase::Running,
         };
         let mut opening = open_with(&[None]);
         opening.state = SessionState::Opening;
@@ -577,6 +588,7 @@ mod live_checks {
         s.control = ControlState::Takeover {
             start_ms: Millis(0),
             shortcuts: HostShortcuts::Captured,
+            phase: crate::ipc::TakeoverPhase::Running,
         };
         assert_eq!(tests::render(&s, 0, false).label, StateLabel::Takeover);
     }
