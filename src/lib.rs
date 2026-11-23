@@ -43,11 +43,14 @@ mod session_project;
 pub mod credential_scrub;
 pub mod credentials;
 pub mod hypr;
+pub mod places;
+pub mod rail_stills;
 pub mod revision;
 mod session_messages;
 pub mod slots;
 pub mod viewer;
 mod window_placement;
+pub mod window_seat;
 
 mod session_journal;
 

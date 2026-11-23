@@ -101,6 +101,8 @@ pub(crate) async fn serve(
         .viewer
         .take_commands()
         .unwrap_or_else(|| mpsc::channel(1).1);
+    let mut stills = tokio::time::interval(Duration::from_secs(1));
+    stills.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     loop {
         idle.update(registry.keeps_daemon_alive() || !connections.is_empty());
@@ -112,6 +114,7 @@ pub(crate) async fn serve(
                 return Ok(Exit::Terminated);
             }
             Some(command) = commands.recv() => registry.control(command).await,
+            _ = stills.tick() => registry.take_stills(),
             accepted = listener.accept() => {
                 match accepted {
                     Ok((stream, _)) => { connections.spawn(serve_client(stream, request_sender.clone())); }
@@ -125,7 +128,7 @@ pub(crate) async fn serve(
                 match finished { Ok(finished) => registry.finished(finished).await, Err(error) => tracing::error!(%error, "Agent Session task failed") }
             }
             Some(ended) = registry.recovery.join_next() => { if let Err(error) = ended { tracing::error!(%error, "session recovery task failed"); } }
-            Some(ended) = registry.background.join_next() => { if let Err(error) = ended { tracing::error!(%error, "daemon background task failed"); } }
+            Some(ended) = registry.background.join_next() => { if let Err(error) = ended && !error.is_cancelled() { tracing::error!(%error, "daemon background task failed"); } }
             Some(ended) = connections.join_next() => {
                 match ended {
                     Ok(ConnectionEnd::ShutdownAccepted) => return Ok(Exit::ShutDown),

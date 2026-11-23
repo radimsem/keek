@@ -54,6 +54,7 @@ fn focus_case(
             opened: Instant::now(),
             window: Some(WindowAddress("0xabc".into())),
             project: "app".into(),
+            session: "app-12-00-00".parse().unwrap(),
             clipboard: Arc::new(NoClipboard),
         },
         calls,
@@ -159,6 +160,7 @@ async fn done_without_another_client_keeps_the_gate_closed() {
         opened: Instant::now(),
         window: Some(WindowAddress("0xabc".into())),
         project: "app".into(),
+        session: "app-12-00-00".parse().unwrap(),
         clipboard: Arc::new(NoClipboard),
     };
     drop(control.gate.close().await);

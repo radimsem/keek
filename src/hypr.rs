@@ -13,6 +13,8 @@ pub enum HyprEvent {
         class: String,
     },
     CloseWindow(String),
+    /// Sent by Hyprland's `event` dispatcher.
+    Custom(String),
 }
 pub fn parse(line: &str) -> Option<HyprEvent> {
     let (name, data) = line.trim_end().split_once(">>")?;
@@ -63,6 +65,7 @@ pub fn parse(line: &str) -> Option<HyprEvent> {
             })
         }
         "closewindow" if !data.is_empty() => Some(HyprEvent::CloseWindow(data.into())),
+        "custom" => Some(HyprEvent::Custom(data.into())),
         _ => None,
     }
 }
@@ -186,6 +189,13 @@ mod tests {
         assert_eq!(
             parse("closewindow>>abc"),
             Some(HyprEvent::CloseWindow("abc".into()))
+        );
+    }
+    #[test]
+    fn a_custom_event_keeps_its_data() {
+        assert_eq!(
+            parse("custom>>keek-show 2\n"),
+            Some(HyprEvent::Custom("keek-show 2".into()))
         );
     }
     #[test]

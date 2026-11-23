@@ -145,6 +145,7 @@ pub struct Actor {
     pub compositor: Arc<dyn crate::compositor::Compositor>,
     pub opened_at: Instant,
     pub placement: crate::compositor::Placement,
+    pub window: crate::window_seat::WindowSeat,
     pub credentials: crate::credentials::Credentials,
     pub project: String,
     pub worktree: PathBuf,

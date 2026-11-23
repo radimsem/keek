@@ -3,18 +3,34 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 mod end_card;
 mod events;
+mod focus_card;
 mod footer_actions;
 mod footer_content;
 pub mod footer_view;
 mod missing_card;
 mod paused_card;
+mod rail_card;
+mod rail_panels;
+mod rail_style;
+pub mod rail_view;
 mod style;
 pub mod theme;
 mod ui;
 pub mod verdict_view;
+pub use events::show_target;
 pub use ui::{init, run};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SlotId(pub usize);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CardSpot {
+    Focus(crate::slots::CardGeometry),
+    Rail(crate::slots::Slot),
+}
+#[derive(Debug, Clone)]
+pub struct Still {
+    pub path: std::path::PathBuf,
+    pub taken: chrono::DateTime<chrono::Utc>,
+}
 #[derive(Debug, Clone)]
 pub struct SessionInfo {
     pub name: SessionName,
@@ -25,6 +41,7 @@ pub struct SessionInfo {
     pub slot: SlotId,
     pub placement: crate::slots::CardGeometry,
     pub monitor: String,
+    pub spot: CardSpot,
 }
 pub type ViewerFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>;
 pub trait Viewer: Send + Sync {
@@ -40,6 +57,12 @@ pub trait Viewer: Send + Sync {
         snapshots: watch::Receiver<SessionSnapshot>,
     ) -> ViewerFuture<'_>;
     fn closed(&self, slot: SlotId) -> ViewerFuture<'_>;
+    fn arranged(&self, _: Vec<(SlotId, CardSpot)>) -> ViewerFuture<'_> {
+        Box::pin(async {})
+    }
+    fn still(&self, _: SlotId, _: Still) -> ViewerFuture<'_> {
+        Box::pin(async {})
+    }
     fn shutdown(&self) -> ViewerFuture<'_> {
         Box::pin(async {})
     }
@@ -62,11 +85,19 @@ pub enum ViewerCommand {
     Resume(SessionName),
     Done(SessionName),
     Dismiss(SessionName),
+    Show(ShowTarget),
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ShowTarget {
+    Session(SessionName),
+    Number(usize),
 }
 pub enum ViewerMessage {
     Commands(mpsc::Sender<ViewerCommand>),
-    Opened(SessionInfo, watch::Receiver<SessionSnapshot>),
+    Opened(Box<SessionInfo>, watch::Receiver<SessionSnapshot>),
     Closed(SlotId),
+    Arranged(Vec<(SlotId, CardSpot)>),
+    Still(SlotId, Still),
     Shutdown,
 }
 struct ChannelViewer(
@@ -88,7 +119,11 @@ impl Viewer for ChannelViewer {
         snapshots: watch::Receiver<SessionSnapshot>,
     ) -> ViewerFuture<'_> {
         Box::pin(async move {
-            if let Err(error) = self.0.send(ViewerMessage::Opened(info, snapshots)).await {
+            if let Err(error) = self
+                .0
+                .send(ViewerMessage::Opened(Box::new(info), snapshots))
+                .await
+            {
                 tracing::warn!(%error,"Session Footer update could not be delivered");
             }
         })
@@ -97,6 +132,20 @@ impl Viewer for ChannelViewer {
         Box::pin(async move {
             if let Err(error) = self.0.send(ViewerMessage::Closed(slot)).await {
                 tracing::warn!(%error,"Session Footer close could not be delivered");
+            }
+        })
+    }
+    fn arranged(&self, cards: Vec<(SlotId, CardSpot)>) -> ViewerFuture<'_> {
+        Box::pin(async move {
+            if let Err(error) = self.0.send(ViewerMessage::Arranged(cards)).await {
+                tracing::warn!(%error, "Session Card arrangement could not be delivered");
+            }
+        })
+    }
+    fn still(&self, slot: SlotId, still: Still) -> ViewerFuture<'_> {
+        Box::pin(async move {
+            if let Err(error) = self.0.send(ViewerMessage::Still(slot, still)).await {
+                tracing::warn!(%error, "rail still could not be delivered");
             }
         })
     }

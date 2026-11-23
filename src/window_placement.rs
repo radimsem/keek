@@ -1,10 +1,8 @@
 use crate::{
-    compositor::{Placement, WindowPid},
+    compositor::{Placement, WindowPid, WindowSpot, WorkspacePlacement},
     hypr,
     process::ProcessError,
-    project::WindowSize,
     slots,
-    viewer::SlotId,
 };
 use serde_json::Value;
 use std::collections::HashSet;
@@ -31,11 +29,7 @@ fn number(v: &Value, key: &str) -> i32 {
         .and_then(|n| n.try_into().ok())
         .unwrap_or(0)
 }
-pub async fn slot(
-    index: SlotId,
-    count: usize,
-    size: Option<WindowSize>,
-) -> Result<Placement, ProcessError> {
+pub async fn workspace(places: usize) -> Result<WorkspacePlacement, ProcessError> {
     let monitors = json("j/monitors").await?;
     let monitors = monitors
         .as_array()
@@ -86,35 +80,19 @@ pub async fn slot(
         &json("j/getoption general:gaps_in").await?,
         DEFAULT_INNER_GAP,
     ) * 2;
-    let slots = slots::layout(slots::Layout {
+    let layout = slots::workspace(slots::Layout {
         width,
         height,
         reserved,
         outer,
         gap: inner,
-        count,
-    });
-    let Some(slot) = slots.get(index.0).copied() else {
-        return Err(refused(
-            "The monitor has no room for this Session Card. Use a larger monitor or reduce the session cap",
-        ));
-    };
-    let size = if let Some(size) = size {
-        let w = i32::try_from(size.width.get())
-            .map_err(|_| refused("WindowSize width is too large. Reduce it and retry"))?;
-        let h = i32::try_from(size.height.get())
-            .map_err(|_| refused("WindowSize height is too large. Reduce it and retry"))?;
-        if w > slot.width || h > slot.height {
-            return Err(refused(
-                "The Project WindowSize exceeds its Session Card slot. Reduce WindowSize or use a larger monitor",
-            ));
-        }
-        Some((w, h))
-    } else {
-        None
-    };
-    Ok(Placement {
-        geometry: slots::geometry(slot, size),
+        count: places,
+    })
+    .ok_or_else(|| refused(
+        "The monitor has no room for the Agents Workspace. Use a larger monitor or reduce session_cap in the keek config",
+    ))?;
+    Ok(WorkspacePlacement {
+        layout,
         origin: (number(monitor, "x"), number(monitor, "y")),
         monitor: monitor["name"].as_str().unwrap_or_default().into(),
     })
@@ -172,12 +150,9 @@ pub async fn place(
         Some(events) => events,
         None => hypr::subscribe().await?,
     };
-    let mut slot = placement.geometry.window;
-    slot.x += placement.origin.0;
-    slot.y += placement.origin.1;
     tokio::time::timeout(
         std::time::Duration::from_secs(5),
-        place_mapped(pid, slot, &mut events),
+        place_mapped(pid, placement, &mut events),
     )
     .await
     .map_err(|_| refused("The Session Window did not appear within 5 s. Open again"))?
@@ -185,7 +160,7 @@ pub async fn place(
 
 async fn place_mapped(
     pid: Option<WindowPid>,
-    slot: slots::Slot,
+    placement: Placement,
     events: &mut crate::compositor::WindowEvents,
 ) -> Result<crate::compositor::WindowAddress, ProcessError> {
     let mut event = None;
@@ -213,7 +188,7 @@ async fn place_mapped(
             selected
         };
         if let Some((address, selector)) = selected {
-            let result = dispatch(&selector, slot).await;
+            let result = dispatch(&selector, &placement).await;
             if result.is_err()
                 && let Ok(mut placed) = PLACED.get_or_init(|| Mutex::new(HashSet::new())).lock()
             {
@@ -241,16 +216,23 @@ async fn place_mapped(
     }
 }
 
-async fn dispatch(selector: &str, slot: slots::Slot) -> Result<(), ProcessError> {
-    let slots::Slot {
-        x,
-        y,
-        width,
-        height,
-    } = slot;
+pub(crate) fn move_script(selector: &str, spot: WindowSpot) -> String {
+    match spot {
+        WindowSpot::Shown { x, y } => format!(
+            "hl.dispatch(hl.dsp.window.move({{ window = '{selector}', workspace = 'name:keek', follow = false }})); hl.dispatch(hl.dsp.window.move({{ window = '{selector}', x = {x}, y = {y}, relative = false }}))"
+        ),
+        WindowSpot::Hidden => format!(
+            "hl.dispatch(hl.dsp.window.move({{ window = '{selector}', workspace = 'name:keek-rail', follow = false }}))"
+        ),
+    }
+}
+
+async fn dispatch(selector: &str, placement: &Placement) -> Result<(), ProcessError> {
+    let slots::Slot { width, height, .. } = placement.geometry.window;
+    let move_window = move_script(selector, placement.initial);
     // Resizing a floating window keeps its centre, so resize before the move.
     let lua = format!(
-        "hl.dispatch(hl.dsp.window.move({{ window = '{selector}', workspace = 'name:keek', follow = false }})); hl.dispatch(hl.dsp.window.float({{ window = '{selector}', action = 'enable' }})); hl.dispatch(hl.dsp.window.resize({{ window = '{selector}', x = {width}, y = {height}, relative = false }})); hl.dispatch(hl.dsp.window.move({{ window = '{selector}', x = {x}, y = {y}, relative = false }}))"
+        "hl.dispatch(hl.dsp.window.float({{ window = '{selector}', action = 'enable' }})); hl.dispatch(hl.dsp.window.resize({{ window = '{selector}', x = {width}, y = {height}, relative = false }})); {move_window}"
     );
     let output = hypr::command(&format!("eval {lua}")).await?;
     if output.trim() == "ok" {

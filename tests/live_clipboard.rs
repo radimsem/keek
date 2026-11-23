@@ -200,6 +200,7 @@ async fn live_a_takeover_carries_host_text_in_and_nothing_out() -> Result<()> {
             opened: std::time::Instant::now(),
             window: Some(keek::compositor::WindowAddress(address.clone())),
             project: "clip".into(),
+            session: "clip-12-00-00".parse().unwrap(),
             clipboard: Arc::new(keek::takeover_clipboard::SessionFifo::new(&folder)),
         };
         controller_task = Some(tokio::spawn(

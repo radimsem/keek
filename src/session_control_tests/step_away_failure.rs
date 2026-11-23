@@ -73,6 +73,7 @@ fn host(
         opened: Instant::now(),
         window: Some(WindowAddress("0xabc".into())),
         project: "app".into(),
+        session: "app-12-00-00".parse().unwrap(),
         clipboard: Arc::new(NoClipboard),
     };
     (

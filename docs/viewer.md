@@ -4,7 +4,7 @@ How the developer watches Agent Sessions and takes them over on their Omarchy de
 
 ## Intent
 
-The developer codes while one or two agents verify changes in the background. Every so often they glance at the agents to answer one question: is each one making progress, or stuck? When an agent hits something it cannot get past (a 2FA prompt, a captcha, an OS dialog), the developer takes over that one session briefly, then hands it back and the agent carries on.
+The developer codes while up to four agents verify changes in the background. Every so often they glance at the agents to answer one question: is each one making progress, or stuck? When an agent hits something it cannot get past (a 2FA prompt, a captcha, an OS dialog), the developer takes over that one session briefly, then hands it back and the agent carries on.
 
 The model is the watch, take control, done pattern of Grok Bot, Manus and Anthropic's computer-use demo. Because each Agent Session is a nested Hyprland, its desktop is already a live window on the developer's screen, and keek only adds what that window lacks ([ADR 0007](adr/0007-nested-window-is-the-session-window.md)).
 
@@ -16,7 +16,8 @@ The model is the watch, take control, done pattern of Grok Bot, Manus and Anthro
 
 ## Non-goals
 
-- Watching more than a couple of sessions at once. keek caps open sessions at two (configurable); the layout does not need to scale to a fleet.
+- Watching more than four sessions at once. keek caps open sessions at four (configurable). The layout is designed for four; a larger cap gets smaller rail cards, not a fleet view.
+- Live moving pictures in the rail. A rail card shows a still a few seconds old.
 - An Omarchy shell plugin or bar widget. The Session Footer is keek's own layer-shell surface.
 - Remote watching from another machine or a phone.
 - Chatting with the agent beyond starting and ending a Takeover.
@@ -46,15 +47,16 @@ The viewer fails, even if it works, if:
 ### Agents Workspace
 
 - keek uses one named Hyprland workspace, `keek`, for every Session Card.
-- The workspace has one slot per allowed open session: two by default, each half the monitor's width. A Session Card fills its slot. Without `window` in the Project Profile, the Session Window fills the slot above the Session Footer, so the Verification Video size follows the developer's monitor. The Project Profile can set a different size, such as a phone size for a mobile web app. A smaller Session Window is centred on black at its true size. The agent's desktop and the Verification Video keep the Session Window size.
-- A Session Window opens there silently: it never takes focus or switches the developer's workspace. It closes when its session ends. Its window rule includes `render_unfocused`, so the session keeps rendering and recording while the workspace is hidden.
+- The workspace has one focus slot and a rail (see [Focus slot and rail](#focus-slot-and-rail)). The focus slot shows one session as a Session Card; the rail shows every other open or ended session as a rail card. With one session there is no rail and the focus slot spans the workspace.
+- Every Session Window opens at the focus slot's size, whichever place its session starts in, so it fits when it is swapped in. Without `window` in the Project Profile, the Session Window fills the focus slot above the Session Footer, so the Verification Video size follows the developer's monitor. The Project Profile can set a different size, such as a phone size for a mobile web app. A smaller Session Window is centred on black at its true size, and so is a focus-size window while the focus slot spans the workspace. The agent's desktop and the Verification Video keep the Session Window size.
+- A Session Window opens there silently: it never takes focus or switches the developer's workspace. It closes when its session ends. Its window rule includes `render_unfocused`, so the session keeps rendering and recording while the workspace is hidden, and while it waits in the rail.
 - keek ships no keybinding to reach the workspace. Its docs suggest one for the user's Hyprland config. *(my call)*
 
 ### Viewer process and narrow monitors
 
 GTK runs on the daemon process main thread; the Tokio daemon runs on a worker thread. A bounded channel carries Session Footer lifecycle messages, and each footer awaits its snapshot watch channel on GLib. If GTK cannot initialise, the daemon continues without a viewer. Hyprland workspace events control visibility, and the elapsed timer exists only while at least one footer is visible.
 
-Two slots sit side by side on monitors at least 1920 logical pixels wide (960 pixels per half before gaps). Narrower monitors stack the two cards vertically, splitting the usable height. The Session Window keeps its opening size throughout the session.
+On a monitor at least 1920 logical pixels wide the focus slot takes the left of the workspace and the rail is a column on its right, about a sixth of the width. A narrower monitor puts the focus slot on top and the rail below it as a row. The Session Window keeps its opening size throughout the session.
 
 ### Session Window
 
@@ -64,11 +66,46 @@ keek sets `no_focus` on it from the moment it maps until a Take control. The dev
 
 keek's host rule matches class alone, so a nested Hyprland the developer starts themselves while a session is open is caught by it too: it opens floated on the `keek` workspace with `no_focus`, and keek lifts neither while a session is open. keek places each Session Window by its client pid, so the developer's window normally stays where the rule left it; only when the pid cannot be resolved does keek take the first new `aquamarine` window, which can be the developer's. Moving `no_focus` and the placement to per-window props once the pid matches would leave a mapped window focusable and off `keek` for a moment, and the Takeover boundary needs `no_focus` from map time (ADR 0007), so the class rule stays.
 
-When the last session closes, disabling the rule lifts `no_focus` but not the placement. keek then moves each `aquamarine` window still on `keek` to the active workspace and tiles it, without switching to it. It moves only a window whose client process is named `Hyprland`: a Session Window belongs to a keek process, so another daemon's Session Windows stay where they are. While `keek` itself is the active workspace the window stays floating there, since a tiled window would cover the Session Cards. A daemon that stops on SIGTERM with a session open also leaves it on `keek`, because keek moves windows only when a last session closes. A window left either way is moved the next time a last session closes while another workspace is active.
+When the last session closes, disabling the rule lifts `no_focus` but not the placement. keek then moves each `aquamarine` window still on `keek` or `keek-rail` (where a mismatched placement can leave one) to the active workspace and tiles it, without switching to it. It moves only a window whose client process is named `Hyprland`: a Session Window belongs to a keek process, so another daemon's Session Windows stay where they are. While `keek` itself is the active workspace the window stays floating there, since a tiled window would cover the Session Cards. A daemon that stops on SIGTERM with a session open also leaves it on `keek`, because keek moves windows only when a last session closes. A window left either way is moved the next time a last session closes while another workspace is active.
+
+### Focus slot and rail
+
+keek places each session when it opens. It takes an empty place, the focus slot first, then the rail from the top. With no empty place it replaces the ended card that ended first. Ended sessions keep their place until dismissed and don't count against `session_cap`. When the focus slot empties and the rail holds a running session, the one that opened first moves into focus; an ended card never moves in by itself. Rail cards close up from the top when one leaves. *(my call)*
+
+A rail session's Session Window waits on the `keek-rail` workspace, which nobody views, with the same `no_focus` and `render_unfocused` rule, so it keeps rendering and recording at full size ([`facts.md`](facts.md#in-a-real-agent-session)). Showing it moves its window to the focus slot on `keek` and moves the focused one to `keek-rail`, with `follow = false`, so the developer's workspace and focus never change and both Raw Recordings stay continuous. A session that opens in the rail maps on `keek`, as every Session Window does, and keek moves it out of sight as soon as it places the window. If GTK cannot start, all Session Windows stay stacked on the Agents Workspace and keek takes no rail stills.
+
+A rail card shows:
+
+- A still of the Session Window with its age ("Still · 3 s ago"). keek takes one every 3 s with `grim -T` on the host, from the window's stable id, and keeps it beside the end-card frames, outside the session folder. It never goes through Cua Driver, so it is in neither the Action Log nor the Session Timeline. An ended card shows its last frame.
+- The Project, branch and elapsed time; one state line (the last Action, "Needs you" and the reason, or the Verdict); "2 of 4" with the tick squares, where the first unmarked Check wears the same ring as in the footer; and the session's `Super` number.
+- On hover, a panel to its left with the goal and each Check's text and outcome, the one being checked tagged "checking".
+
+A rail card is one button and has no others. Clicking it swaps its session with the focused one; an ended card brings its full end card to focus. Take control and everything else the Session Footer offers, including ending a session by hand, are reached by showing the session first.
+
+A Help Request turns its rail card orange. The session does not swap in by itself: activating the notification switches to the `keek` workspace and shows that session.
+
+While a Takeover runs or is paused, its session stays in focus. The rail cards are dimmed and do nothing, and a line under the rail reads "Other sessions unlock when you press Done." Shortcuts and notifications don't swap either.
+
+Super+1 to Super+4 show the matching session while `keek` is the active workspace, once the developer adds the binds below beside the `keek` submap; keek ships none. Each bind emits a Hyprland custom event, `keek-show <n>`, that keek reads from the event socket; on any other workspace it does what Omarchy's own Super+number does. The numbers follow the order sessions opened in and stay with a session while it moves between the focus slot and the rail. *(my call)*
+
+```lua
+for n = 1, 4 do
+  local key = "SUPER + code:" .. tostring(n + 9)
+  hl.unbind(key)
+  hl.bind(key, function()
+    local workspace = hl.get_active_workspace()
+    if workspace and workspace.name == "keek" then
+      hl.dispatch(hl.dsp.event("keek-show " .. n))
+    else
+      hl.dispatch(o.workspaces.focus(n))
+    end
+  end)
+end
+```
 
 ### Session Footer
 
-A gtk4-layer-shell surface per slot, shown only while the `keek` workspace is active. keek follows Hyprland's workspace events to show and hide it.
+A gtk4-layer-shell surface for the session in the focus slot, shown only while the `keek` workspace is active. keek follows Hyprland's workspace events to show and hide it.
 
 Once the session ends, the footer moves to the bottom layer with the rest of the card, so a window the developer opens on `keek` covers the whole Session Card.
 
@@ -98,7 +135,7 @@ Outside a Takeover, `no_focus` makes Hyprland skip the Session Window in pointer
 ### Help Request
 
 - The Verifier calls `request_help(session, reason)`. The call blocks until a Takeover on that session ends, sending progress notifications while it waits.
-- That session's Session Card turns orange (the Omarchy needs-you colour) and its footer shows the reason. keek sends one critical desktop notification ("Agent needs you: 2FA code · myapp") through `omarchy-notification-send`, so it stays on screen until the developer acts, and dismisses it when the developer presses Take control. The shell dismisses by summary, so this also clears a second waiting session's notification; that session's card stays orange. Activating the notification switches to the `keek` workspace. *(my call)*
+- That session's Session Card turns orange (the Omarchy needs-you colour) and its footer shows the reason. keek sends one critical desktop notification ("Agent needs you: 2FA code · myapp") through `omarchy-notification-send`, so it stays on screen until the developer acts, and dismisses it when the developer presses Take control. The shell dismisses by summary, so this also clears a second waiting session's notification; that session's card stays orange. Activating the notification switches to the `keek` workspace and shows that session in the focus slot, unless a Takeover holds the rail. *(my call)*
 - If the agent cancels the `request_help` call before the developer presses Take control (Esc in the coding agent, or a client timeout such as Codex's 5 minutes of active time), keek withdraws the Help Request: the card and footer return to their earlier state, the orange border clears and the Verifier's next call runs at once. The notification stays. A Takeover already running when the cancel arrives continues until Done. Only `request_help` is withdrawn, not a forwarded Cua call or `close_session`.
 - There is no timeout while a Help Request waits for the developer. The 5-minute idle timeout (see [`design.md`](design.md#abnormal-end)) pauses during a Help Request and a Takeover.
 
@@ -145,7 +182,7 @@ Recording during a Takeover:
 
 ### Session end
 
-When the session closes (normally or as an Incomplete Session), the sandbox stops and the Session Window closes with it. The Session Card stays at full size: keek shows the session's last frame, dimmed, in the window's place (centred on black when the window was smaller than its slot), with one panel over it. The panel is no wider than the Session Window. It shows "Rendering" and its percentage above a progress bar while keek builds the Verification Video, then the Verdict with the Verification Checklist. Each Check shows its outcome, Checks the Verifier added are tagged, and a failed or skipped Check shows its comment beneath it. A Needs fixes card also shows the attempt ("attempt 1 of 3"), counted from the Project's `index.md` for the same branch. The footer keeps the video length and gains buttons to open the Verification Video and the Evidence folder. The card stays until the developer dismisses it, which empties the slot. A new session that needs the slot replaces the card; the Verdict stays in the Evidence folder. *(my call)*
+When the session closes (normally or as an Incomplete Session), the sandbox stops and the Session Window closes with it. The Session Card stays at full size: keek shows the session's last frame, dimmed, in the window's place (centred on black when the window was smaller than its slot), with one panel over it. The panel is no wider than the Session Window. It shows "Rendering" and its percentage above a progress bar while keek builds the Verification Video, then the Verdict with the Verification Checklist. Each Check shows its outcome, Checks the Verifier added are tagged, and a failed or skipped Check shows its comment beneath it. A Needs fixes card also shows the attempt ("attempt 1 of 3"), counted from the Project's `index.md` for the same branch. The footer keeps the video length and gains buttons to open the Verification Video and the Evidence folder. The card stays until the developer dismisses it, which empties its place. In the rail an ended session's card shows its Verdict, and clicking it brings this full end card to focus. A new session that finds no empty place replaces the ended card that ended first; the Verdict stays in the Evidence folder. *(my call)*
 
 ## Left to the builder
 

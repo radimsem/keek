@@ -19,6 +19,8 @@ colors:
   scrim: "rgba(12, 36, 54, 0.86)"
   session-cyan: "#4ccce0"
   session-violet: "#a77bf3"
+  session-pink: "#f58fc2"
+  session-green: "#8fd6a0"
 typography:
   verdict-title:
     fontFamily: "JetBrains Mono, monospace"
@@ -155,7 +157,7 @@ keek takes these roles from the active Omarchy theme. The values in the frontmat
 | Needs-you Orange | `orange` (falls back to `yellow`) |
 | Pass Green / Fail Coral / Skip Yellow | `green` / `red` / `yellow` |
 | Scrim | `darker_background` at 86% |
-| Session Cyan / Session Violet | fixed Cua cursor colours, not themed |
+| Session Cyan / Violet / Pink / Green | fixed session colours, not themed |
 
 Three themes in Omarchy's set have no `orange`, so a Help Request and a skipped Check share a hue there. Shape and wording still tell them apart.
 
@@ -170,7 +172,7 @@ Three themes in Omarchy's set have no `orange`, so a Help Request and a skipped 
 - **Pass Green**: passed Checks and the Pass Verdict.
 - **Fail Coral**: failed Checks and the Needs fixes Verdict.
 - **Skip Yellow**: skipped Checks and the Partly verified Verdict, and a paused Takeover: the card border, the "Takeover paused" label and the paused panel's border.
-- **Session Cyan / Session Violet**: one per open session. The Cua cursor, the footer's 2px top edge and the arrow before the project name.
+- **Session Cyan / Session Violet / Session Pink / Session Green**: one per open session, in the order sessions take their numbers. The Cua cursor, the footer's 2px top edge, the rail card's session edge and the arrow before the project name.
 
 ### Neutral
 - **Bar Navy**: footer, Verdict panel and toast background; the Omarchy bar's own colour.
@@ -211,7 +213,12 @@ Three themes in Omarchy's set have no `orange`, so a Help Request and a skipped 
 
 ## Layout
 
-The reference layout is the Agents Workspace on a 3440×1440 output: the 26px Omarchy bar, then two Session Card slots at x 24 and x 1724, each a 1690×1298 Session Window at top 50 with its 76px Session Footer below. Gaps are Hyprland's 24px `gaps_out`.
+The reference layout is the Agents Workspace on a 3440×1440 output: the 26px Omarchy bar, then the focus slot at x 24, top 50, a 2822×1298 Session Window with its 76px Session Footer below at the same width, and the rail beside it. Gaps are Hyprland's 24px `gaps_out`.
+
+- **Focus slot:** one Session Card. With one session open there is no rail, the card spans the workspace (3392 wide) and the focus-size window sits centred on black.
+- **Rail:** a 560px column at x 2856, 10px (`gaps_in` twice) right of the focus slot, from top 50. About a sixth of the usable width, rounded down to 20px. Rail cards are 560×384, 11px apart, stacked from the top, and close up when one leaves.
+- **Narrow monitors** (under 1920 logical pixels): the focus slot spans the width on top and the rail is a row below the Session Footer, its cards splitting the width 11px apart. The focus slot gives up height for the row.
+- Every Session Window opens at the focus slot's size, wherever its session starts.
 
 The Session Footer is a single row, 16px side padding, 24px between columns, centred vertically:
 
@@ -258,7 +265,8 @@ Corners follow Hyprland's 8px rounding everywhere keek draws a container: Verdic
 ### Checked ticks
 - **Shape:** 10px squares, 2px radius, 4px apart, after "2 of 4".
 - **Outcomes:** passed is a filled green square, failed a filled coral square, skipped a yellow outline with a dash, unmarked a dim parchment outline.
-- **In progress:** the first unmarked Check's tick gets a 15px Harbor Blue ring (1.2px stroke, 4px radius) around the 10px square, and a 3.2px Harbor Blue dot inside it, while the Verifier works. Not during a Help Request, a Takeover or after the session ends.
+- **In progress:** the first unmarked Check's tick gets a 15px Harbor Blue ring (1.2px stroke, 4px radius) around the 10px square, and a 3.2px Harbor Blue dot inside it, while the Verifier works. Not during a Help Request, a Takeover or after the session ends. The same ring marks the tick on a rail card.
+- **In a Check list:** the row in progress is bold and carries a "checking" tag: 11px Harbor Blue Text in a pill with a 1px Harbor Blue outline at 65%.
 - **Overflow:** at most 8 ticks, then "+n".
 - **Accessible name:** "2 passed, 1 failed, 1 skipped, 0 not checked yet".
 
@@ -277,6 +285,19 @@ Corners follow Hyprland's 8px rounding everywhere keek draws a container: Verdic
 - **Icons:** Pass a check in a circle, Needs fixes an exclamation in a circle, Partly verified a half-filled circle, and an Incomplete Session a dashed circle with a pause.
 - **Checklist:** one row per Check with a 16px glyph (tick, cross, dash, open circle), the Check's text, an "added" tag when the Verifier added it, and its comment beneath in Parchment Comment.
 - **Rendering:** title and percentage on one line, a 6px Harbor Blue progress bar beneath.
+
+### Rail card
+- **Character:** one session at a glance; the whole card is a button that shows the session ("Show billing"). No other controls.
+- **Frame:** 2px Border Inactive, 8px radius, Bar Navy. On hover Border Active and Control Navy. During a Help Request Needs-you Orange.
+- **Still:** 556×256, the Session Window scaled to the card's inner width, on black, refreshed every 3 s. An age tag ("Still · 3 s ago") sits 8px from its bottom-left corner: 11px Parchment on Bar Navy at 88%, 4px radius. An ended card shows its last frame without a tag.
+- **Session edge:** 2px in the session colour, under the still.
+- **Text block:** 14px by 16px padding, three rows spread evenly at 12px. Row one: arrow glyph, project in 13px bold, branch in Parchment Dim with an ellipsis, elapsed time bold and right-aligned. Row two: the last Action in Parchment Dim, "Needs you" in bold orange followed by the reason in Parchment, or the Verdict in its outcome colour. Row three: "2 of 4" in bold, the ticks, and the `Super` `2` keys right-aligned in Parchment Dim (sessions 1 to 4 only).
+- **Locked:** at 55% opacity while a Takeover is running or paused, with one line under the rail: "Other sessions unlock when you press Done." (12px Parchment on Bar Navy at 88%, 8px radius, 10px by 14px padding, rail width).
+
+### Rail card hover panel
+- **Placement:** 440px wide, 12px left of the card, top edges aligned.
+- **Style:** Bar Navy, 2px Border Active, 8px radius, 16px by 18px padding, 12px between blocks.
+- **Content:** the goal, then one row per Check (12px square, 10px gap, 9px between rows; passed rows have a filled green square with a tick, failed coral, skipped a yellow outline, unmarked rows are Parchment Dim, the row in progress bold with its "checking" tag), then "Click to show this session." in Parchment Dim.
 
 ### Paused panel
 - **Character:** the one overlay on a running session's desktop. The developer put it there by stepping away, and it goes on Resume or Done.
@@ -298,36 +319,12 @@ Corners follow Hyprland's 8px rounding everywhere keek draws a container: Verdic
 - **Badge:** a faint 28px circle (7% fill) under the arrow.
 - **Human pointer:** stays the host's white arrow, so the two never read as one.
 
-## Planned: session rail, Step away and live Checks
+## Planned: Session Footer state column
 
 Designed and approved, not built yet. The screens are in the proposals canvas (https://claude.ai/artifact/JzPWohPGuYshxKJPGUfit9), drawn at 1:1 on a 3440×1440 output with the parts above, and the behaviour is in [`specs/2026-11-22-viewer-enhancements.md`](specs/2026-11-22-viewer-enhancements.md). Values here are measured from that canvas. A ticket that builds one of these moves its rows into the sections above and updates the reference layout.
 
-### Layout with a rail
-- **Focus slot:** x 24, top 50, 2822×1298, with its 76px Session Footer below at the same width. One open session has no rail, and the focus slot spans the workspace.
-- **Rail:** a 560px column at x 2856, 10px right of the focus slot, from top 50. Rail cards are 560×384, 11px apart, stacked from the top.
-
 ### Session Footer changes
 - **State column:** a fixed 420px. Its left edge never moves; the label and the detail line truncate on the right.
-
-### Check in progress
-- **Rail cards:** the ring described under "Checked ticks" also marks the first unmarked tick on a rail card.
-- **In a Check list:** the row is bold and carries a "checking" tag: 11px Harbor Blue Text in a pill with a 1px Harbor Blue outline at 65%.
-
-### Rail card
-- **Character:** one session at a glance; the whole card is a button that shows the session.
-- **Frame:** 2px Border Inactive, 8px radius, Bar Navy. On hover Border Active and Control Navy. During a Help Request Needs-you Orange.
-- **Still:** 556×256, the Session Window scaled to the card's inner width, on black. An age tag ("Still · 3 s ago") sits 8px from its bottom-left corner: 11px Parchment on Bar Navy at 88%, 4px radius.
-- **Session edge:** 2px in the session colour, under the still.
-- **Text block:** 14px by 16px padding, three rows spread evenly at 12px. Row one: arrow glyph, project in 13px bold, branch in Parchment Dim with an ellipsis, elapsed time bold and right-aligned. Row two: the last Action in Parchment Dim, or "Needs you" in bold orange followed by the reason in Parchment. Row three: "2 of 4" in bold, the ticks, and the `Super` `2` keys right-aligned in Parchment Dim.
-- **Locked:** at 55% opacity while a Takeover is running or paused, with one line under the rail: "Other sessions unlock when you press Done."
-
-### Rail card hover panel
-- **Placement:** 440px wide, 12px left of the card, top edges aligned.
-- **Style:** Bar Navy, 2px Border Active, 8px radius, 16px by 18px padding, 12px between blocks.
-- **Content:** the goal, then one row per Check (12px square, 10px gap, 9px between rows; passed rows have a filled green square with a tick, unmarked rows are Parchment Dim), then "Click to show this session." in Parchment Dim.
-
-### Session colours
-- **Session Pink** `#f58fc2` and **Session Green** `#8fd6a0` join Session Cyan and Session Violet for a third and fourth session. Fixed, not themed.
 
 ## Do's and Don'ts
 

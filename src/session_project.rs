@@ -173,6 +173,7 @@ mod retention_tests {
         let opening = Opening {
             test_files: None,
             placement: crate::compositor::Placement {
+                initial: crate::compositor::WindowSpot::Shown { x: 0, y: 0 },
                 geometry: crate::slots::geometry(
                     crate::slots::Slot {
                         x: 0,

@@ -6,7 +6,7 @@ pub struct Config {
 }
 impl Default for Config {
     fn default() -> Self {
-        Self { session_cap: 2 }
+        Self { session_cap: 4 }
     }
 }
 #[derive(Debug, thiserror::Error)]
@@ -60,8 +60,8 @@ impl Config {
 mod tests {
     use super::*;
     #[test]
-    fn session_cap_defaults_to_two() {
-        assert_eq!(Config::parse("").unwrap().session_cap, 2);
+    fn session_cap_defaults_to_four() {
+        assert_eq!(Config::parse("").unwrap().session_cap, 4);
     }
     #[test]
     fn session_cap_reads_the_configured_value() {
@@ -71,7 +71,7 @@ mod tests {
     async fn config_read_defaults_when_missing_and_names_invalid_path() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        assert_eq!(Config::read(&path).await.unwrap().session_cap, 2);
+        assert_eq!(Config::read(&path).await.unwrap().session_cap, 4);
         std::fs::write(&path, "bad = 3").unwrap();
         assert!(
             Config::read(&path)

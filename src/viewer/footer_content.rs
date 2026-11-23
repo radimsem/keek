@@ -1,6 +1,6 @@
 use super::{
     footer_actions::FooterActions,
-    footer_view::{FooterButton, FooterView, StateLabel, Tick},
+    footer_view::{CheckedView, FooterButton, FooterView, StateLabel, Tick},
 };
 use gtk4::{self as gtk, prelude::*};
 
@@ -79,44 +79,47 @@ impl FooterContent {
         self.checked.set_tooltip_text(Some(&checked.accessible));
         self.checked
             .update_property(&[gtk::accessible::Property::Label(&checked.accessible)]);
-        let title = label("Checked", "dim");
-        let value = gtk::Box::new(gtk::Orientation::Horizontal, 4);
-        value.append(&label(&checked.count, "value"));
-        for &kind in &checked.ticks {
-            // An empty Box is exactly the CSS 10px square; a Label would be as tall as its line.
-            let tick = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-            tick.add_css_class("tick");
-            tick.add_css_class(kind.css_class());
-            tick.set_valign(gtk::Align::Center);
-            let mark = match kind {
-                Tick::Skipped => Some(label("−", "skipped")),
-                Tick::InProgress => Some(label("", "check-ring")),
-                Tick::Passed | Tick::Failed | Tick::Unmarked => None,
-            };
-            let Some(mark) = mark else {
-                value.append(&tick);
-                continue;
-            };
-            // The mark is drawn over the square without changing its size.
-            let cell = gtk::Overlay::new();
-            cell.set_child(Some(&tick));
-            cell.set_valign(gtk::Align::Center);
-            mark.set_halign(gtk::Align::Center);
-            mark.set_valign(gtk::Align::Center);
-            mark.set_can_target(false);
-            cell.add_overlay(&mark);
-            cell.set_measure_overlay(&mark, false);
-            value.append(&cell);
-        }
-        if checked.overflow > 0 {
-            value.append(&label(&format!("+{}", checked.overflow), "dim"));
-        }
-        self.checked.append(&title);
-        self.checked.append(&value);
+        self.checked.append(&label("Checked", "dim"));
+        self.checked.append(&checked_row(checked));
     }
 }
 
-fn label(text: &str, class: &str) -> gtk::Label {
+pub(super) fn checked_row(checked: &CheckedView) -> gtk::Box {
+    let value = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    value.append(&label(&checked.count, "value"));
+    for &kind in &checked.ticks {
+        // An empty Box is exactly the CSS 10px square; a Label would be as tall as its line.
+        let tick = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        tick.add_css_class("tick");
+        tick.add_css_class(kind.css_class());
+        tick.set_valign(gtk::Align::Center);
+        let mark = match kind {
+            Tick::Skipped => Some(label("−", "skipped")),
+            Tick::InProgress => Some(label("", "check-ring")),
+            Tick::Passed | Tick::Failed | Tick::Unmarked => None,
+        };
+        let Some(mark) = mark else {
+            value.append(&tick);
+            continue;
+        };
+        // The mark is drawn over the square without changing its size.
+        let cell = gtk::Overlay::new();
+        cell.set_child(Some(&tick));
+        cell.set_valign(gtk::Align::Center);
+        mark.set_halign(gtk::Align::Center);
+        mark.set_valign(gtk::Align::Center);
+        mark.set_can_target(false);
+        cell.add_overlay(&mark);
+        cell.set_measure_overlay(&mark, false);
+        value.append(&cell);
+    }
+    if checked.overflow > 0 {
+        value.append(&label(&format!("+{}", checked.overflow), "dim"));
+    }
+    value
+}
+
+pub(super) fn label(text: &str, class: &str) -> gtk::Label {
     let label = gtk::Label::new(Some(text));
     label.set_xalign(0.0);
     label.add_css_class(class);

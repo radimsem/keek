@@ -14,7 +14,7 @@ An Agent Session must keep input and screen, desktop services, files and config,
 
 ## Consequences
 
-- Each Agent Session costs several GB of RAM and a VM boot, so the number of open sessions is capped (one per worktree, two by default).
+- Each Agent Session costs several GB of RAM and a VM boot, so the number of open sessions is capped (one per worktree, four by default).
 - The guest has no GPU encoder, so recording encodes on the CPU (wf-recorder).
 - Only x86_64 hosts are supported while Cua's Omarchy image is amd64 only.
 - The VM gets outbound internet and nothing else: the host and the local network are blocked.

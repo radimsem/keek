@@ -49,8 +49,13 @@ async fn project_prepare_can_outlast_the_desktop_handshake_limit() {
         control,
         control_commands: Some(control_commands),
         compositor: Arc::new(FakeCompositor),
+        window: crate::window_seat::WindowSeat::new(crate::compositor::WindowSpot::Shown {
+            x: 24,
+            y: 50,
+        }),
         opened_at: Instant::now(),
         placement: crate::compositor::Placement {
+            initial: crate::compositor::WindowSpot::Shown { x: 24, y: 50 },
             monitor: "fake".into(),
             origin: (0, 0),
             geometry: crate::slots::geometry(

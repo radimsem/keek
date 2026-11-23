@@ -12,14 +12,17 @@ use crate::session::{
 use crate::session_folder::{SessionFolder, SessionName};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinSet;
 
 pub struct Registry {
     sessions: HashMap<SessionName, Entry>,
     cards: HashMap<SessionName, EndedCard>,
+    places: crate::places::Places,
+    workspace: Option<crate::compositor::WorkspacePlacement>,
+    stills: rail::RailStills,
     pub tasks: JoinSet<Finished>,
     pub background: JoinSet<()>,
     pub recovery: JoinSet<()>,
@@ -35,7 +38,7 @@ struct EndedCard {
     frame: Option<PathBuf>,
     end: SessionEnd,
     folder: Option<PathBuf>,
-    ended: std::time::Instant,
+    window_size: (i32, i32),
 }
 struct Entry {
     card: CardDisposition,
@@ -46,6 +49,9 @@ struct Entry {
     mailbox: mpsc::Sender<ActorRequest>,
     close: mpsc::Sender<CloseRequest>,
     events: watch::Receiver<SessionSnapshot>,
+    window: crate::window_seat::WindowSeat,
+    window_size: (i32, i32),
+    still_warning: Arc<OnceLock<()>>,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CardDisposition {
@@ -99,6 +105,9 @@ impl Registry {
         Self {
             sessions: HashMap::new(),
             cards: HashMap::new(),
+            places: crate::places::Places::new(dependencies.cap),
+            workspace: None,
+            stills: rail::RailStills::default(),
             tasks: JoinSet::new(),
             background: JoinSet::new(),
             recovery: JoinSet::new(),
@@ -118,13 +127,16 @@ impl Registry {
         let (session, command) = match command {
             crate::viewer::ViewerCommand::Dismiss(session) => {
                 if let Some(card) = self.cards.remove(&session) {
-                    self.dependencies.viewer.closed(card.slot).await;
-                    remove_frame(card.frame).await;
+                    self.leave_card(&session, card.slot, card.frame).await;
                 } else if let Some(entry) = self.sessions.get_mut(&session)
                     && matches!(entry.events.borrow().state, SessionState::Ended(_))
                 {
                     entry.card = CardDisposition::Dismiss;
                 }
+                return;
+            }
+            crate::viewer::ViewerCommand::Show(target) => {
+                self.show(target).await;
                 return;
             }
             crate::viewer::ViewerCommand::TakeControl(session) => {
@@ -179,6 +191,7 @@ impl Registry {
             if let Some((frame, end, folder)) = ended {
                 if self.dependencies.viewer.supports_cards() && entry.card == CardDisposition::Keep
                 {
+                    self.places.end(&finished.name);
                     self.cards.insert(
                         finished.name.clone(),
                         EndedCard {
@@ -186,15 +199,14 @@ impl Registry {
                             frame,
                             end,
                             folder,
-                            ended: self.dependencies.clock.now(),
+                            window_size: entry.window_size,
                         },
                     );
                 } else {
-                    self.dependencies.viewer.closed(entry.slot).await;
-                    remove_frame(frame).await;
+                    self.leave_card(&finished.name, entry.slot, frame).await;
                 }
             } else {
-                self.dependencies.viewer.closed(entry.slot).await;
+                self.leave_card(&finished.name, entry.slot, None).await;
             }
         }
         let tree = crate::session_project::tree_path(&self.dependencies.trees, &finished.name);
@@ -493,14 +505,5 @@ mod recovery;
 #[path = "registry_project.rs"]
 mod project;
 
-async fn remove_frame(frame: Option<PathBuf>) {
-    if let Some(frame) = frame {
-        let result = tokio::task::spawn_blocking(move || std::fs::remove_file(frame)).await;
-        match result {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Ok(Err(error)) => tracing::warn!(%error, "could not remove Session Card frame"),
-            Err(error) => tracing::warn!(%error, "could not finish removing Session Card frame"),
-        }
-    }
-}
+#[path = "registry_rail.rs"]
+mod rail;

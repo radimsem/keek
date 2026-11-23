@@ -143,6 +143,7 @@ fn start(types: &'static str, paste_fails: bool, clipboard: Recorder) -> Paste {
         opened: Instant::now(),
         window: Some(WindowAddress("0xabc".into())),
         project: "app".into(),
+        session: "app-12-00-00".parse().unwrap(),
         clipboard: clipboard.clone(),
     };
     Paste {

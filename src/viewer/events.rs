@@ -1,8 +1,9 @@
+use super::ShowTarget;
 use crate::hypr::{self, HyprEvent};
 use std::collections::HashSet;
 use tokio::sync::mpsc;
 
-pub async fn watch(sender: mpsc::Sender<HashSet<String>>) {
+pub async fn watch(sender: mpsc::Sender<HashSet<String>>, shows: mpsc::Sender<ShowTarget>) {
     let mut lines = match hypr::subscribe().await {
         Ok(lines) => lines,
         Err(error) => {
@@ -47,6 +48,13 @@ pub async fn watch(sender: mpsc::Sender<HashSet<String>>) {
                         | HyprEvent::FocusedMonitor(_)
                         | HyprEvent::MoveWorkspace { .. },
                     ) => break,
+                    Some(event @ HyprEvent::Custom(_)) => {
+                        if let Some(target) = show_target(&event)
+                            && let Err(mpsc::error::TrySendError::Full(_)) = shows.try_send(target)
+                        {
+                            tracing::debug!("Dropped a show event because the channel is full");
+                        }
+                    }
                     Some(
                         HyprEvent::Submap(_)
                         | HyprEvent::OpenWindow { .. }
@@ -66,5 +74,40 @@ pub async fn watch(sender: mpsc::Sender<HashSet<String>>) {
                 }
             }
         }
+    }
+}
+
+pub fn show_target(event: &HyprEvent) -> Option<ShowTarget> {
+    let HyprEvent::Custom(data) = event else {
+        return None;
+    };
+    let target = data.strip_prefix("keek-show ")?;
+    if target.trim().is_empty() {
+        return None;
+    }
+    match target.parse::<usize>() {
+        Ok(number) => (number > 0).then_some(ShowTarget::Number(number)),
+        Err(_) => target.parse().ok().map(ShowTarget::Session),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::viewer::ShowTarget;
+    #[test]
+    fn the_show_event_names_a_shortcut_number_or_a_session() {
+        assert_eq!(
+            show_target(&HyprEvent::Custom("keek-show 2".into())),
+            Some(ShowTarget::Number(2))
+        );
+        assert_eq!(
+            show_target(&HyprEvent::Custom("keek-show billing-12-00-00".into())),
+            Some(ShowTarget::Session("billing-12-00-00".parse().unwrap()))
+        );
+        for data in ["keek-show", "keek-show ", "other 2", "keek-shows 2"] {
+            assert_eq!(show_target(&HyprEvent::Custom(data.into())), None, "{data}");
+        }
+        assert_eq!(show_target(&HyprEvent::Submap("keek-show 2".into())), None);
     }
 }

@@ -8,6 +8,7 @@ What changed in each keek release, for a person who uses it. The format follows 
 
 - Step away from a Takeover with the footer button or Super+Tab to use your own desktop, then click the session to resume. The Verifier keeps waiting until you press Done. Add the Super+Tab bind from the updated submap snippet in the viewer docs to use the shortcut.
 - Paste text copied on your own desktop into the session during a Takeover, such as a 2FA code from your password manager. keek clears the session's clipboard when you press Done, and nothing copied in the session reaches yours.
+- Watch up to four sessions at once: one in the focus slot and the others as rail cards with a still, their state and their Checks. Hover a rail card to see its goal and Checks, and click it to bring that session into focus. Add the Super+1 to Super+4 binds from the viewer docs to switch with the keyboard.
 
 ### Fixed
 
@@ -18,6 +19,8 @@ What changed in each keek release, for a person who uses it. The format follows 
 
 - A Session Window with no `window` in its Project Profile now fills its slot. The Verification Video size follows the developer's monitor, and the Verdict panel stays within the window.
 - The Verifier is reminded every 8 calls to mark the Checks it has already observed, and the Session Footer rings the Check in progress, so the ticks fill in during the session.
+- Four sessions can be open at once by default, up from two. Every Session Window opens at the focus slot's size, so the Verification Video is wider than before.
+- Activating a Help Request notification now also brings that session into focus.
 
 ## 0.1.1 - 2026-11-15
 

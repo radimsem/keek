@@ -73,6 +73,7 @@ pub struct Controller {
     pub opened: Instant,
     pub window: Option<WindowAddress>,
     pub project: String,
+    pub session: crate::session_folder::SessionName,
     pub clipboard: Arc<dyn crate::takeover_clipboard::NestedClipboard>,
 }
 struct Taking {
@@ -153,7 +154,7 @@ impl Controller {
                         Ok(Some(event)) => match event {
                             crate::hypr::HyprEvent::Submap(name) if name == "keek-away" => Some(Command::StepAway),
                             crate::hypr::HyprEvent::Submap(name) if name != "keek" => Some(Command::Done),
-                            crate::hypr::HyprEvent::Submap(_) | crate::hypr::HyprEvent::Workspace(_) | crate::hypr::HyprEvent::FocusedMonitor(_) | crate::hypr::HyprEvent::MoveWorkspace{..} | crate::hypr::HyprEvent::OpenWindow{..} | crate::hypr::HyprEvent::CloseWindow(_) => continue,
+                            crate::hypr::HyprEvent::Submap(_) | crate::hypr::HyprEvent::Workspace(_) | crate::hypr::HyprEvent::FocusedMonitor(_) | crate::hypr::HyprEvent::MoveWorkspace{..} | crate::hypr::HyprEvent::OpenWindow{..} | crate::hypr::HyprEvent::CloseWindow(_) | crate::hypr::HyprEvent::Custom(_) => continue,
                         },
                         Ok(None) => { tracing::warn!("Hyprland event stream ended"); lines = None; continue; }
                         Err(error) => { tracing::warn!(%error, "Hyprland event stream failed"); lines = None; continue; }

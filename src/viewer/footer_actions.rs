@@ -47,13 +47,7 @@ impl FooterActions {
         shown.clear();
         for (kind, shortcut) in actions {
             if let Some(shortcut) = shortcut {
-                let keycaps = gtk::Box::new(gtk::Orientation::Horizontal, 4);
-                for key in shortcut.keys() {
-                    let keycap = gtk::Label::new(Some(key));
-                    keycap.add_css_class("keycap");
-                    keycaps.append(&keycap);
-                }
-                self.row.append(&keycaps);
+                self.row.append(&keycaps(shortcut.keys()));
             }
             let button = gtk::Button::with_label(if kind == FooterButton::Dismiss {
                 "×"
@@ -84,4 +78,14 @@ impl FooterActions {
             shown.push((kind, shortcut));
         }
     }
+}
+
+pub(super) fn keycaps<'a>(keys: impl IntoIterator<Item = &'a str>) -> gtk::Box {
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    for key in keys {
+        let keycap = gtk::Label::new(Some(key));
+        keycap.add_css_class("keycap");
+        row.append(&keycap);
+    }
+    row
 }

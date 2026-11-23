@@ -91,8 +91,16 @@ keek's bar joined to the bottom of a Session Window. It shows the Project, branc
 _Avoid_: Agents Strip, status bar, panel
 
 **Session Card**:
-A Session Window and its Session Footer, seen as one card in a slot of the Agents Workspace. After the Agent Session ends, the card keeps its last frame and shows the Verdict until the developer dismisses it.
+A Session Window and its Session Footer, seen as one card in the focus slot of the Agents Workspace. After the Agent Session ends, the card keeps its last frame and shows the Verdict until the developer dismisses it.
 _Avoid_: tile, panel, dashboard
+
+**Focus slot**:
+The large place on the Agents Workspace that shows one Agent Session as a Session Card, at its Session Window's true size. With one session open it spans the workspace.
+_Avoid_: main slot, stage, primary
+
+**Rail**:
+The narrow column of rail cards beside the focus slot, or a row below it on a narrow monitor. Each rail card shows one other Agent Session as a still, its state and its Checks. Clicking a rail card swaps its session into the focus slot.
+_Avoid_: strip, sidebar, thumbnails, gallery
 
 **Help Request**:
 A Verifier's signal that it cannot continue without the developer, with a short reason. It is open from when the Verifier raises it until the developer takes control or the Verifier withdraws it.
