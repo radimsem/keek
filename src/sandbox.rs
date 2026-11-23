@@ -113,6 +113,10 @@ impl SandboxSpec {
             ("init.sh", include_str!("../assets/nested/init.sh")),
             ("session.sh", include_str!("../assets/nested/session.sh")),
             (
+                "clipboard.sh",
+                include_str!("../assets/nested/clipboard.sh"),
+            ),
+            (
                 "hyprland.lua",
                 include_str!("../assets/nested/hyprland.lua"),
             ),
@@ -123,6 +127,7 @@ impl SandboxSpec {
         ] {
             write_executable(&nested.join(name), content)?;
         }
+        crate::takeover_clipboard::create_fifo(&self.session_dir)?;
         write_executable(
             &nested.join("start-app.sh"),
             include_str!("../assets/nested/start-app.sh"),

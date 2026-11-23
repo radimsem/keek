@@ -3,6 +3,7 @@ pub(super) struct Runner {
     pub inner: EvidenceRunner,
     pub calls: Arc<Mutex<Vec<(String, Value)>>>,
     pub fail_no_focus: Arc<AtomicBool>,
+    pub host_clipboard: Arc<Mutex<Option<&'static str>>>,
 }
 impl crate::process::ProcessRunner for Runner {
     fn output<'a>(
@@ -12,6 +13,14 @@ impl crate::process::ProcessRunner for Runner {
         cwd: Option<&'a Path>,
     ) -> crate::process::ProcessFuture<'a> {
         Box::pin(async move {
+            if program == "wl-paste" {
+                let text = *self.host_clipboard.lock().unwrap();
+                return Ok(match (text, args.contains(&"--list-types")) {
+                    (None, _) => "image/png".into(),
+                    (Some(_), true) => "text/plain;charset=utf-8\nUTF8_STRING".into(),
+                    (Some(text), false) => text.into(),
+                });
+            }
             if program == "hyprctl"
                 || program == "omarchy-notification-send"
                 || program == "omarchy-notification-dismiss"

@@ -135,6 +135,9 @@ impl Actor {
             opened: self.opened_at,
             window: driver.session_window(),
             project: self.project.clone(),
+            clipboard: std::sync::Arc::new(crate::takeover_clipboard::SessionFifo::new(
+                self.folder.root(),
+            )),
         };
         let mut control_events = self.events.subscribe();
         let controller_ended = driver.ended();

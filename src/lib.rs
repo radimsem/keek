@@ -26,6 +26,7 @@ pub mod security_context;
 pub mod session;
 pub mod session_factory;
 pub mod session_folder;
+pub mod takeover_clipboard;
 pub mod timeline;
 pub mod title_card;
 pub mod toolchain;

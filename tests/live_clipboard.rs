@@ -97,7 +97,7 @@ fn manual_recovery_quotes_apostrophes_in_paths_and_types() {
 
 #[tokio::test]
 #[ignore = "requires the real Hyprland desktop and pinned Cua Driver"]
-async fn live_a_takeover_keeps_the_host_clipboard_apart_from_the_nested_one() -> Result<()> {
+async fn live_a_takeover_carries_host_text_in_and_nothing_out() -> Result<()> {
     use keek::session::control::{Command as ControlCommand, Control, Controller};
     use std::sync::Arc;
     let _desktop = LIVE_DESKTOP.lock().await;
@@ -200,6 +200,7 @@ async fn live_a_takeover_keeps_the_host_clipboard_apart_from_the_nested_one() ->
             opened: std::time::Instant::now(),
             window: Some(keek::compositor::WindowAddress(address.clone())),
             project: "clip".into(),
+            clipboard: Arc::new(keek::takeover_clipboard::SessionFifo::new(&folder)),
         };
         controller_task = Some(tokio::spawn(
             controller.run(receiver, Box::pin(std::future::pending())),
@@ -216,8 +217,8 @@ async fn live_a_takeover_keeps_the_host_clipboard_apart_from_the_nested_one() ->
             .execute("wl-paste --no-newline --type text/plain")
             .await?;
         anyhow::ensure!(
-            !nested.windows(a.len()).any(|v| v == a.as_bytes()),
-            "Host A reached nested clipboard during Takeover"
+            nested == a.as_bytes(),
+            "Host A was not carried into the nested clipboard at Take control"
         );
         probe
             .execute(&format!("wl-copy --sensitive --type text/plain -- '{b}'"))
@@ -236,6 +237,14 @@ async fn live_a_takeover_keeps_the_host_clipboard_apart_from_the_nested_one() ->
         );
         control.commands.send(ControlCommand::Done).await?;
         wait_clipboard_control(&mut snapshots, ClipboardPhase::HandBack).await?;
+        let nested = probe
+            .execute("wl-paste --no-newline --type text/plain || true")
+            .await?;
+        anyhow::ensure!(
+            !nested.windows(a.len()).any(|v| v == a.as_bytes())
+                && !nested.windows(b.len()).any(|v| v == b.as_bytes()),
+            "The nested clipboard was not cleared on Done"
+        );
         let host = clipboard_read("text/plain").await?;
         anyhow::ensure!(
             host == a.as_bytes() && !host.windows(b.len()).any(|v| v == b.as_bytes()),
@@ -245,7 +254,9 @@ async fn live_a_takeover_keeps_the_host_clipboard_apart_from_the_nested_one() ->
             before == host_state().await?,
             "Host focus or workspace changed after Done"
         );
-        println!("Clipboard separation checks passed before, during and after Takeover");
+        println!(
+            "Host text was carried in, nothing came out, and Done cleared the nested clipboard"
+        );
         Ok::<_, anyhow::Error>(())
     }
     .await;

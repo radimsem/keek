@@ -133,6 +133,17 @@ Read on 2026-11-03 at the aquamarine v0.15.1 and Hyprland v0.56.2 tags, with wl-
 
 Not run: the live Takeover clipboard check itself. It runs when the host clipboard holds only text or a single type.
 
+So the host clipboard reaches a session only when keek carries it in. Since #86 keek does that during a Takeover, host to session only. Read on 2026-11-23 with wl-clipboard 2.3.0-1 and Omarchy 4.5.0-3 installed:
+
+- Channel: pasta closes descriptors above stderr and the sandbox's stdin and stdout carry Cua Driver's MCP stream, so no descriptor reaches the sandbox from the daemon. The session folder is bind-mounted at the same path inside, so a FIFO there, created 0600 by keek before the sandbox starts, is the channel. The reader inside opens it read-write, so a reader stays present between frames and the daemon's non-blocking open fails at once with `ENXIO` when the reader is gone.
+- Source: Omarchy's shell keeps a clipboard history (`$OMARCHY_PATH/shell/plugins/clipboard/`). It watches `wl-paste --type text --watch capture.sh` and writes `$HOME/.local/state/omarchy/clipboard-history.json`, which inside the sandbox is on the throwaway HOME tmpfs. `capture.sh` exits without recording when `CLIPBOARD_STATE` is `sensitive` or the offer lists `x-kde-passwordManagerHint`.
+- Docs: `man wl-copy` (2.3.0) says `--sensitive` hints that the data holds passwords, keys or other sensitive content, and `wl-paste --watch` sets `CLIPBOARD_STATE=sensitive` when it sees `x-kde-passwordManagerHint` among the types. keek copies with `--sensitive`, so the carried text stays out of the nested history. A `--clear` gives the watcher empty input, which `capture.sh` drops.
+- Binary: `strings /usr/bin/wl-copy` lists `mkdtemp`, `TMPDIR` and `/tmp`, so `wl-copy` most likely keeps what it serves in a temporary file. Inside the sandbox `/tmp` is a tmpfs of its own, and the clear on Done makes that `wl-copy` lose the selection. Not checked: that it removes the file when it exits.
+
+- Ordering: the daemon writes the clear frame before it releases the held call, but nothing acknowledges that `wl-copy --clear` has run. A held call that is itself `clipboard_read` could start within those few milliseconds. A failed clear is logged and the call is released anyway.
+
+Not checked on a live nested desktop: that a carried text pastes with the nested paste shortcut, that it is absent from the nested clipboard history panel after Done, that `clipboard_read` returns nothing of it after Done, that `grep -r` finds it in no Evidence text file, and that the host clipboard ends as it began. These need a person at the desktop with a made-up secret. `live_a_takeover_carries_host_text_in_and_nothing_out`, the earlier live clipboard test rewritten for this rule, checks the carry, the clear and the host clipboard when the host holds only text; it has not run.
+
 ### Live test cleanup results
 
 Checked on 2026-11-03 with Hyprland 0.56.2, over every live test file:

@@ -101,6 +101,9 @@ impl Controller {
                 end
             }
         };
+        if let Err(error) = self.clipboard.clear().await {
+            tracing::warn!(%error, "Could not clear the session clipboard on Done");
+        }
         Ok(self.finish_takeover(taking, end).await)
     }
 
