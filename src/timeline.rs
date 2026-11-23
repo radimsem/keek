@@ -25,6 +25,8 @@ pub enum CheckOutcome {
 pub enum HelpOutcome {
     /// The developer took control. The Takeover starts at the Help Request's end.
     Answered,
+    /// The developer pressed Done, but the screen looked unchanged.
+    Unanswered,
     /// The Verifier withdrew it, or the session ended while it was open.
     Withdrawn,
 }

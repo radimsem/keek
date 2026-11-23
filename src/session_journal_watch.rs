@@ -39,7 +39,7 @@ pub(super) async fn watch_control(
                     false
                 }
             }
-            crate::ipc::ControlState::HandBack { end_ms, length } => {
+            crate::ipc::ControlState::HandBack { end_ms, length, .. } => {
                 let end = Millis(end_ms.0.saturating_sub(offset));
                 let start = Millis(end_ms.0.saturating_sub(length.0).saturating_sub(offset));
                 if let Some(span) = data
@@ -95,6 +95,18 @@ fn track_help(
     offset: u64,
     now: Millis,
 ) -> bool {
+    if matches!(
+        state,
+        crate::ipc::ControlState::HandBack {
+            result: crate::ipc::HandBackResult::HelpUnanswered,
+            ..
+        }
+    ) && let Some((_, outcome @ crate::timeline::HelpOutcome::Answered)) =
+        help.last_mut().and_then(|request| request.end.as_mut())
+    {
+        *outcome = crate::timeline::HelpOutcome::Unanswered;
+        return true;
+    }
     let open = help.last_mut().filter(|request| request.end.is_none());
     match (state, open) {
         (crate::ipc::ControlState::HelpRequest { reason, start_ms }, None) => {
@@ -181,6 +193,7 @@ mod tests {
             events.send_modify(|snapshot| {
                 snapshot.control = crate::ipc::ControlState::HandBack {
                     end_ms: Millis(2001),
+                    result: crate::ipc::HandBackResult::Handed,
                     length: Millis(1000),
                 }
             });
@@ -252,6 +265,45 @@ mod tests {
                 in_control: Millis(3000),
                 reason: "2FA code".into(),
             }
+        );
+    }
+
+    fn answered_help() -> Vec<crate::session_journal::HelpRequest> {
+        vec![crate::session_journal::HelpRequest {
+            reason: "2FA code".into(),
+            start: Millis(1_000),
+            end: Some((Millis(5_000), crate::timeline::HelpOutcome::Answered)),
+        }]
+    }
+
+    #[test]
+    fn an_unchanged_hand_back_for_help_records_it_as_unanswered() {
+        let mut help = answered_help();
+        let state = crate::ipc::ControlState::HandBack {
+            end_ms: Millis(8_100),
+            length: Millis(3_000),
+            result: crate::ipc::HandBackResult::HelpUnanswered,
+        };
+        assert!(track_help(&mut help, &state, 100, Millis(8_000)));
+        assert_eq!(
+            help[0].end,
+            Some((Millis(5_000), crate::timeline::HelpOutcome::Unanswered))
+        );
+        assert!(!track_help(&mut help, &state, 100, Millis(8_000)));
+    }
+
+    #[test]
+    fn an_unchanged_hand_back_without_help_leaves_earlier_help_answered() {
+        let mut help = answered_help();
+        let state = crate::ipc::ControlState::HandBack {
+            end_ms: Millis(9_100),
+            length: Millis(1_000),
+            result: crate::ipc::HandBackResult::Unchanged,
+        };
+        assert!(!track_help(&mut help, &state, 100, Millis(9_000)));
+        assert_eq!(
+            help[0].end,
+            Some((Millis(5_000), crate::timeline::HelpOutcome::Answered))
         );
     }
 

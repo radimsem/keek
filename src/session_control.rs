@@ -2,7 +2,7 @@ use super::gate::{Gate, Span};
 use crate::{
     clock::Clock,
     compositor::{Compositor, TakeoverEvents, WindowAddress},
-    ipc::{ControlState, HostShortcuts, SessionSnapshot},
+    ipc::{ControlState, HandBackResult, HostShortcuts, SessionSnapshot},
     process::{ProcessError, ProcessRunner},
     timeline::{HelpOutcome, Millis},
 };
@@ -318,10 +318,14 @@ impl Controller {
             reason: taking.reason.clone(),
         };
         self.control.spans.lock().await.push(span.clone());
-        self.control.gate.open(span.clone());
         self.events.send_modify(|s| {
             s.control = ControlState::HandBack {
                 end_ms: self.time(end),
+                result: if taking.reason.is_some() {
+                    HandBackResult::HelpAnswered
+                } else {
+                    HandBackResult::Handed
+                },
                 length: Millis(
                     end.saturating_duration_since(taking.start)
                         .as_millis()
@@ -330,6 +334,7 @@ impl Controller {
                 ),
             }
         });
+        self.control.gate.open(span.clone());
         span
     }
     /// Records the open Help Request, if any, as ending at `end`.
@@ -496,6 +501,8 @@ impl Controller {
 }
 #[path = "session_control_help.rs"]
 mod help;
+#[path = "session_control_unanswered.rs"]
+mod unanswered;
 
 pub fn has_submap(binds: &serde_json::Value) -> bool {
     binds.as_array().into_iter().flatten().any(|b| {

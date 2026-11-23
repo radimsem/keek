@@ -315,6 +315,71 @@ async fn an_answered_help_request_is_recorded_until_take_control() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn an_unanswered_help_request_is_recorded_on_the_session_timeline() {
+    let root = tempfile::tempdir().unwrap();
+    let actor = start_actor(root.path(), "help-unanswered", false).await;
+    let mut events = actor.events.clone();
+    let answer = raise_help(&actor).await;
+    wait_for(&mut events, |c| {
+        matches!(c, crate::ipc::ControlState::HelpRequest { .. })
+    })
+    .await;
+    actor.clock.elapsed.fetch_add(283_000, Ordering::SeqCst);
+    actor
+        .control
+        .commands
+        .send(control::Command::TakeControl)
+        .await
+        .unwrap();
+    wait_for(&mut events, |c| {
+        matches!(c, crate::ipc::ControlState::Takeover { .. })
+    })
+    .await;
+    let crate::ipc::ControlState::Takeover { start_ms, .. } = events.borrow().control else {
+        panic!("expected a Takeover");
+    };
+    let takeover_start = actor.clock.zero + Duration::from_millis(start_ms.0);
+    actor.clock.elapsed.fetch_add(22_000, Ordering::SeqCst);
+    actor
+        .control
+        .commands
+        .send(control::Command::Done)
+        .await
+        .unwrap();
+    answer.await.unwrap();
+
+    actor.control.mark_unanswered(takeover_start).await;
+
+    let Response::Closed(value) = finish(actor).await else {
+        panic!("expected filed evidence");
+    };
+    let timeline = SessionTimeline::parse(
+        &std::fs::read_to_string(value["evidence"]["timeline"].as_str().unwrap()).unwrap(),
+    )
+    .unwrap();
+    let takeover = timeline
+        .events()
+        .iter()
+        .find(|event| matches!(event, TimelineEvent::Takeover { .. }));
+    let Some(TimelineEvent::Takeover { start_ms, .. }) = takeover else {
+        panic!("expected a recorded Takeover");
+    };
+    let help = timeline
+        .events()
+        .iter()
+        .find(|event| matches!(event, TimelineEvent::HelpRequest { .. }));
+    assert_eq!(
+        help,
+        Some(&TimelineEvent::HelpRequest {
+            reason: "2FA code".into(),
+            start_ms: Millis(0),
+            end_ms: *start_ms,
+            outcome: crate::timeline::HelpOutcome::Unanswered,
+        })
+    );
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_withdrawn_help_request_is_recorded_as_withdrawn() {
     let root = tempfile::tempdir().unwrap();
     let actor = start_actor(root.path(), "help-withdrawn", false).await;

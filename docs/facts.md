@@ -181,6 +181,18 @@ Checked on 2026-11-09 with Cua Driver 0.38.0 and `trycua/cua` at `b5adb8a35`, fr
 - The cut finalises a playable `recording.mp4`, and a later `stop_recording` still reports success, so nothing tells keek the recording ended early.
 - A live session holding a Help Request with no Takeover recorded 329.8 s of 428.8 s. With Cua's TTL set to 5 s, a 60 s Help Request recorded 29.7 s of 68.6 s without a keepalive and 70.4 s of 69.0 s with a keepalive each second.
 
+### Screen comparison results
+
+Written on 2026-11-23 for the Takeover hand-back. The limit comes from the Still-screen results above. It was not measured on live `get_desktop_state` frames.
+
+- keek takes one `get_desktop_state` screenshot once Take control completes, and another at Done. It decodes both with gdk-pixbuf (PNG or JPEG) and compares them pixel by pixel. gdk-pixbuf 2.44.8 on the development machine loaded PNG through glycin, and the fake-screenshot tests decode real PNGs through it.
+- A pixel differs when any RGB channel differs by more than 16, which absorbs JPEG noise. Screens of different size count as changed.
+- The screen looks unchanged when at most 0.02 % of its pixels differ: 276 pixels on a 1440x960 screen, 4 on the 200x100 test screens. The measured caret, agent cursor and animated chart changed about 100 pixels at a time.
+- A baseline or a fresh screenshot that cannot be read counts as changed, so the Verifier gets today's note.
+- The baseline is taken after Take control completes, so a developer who changes the screen before it is captured makes the comparison miss that change. A typed character that changes fewer than 276 pixels also reads as unchanged. Both cost the Verifier one re-read of the screen.
+
+Not run: a live Takeover with a real Help Request, so the limit is untested against real frames.
+
 ### Third trial results
 
 Checked on 2026-11-09 with Cua Driver 0.38.0, Hyprland 0.56.2 and Chromium 155.0.8059.84, from the third trial.

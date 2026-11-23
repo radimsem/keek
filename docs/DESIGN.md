@@ -250,6 +250,7 @@ Corners follow Hyprland's 8px rounding everywhere keek draws a container: Verdic
 ### Session Footer
 - **Character:** a status bar for one session; quiet unless it needs the developer.
 - **State labels:** "Last action" (Parchment Dim), "Needs you" (orange), "You are in control" (Harbor Blue Text), "Back to the Verifier" (Harbor Blue Text), "Rendering" (Parchment Dim), then the Verdict in its outcome colour: "Pass", "Needs fixes", "Partly verified". An Incomplete Session has no Verdict and reads "Incomplete" (Parchment Dim).
+- **Hand-back lines:** under "Back to the Verifier", "Handed back after 1:12. Help Request answered." when the developer answered a Help Request, "Handed back after 1:12." when no Help Request was behind the Takeover, and "The screen looks unchanged. The Verifier was told." when Done changed nothing.
 - **Reminder:** "Reminded the Verifier to mark Checks" (Parchment Dim) over "8 actions since the last mark", until the Verifier's next call. A Help Request, a Takeover and the view-only hint take precedence.
 - **View-only hint:** while the pointer is over a window the developer doesn't control, the state column reads "View only" (Harbor Blue) over "Use Take control to interact.", and Take control lights up.
 - **Top edge:** 2px in the session colour across the full width.
@@ -297,7 +298,6 @@ Designed and approved, not built yet. The screens are in the proposals canvas (h
 - **State column:** a fixed 420px. Its left edge never moves; the label and the detail line truncate on the right.
 - **Actions:** 400px, right-aligned.
 - **New state label:** "Takeover paused" (Skip Yellow) over the time away.
-- **Hand-back detail lines:** "Handed back after 1:12. Help Request answered." and "The screen looks unchanged. The Verifier was told."
 
 ### Check in progress
 - **Rail cards:** the ring described under "Checked ticks" also marks the first unmarked tick on a rail card.

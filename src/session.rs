@@ -316,6 +316,8 @@ async fn opener_left(opener: &mut Option<watch::Receiver<()>>) {
 
 #[path = "session_hand_back.rs"]
 mod hand_back;
+#[path = "session_screen.rs"]
+mod screen;
 
 #[path = "session_journal_watch.rs"]
 mod journal_watch;

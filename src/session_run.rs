@@ -9,6 +9,7 @@ pub(super) struct LoopState {
     pub(super) timeline: SessionTimeline,
     pub(super) last_action: Option<LastAction>,
     pub(super) zero: Instant,
+    pub(super) takeover_screen: Option<super::screen::Sample>,
 }
 
 impl Actor {
@@ -135,6 +136,7 @@ impl Actor {
             window: driver.session_window(),
             project: self.project.clone(),
         };
+        let mut control_events = self.events.subscribe();
         let controller_ended = driver.ended();
         let mut controller_task = self
             .control_commands
@@ -165,11 +167,11 @@ impl Actor {
             timeline: SessionTimeline::new(VIDEO_LEAD),
             last_action: None,
             zero,
+            takeover_screen: None,
         };
-        let mut control_events = self.events.subscribe();
         let mut keepalive = keepalive::timer();
+        let mut paused = false;
         let reason = 'requests: loop {
-            let paused = control_events.borrow().control.pauses_idle();
             let request = tokio::select! { biased;
                 () = &mut state.ended => break 'requests Some(crate::checklist::IncompleteReason::DesktopStopped),
                 () = self.opener_gone(&mut state.opener) => break 'requests Some(crate::checklist::IncompleteReason::OpenerLeft),
@@ -181,8 +183,11 @@ impl Actor {
                     continue;
                 }
                 _ = control_events.changed() => {
-                    let now_paused = control_events.borrow().control.pauses_idle();
+                    let control = self.events.borrow().control.clone();
+                    let now_paused = control.pauses_idle();
                     if paused && !now_paused { state.deadline = tokio::time::Instant::now() + self.idle_limit; }
+                    paused = now_paused;
+                    self.sample_takeover(&mut state, &control).await;
                     continue;
                 }
                 _ = keepalive.tick(), if paused => { keepalive::keep_recording(state.driver.as_mut()).await; continue; }

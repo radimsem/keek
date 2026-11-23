@@ -17,12 +17,19 @@ impl Actor {
         arguments: Value,
         reply: oneshot::Sender<Response>,
     ) -> CallEnd {
+        let mut control = self.events.subscribe();
+        let current = self.events.borrow().control.clone();
+        self.sample_takeover(state, &current).await;
         let mut keepalive = keepalive::timer();
         let entry = loop {
             tokio::select! {
                 entry = self.control.gate.enter_for(arrival) => break entry,
                 () = self.opener_gone(&mut state.opener) => return CallEnd::End(IncompleteReason::OpenerLeft),
                 _ = keepalive.tick() => keepalive::keep_recording(state.driver.as_mut()).await,
+                _ = control.changed() => {
+                    let current = self.events.borrow().control.clone();
+                    self.sample_takeover(state, &current).await;
+                }
             }
         };
         let _permit = match entry {
@@ -32,6 +39,7 @@ impl Actor {
                     .hand_back(
                         state.driver.as_mut(),
                         span,
+                        &state.takeover_screen,
                         &mut state.opener,
                         &mut state.deadline,
                     )
@@ -62,13 +70,7 @@ impl Actor {
             return CallEnd::Replied;
         }
         let start = self.clock.now();
-        let action_ms = Millis(
-            start
-                .saturating_duration_since(self.opened_at)
-                .as_millis()
-                .try_into()
-                .unwrap_or(u64::MAX),
-        );
+        let action_ms = self.control_time(start);
         let start_ms = timeline_time(state.zero, start);
         let interrupt = |reason: IncompleteReason| {
             (

@@ -22,6 +22,11 @@ pub enum TitleCard {
         in_control: Millis,
         reason: String,
     },
+    Unanswered {
+        waited: Millis,
+        in_control: Millis,
+        reason: String,
+    },
     Withdrawn {
         waited: Millis,
         reason: String,
@@ -35,6 +40,9 @@ impl TitleCard {
             Self::Takeover { in_control, .. } => *in_control,
             Self::Answered {
                 waited, in_control, ..
+            }
+            | Self::Unanswered {
+                waited, in_control, ..
             } => Millis(waited.0 + in_control.0),
             Self::Withdrawn { waited, .. } => *waited,
         }
@@ -44,10 +52,10 @@ pub fn clock(time: Millis) -> String {
     let seconds = time.0 / 1000;
     format!("{}:{:02}", seconds / 60, seconds % 60)
 }
-/// Each report entry with its raw span, in order. An answered Help Request and
-/// the Takeover that starts at its end share one entry.
+/// Each report entry with its raw span, in order. A Help Request and the Takeover
+/// that starts at its end share one entry.
 pub fn title_cards(events: &[TimelineEvent]) -> Vec<(Span, TitleCard)> {
-    let mut answered = Vec::new();
+    let mut matched_takeovers = Vec::new();
     let mut cards: Vec<(Span, TitleCard)> = events
         .iter()
         .filter_map(|event| match event {
@@ -58,7 +66,11 @@ pub fn title_cards(events: &[TimelineEvent]) -> Vec<(Span, TitleCard)> {
                 outcome,
             } => {
                 let waited = Millis(end_ms.0.saturating_sub(start_ms.0));
-                let takeover = (*outcome == HelpOutcome::Answered)
+                let has_takeover = match outcome {
+                    HelpOutcome::Answered | HelpOutcome::Unanswered => true,
+                    HelpOutcome::Withdrawn => false,
+                };
+                let takeover = has_takeover
                     .then(|| {
                         events.iter().find_map(|event| match event {
                             TimelineEvent::Takeover {
@@ -76,17 +88,28 @@ pub fn title_cards(events: &[TimelineEvent]) -> Vec<(Span, TitleCard)> {
                     .flatten();
                 Some(match takeover {
                     Some(done) => {
-                        answered.push(*end_ms);
+                        matched_takeovers.push(*end_ms);
+                        let in_control = Millis(done.0.saturating_sub(end_ms.0));
+                        let reason = reason.clone();
+                        let card = if *outcome == HelpOutcome::Unanswered {
+                            TitleCard::Unanswered {
+                                waited,
+                                in_control,
+                                reason,
+                            }
+                        } else {
+                            TitleCard::Answered {
+                                waited,
+                                in_control,
+                                reason,
+                            }
+                        };
                         (
                             Span {
                                 start: *start_ms,
                                 end: done,
                             },
-                            TitleCard::Answered {
-                                waited,
-                                in_control: Millis(done.0.saturating_sub(end_ms.0)),
-                                reason: reason.clone(),
-                            },
+                            card,
                         )
                     }
                     None => (
@@ -112,7 +135,7 @@ pub fn title_cards(events: &[TimelineEvent]) -> Vec<(Span, TitleCard)> {
             reason,
             start_ms,
             end_ms,
-        } if !answered.contains(start_ms) => Some((
+        } if !matched_takeovers.contains(start_ms) => Some((
             Span {
                 start: *start_ms,
                 end: *end_ms,
@@ -353,6 +376,25 @@ mod tests {
                 waited: Millis(283_000),
                 in_control: Millis(22_000),
                 reason: "2FA code".into()
+            }
+        );
+        assert_eq!(cards[0].1.real_ms(), Millis(305_000));
+    }
+    #[test]
+    fn an_unanswered_help_request_shares_one_card_with_its_takeover() {
+        let t = timeline(vec![
+            help(10_000, 293_000, HelpOutcome::Unanswered),
+            takeover(293_000, 315_000),
+        ]);
+
+        let cards = title_cards(t.events());
+
+        assert_eq!(cards.len(), 1);
+        assert_eq!(
+            cards[0].0,
+            Span {
+                start: Millis(10_000),
+                end: Millis(315_000),
             }
         );
         assert_eq!(cards[0].1.real_ms(), Millis(305_000));

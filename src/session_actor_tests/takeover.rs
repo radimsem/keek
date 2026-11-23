@@ -305,7 +305,7 @@ async fn a_help_request_is_refused_when_the_sandbox_ends_before_take_control() {
 async fn a_fresh_screenshot_finishes_before_the_next_takeover_changes_focus() {
     let root = tempfile::tempdir().unwrap();
     let actor = start_actor(root.path(), "screenshot-permit", false).await;
-    *actor.screenshot.lock().unwrap() = fake_driver::Screenshot::Held;
+    let previous = super::screen_hand_back::captures(&actor);
     actor
         .control
         .commands
@@ -319,6 +319,8 @@ async fn a_fresh_screenshot_finishes_before_the_next_takeover_changes_focus() {
     ) {
         events.changed().await.unwrap();
     }
+    super::screen_hand_back::wait_for_baseline(&actor, previous).await;
+    *actor.screenshot.lock().unwrap() = fake_driver::Screenshot::Held;
     let (reply, answer) = oneshot::channel();
     actor
         .sender
@@ -388,7 +390,7 @@ async fn screenshot_timeout_returns_note_and_error() {
 async fn screenshot_error(mode: fake_driver::Screenshot) {
     let root = tempfile::tempdir().unwrap();
     let actor = start_actor(root.path(), "screenshot-error", false).await;
-    *actor.screenshot.lock().unwrap() = mode;
+    let previous = super::screen_hand_back::captures(&actor);
     actor
         .control
         .commands
@@ -402,6 +404,8 @@ async fn screenshot_error(mode: fake_driver::Screenshot) {
     ) {
         events.changed().await.unwrap();
     }
+    super::screen_hand_back::wait_for_baseline(&actor, previous).await;
+    *actor.screenshot.lock().unwrap() = mode;
     let (reply, answer) = oneshot::channel();
     actor
         .sender

@@ -1,5 +1,9 @@
 #[path = "session_control_tests/failure.rs"]
 mod failure;
+#[path = "session_control_tests/hand_back.rs"]
+mod hand_back;
+#[path = "session_control_tests/unanswered.rs"]
+mod unanswered;
 use super::*;
 use crate::compositor::{
     CompositorFuture, EventsFuture, Placement, SlotFuture, WindowEvents, WindowFuture, WindowPid,

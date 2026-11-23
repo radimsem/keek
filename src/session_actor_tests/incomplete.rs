@@ -165,7 +165,7 @@ async fn disconnect_interrupts_the_handback_screenshot() {
         Some(opener),
     )
     .await;
-    *actor.screenshot.lock().unwrap() = fake_driver::Screenshot::Held;
+    let previous = super::screen_hand_back::captures(&actor);
     actor
         .control
         .commands
@@ -179,6 +179,8 @@ async fn disconnect_interrupts_the_handback_screenshot() {
     ) {
         events.changed().await.unwrap();
     }
+    super::screen_hand_back::wait_for_baseline(&actor, previous).await;
+    *actor.screenshot.lock().unwrap() = fake_driver::Screenshot::Held;
     let (reply, _answer) = oneshot::channel();
     actor
         .sender
@@ -224,7 +226,7 @@ async fn idle_does_not_interrupt_the_handback_screenshot() {
         None,
     )
     .await;
-    *actor.screenshot.lock().unwrap() = fake_driver::Screenshot::Held;
+    let previous = super::screen_hand_back::captures(&actor);
     actor
         .control
         .commands
@@ -238,6 +240,8 @@ async fn idle_does_not_interrupt_the_handback_screenshot() {
     ) {
         events.changed().await.unwrap();
     }
+    super::screen_hand_back::wait_for_baseline(&actor, previous).await;
+    *actor.screenshot.lock().unwrap() = fake_driver::Screenshot::Held;
     let (reply, mut answer) = oneshot::channel();
     actor
         .sender

@@ -7,6 +7,7 @@ What changed in each keek release, for a person who uses it. The format follows 
 ### Fixed
 
 - The Session Footer's state text keeps its left edge when it changes, and long text is cut on the right.
+- The Verifier is told when you press Done and the screen looks unchanged, so it asks for help again or skips the Check instead of treating the Help Request as answered. The Session Footer and the Verdict Report say the Help Request went unanswered.
 
 ### Changed
 

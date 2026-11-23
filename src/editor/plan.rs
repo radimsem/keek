@@ -502,6 +502,44 @@ mod tests {
     }
 
     #[test]
+    fn an_unanswered_help_request_leaves_only_its_guarded_takeover_segment() {
+        let mut timeline = SessionTimeline::new(Millis(0));
+        timeline.push(TimelineEvent::HelpRequest {
+            reason: "2FA code".into(),
+            start_ms: Millis(0),
+            end_ms: Millis(5000),
+            outcome: crate::timeline::HelpOutcome::Unanswered,
+        });
+        timeline.push(TimelineEvent::Takeover {
+            reason: Some("2FA code".into()),
+            start_ms: Millis(5000),
+            end_ms: Millis(8000),
+        });
+        let duration = Millis(8150);
+        let plan = plan_edit(
+            &timeline,
+            &[],
+            duration,
+            &cut_spans(&timeline, duration, ACTION_AFTER),
+            Margins {
+                before: ACTION_BEFORE,
+                after: ACTION_AFTER,
+            },
+        );
+
+        assert_eq!(
+            plan.segments(),
+            [Segment {
+                start: Millis(4850),
+                end: duration,
+                kind: SegmentKind::Takeover {
+                    real_ms: Millis(3300),
+                },
+            }]
+        );
+    }
+
+    #[test]
     fn a_withdrawn_help_request_leaves_no_segment() {
         let mut timeline = SessionTimeline::new(Millis(0));
         timeline.push(TimelineEvent::HelpRequest {

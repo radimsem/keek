@@ -356,6 +356,7 @@ pub enum ControlState {
     HandBack {
         end_ms: Millis,
         length: Millis,
+        result: HandBackResult,
     },
 }
 impl ControlState {
@@ -371,6 +372,25 @@ impl ControlState {
 pub enum HostShortcuts {
     Captured,
     Live,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HandBackResult {
+    Handed,
+    HelpAnswered,
+    Unchanged,
+    HelpUnanswered,
+}
+
+impl HandBackResult {
+    pub(crate) fn unchanged(self) -> Self {
+        match self {
+            Self::Handed => Self::Unchanged,
+            Self::HelpAnswered => Self::HelpUnanswered,
+            Self::Unchanged | Self::HelpUnanswered => self,
+        }
+    }
 }
 
 #[cfg(test)]
