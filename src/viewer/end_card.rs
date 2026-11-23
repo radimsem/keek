@@ -18,7 +18,7 @@ pub struct EndCard {
     panel: gtk::Box,
     progress: Option<gtk::ProgressBar>,
     tally: gtk::Label,
-    width: i32,
+    geometry: crate::slots::CardGeometry,
     frame_loader: Option<gtk::glib::JoinHandle<()>>,
 }
 impl EndCard {
@@ -85,14 +85,14 @@ impl EndCard {
         );
         overlay.add_overlay(&scrim);
         let view = verdict_view::for_snapshot(snapshot)?;
-        let (panel, progress, tally) = panel(view, geometry.body.width);
+        let (panel, progress, tally) = panel(view, geometry);
         overlay.add_overlay(&panel);
         Some(Self {
             overlay,
             panel,
             progress,
             tally,
-            width: geometry.body.width,
+            geometry,
             frame_loader,
         })
     }
@@ -110,7 +110,7 @@ impl EndCard {
             verdict_view::PanelMode::Ended => {
                 if self.progress.is_some() {
                     self.overlay.remove_overlay(&self.panel);
-                    let (panel, progress, tally) = panel(view, self.width);
+                    let (panel, progress, tally) = panel(view, self.geometry);
                     self.overlay.add_overlay(&panel);
                     self.panel = panel;
                     self.progress = progress;
@@ -141,9 +141,16 @@ pub fn update_slot(
         }
     }
 }
+fn panel_width(mode: verdict_view::PanelMode, geometry: crate::slots::CardGeometry) -> i32 {
+    match mode {
+        verdict_view::PanelMode::Rendering(_) => 560,
+        verdict_view::PanelMode::Ended => 720,
+    }
+    .min((geometry.window.width - 32).max(1))
+}
 fn panel(
     view: verdict_view::PanelView,
-    width: i32,
+    geometry: crate::slots::CardGeometry,
 ) -> (gtk::Box, Option<gtk::ProgressBar>, gtk::Label) {
     let theme = super::theme::load();
     let panel = gtk::Box::new(gtk::Orientation::Vertical, 20);
@@ -152,15 +159,7 @@ fn panel(
     panel.set_margin_start(16);
     panel.set_margin_end(16);
     panel.set_valign(gtk::Align::Center);
-    panel.set_size_request(
-        if matches!(view.mode, verdict_view::PanelMode::Rendering(_)) {
-            560
-        } else {
-            720
-        }
-        .min((width - 32).max(1)),
-        -1,
-    );
+    panel.set_size_request(panel_width(view.mode, geometry), -1);
     let header = gtk::Box::new(gtk::Orientation::Horizontal, 14);
     let words = gtk::Box::new(gtk::Orientation::Vertical, 6);
     let title = label(
@@ -433,5 +432,41 @@ impl FooterActions {
         for (kind, button) in &self.ended {
             button.set_visible(view.buttons.contains(kind));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ipc::Percent, slots::Slot};
+    fn card(window: (i32, i32)) -> crate::slots::CardGeometry {
+        crate::slots::geometry(
+            Slot {
+                x: 24,
+                y: 50,
+                width: 1712,
+                height: 1300,
+            },
+            Some(window),
+        )
+    }
+    #[test]
+    fn panels_are_never_wider_than_a_window_smaller_than_the_slot() {
+        let geometry = card((390, 844));
+        for mode in [
+            verdict_view::PanelMode::Rendering(Percent(40)),
+            verdict_view::PanelMode::Ended,
+        ] {
+            assert!(panel_width(mode, geometry) <= geometry.window.width);
+        }
+    }
+    #[test]
+    fn panels_keep_their_own_width_in_a_window_that_fills_the_slot() {
+        let geometry = card((1712, 1300));
+        assert_eq!(
+            panel_width(verdict_view::PanelMode::Rendering(Percent(40)), geometry),
+            560
+        );
+        assert_eq!(panel_width(verdict_view::PanelMode::Ended, geometry), 720);
     }
 }

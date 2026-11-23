@@ -72,15 +72,19 @@ pub fn layout(input: Layout) -> Vec<Slot> {
     } else {
         usable_height
     };
-    if w <= 0 || card_h <= FOOTER_HEIGHT - FOOTER_OVERLAP {
+    let footer = FOOTER_HEIGHT - FOOTER_OVERLAP;
+    // libx264 requires even dimensions for yuv420p video.
+    let w = w & !1;
+    let h = card_h.saturating_sub(footer) & !1;
+    if w <= 0 || h <= 0 {
         return vec![];
     }
     (0..n)
         .map(|i| Slot {
             x: left + outer + if stacked { 0 } else { i * (w + gap) },
-            y: top + outer + if stacked { i * (card_h + gap) } else { 0 },
+            y: top + outer + if stacked { i * (h + footer + gap) } else { 0 },
             width: w,
-            height: card_h - (FOOTER_HEIGHT - FOOTER_OVERLAP),
+            height: h,
         })
         .collect()
 }
@@ -102,13 +106,13 @@ mod tests {
                 Slot {
                     x: 24,
                     y: 50,
-                    width: 1691,
+                    width: 1690,
                     height: 1298
                 },
                 Slot {
-                    x: 1725,
+                    x: 1724,
                     y: 50,
-                    width: 1691,
+                    width: 1690,
                     height: 1298
                 }
             ]
@@ -130,11 +134,29 @@ mod tests {
             Slot {
                 x: 24,
                 y: 50,
-                width: 931,
+                width: 930,
                 height: 938
             }
         );
-        assert_eq!(s[1].x, 965);
+        assert_eq!(s[1].x, 964);
+    }
+    #[test]
+    fn slots_have_even_sizes_so_the_video_of_a_full_slot_window_encodes() {
+        for (width, height) in [(1920, 1080), (1366, 768), (3440, 1440), (1280, 1024)] {
+            for count in 1..=4 {
+                for slot in layout(Layout {
+                    width,
+                    height,
+                    reserved: [0, 26, 1, 3],
+                    outer: 23,
+                    gap: 9,
+                    count,
+                }) {
+                    assert_eq!(slot.width % 2, 0, "{width}x{height} x{count}: {slot:?}");
+                    assert_eq!(slot.height % 2, 0, "{width}x{height} x{count}: {slot:?}");
+                }
+            }
+        }
     }
     #[test]
     fn narrow_monitors_stack_cards() {

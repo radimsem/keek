@@ -211,7 +211,7 @@ Three themes in Omarchy's set have no `orange`, so a Help Request and a skipped 
 
 ## Layout
 
-The reference layout is the Agents Workspace on a 3440×1440 output: the 26px Omarchy bar, then two Session Card slots at x 24 and x 1725, each a 1691×1298 Session Window at top 50 with its 76px Session Footer below. Gaps are Hyprland's 24px `gaps_out`.
+The reference layout is the Agents Workspace on a 3440×1440 output: the 26px Omarchy bar, then two Session Card slots at x 24 and x 1724, each a 1690×1298 Session Window at top 50 with its 76px Session Footer below. Gaps are Hyprland's 24px `gaps_out`.
 
 The Session Footer is a single row, 16px side padding, 24px between columns, centred vertically:
 
@@ -245,6 +245,7 @@ Corners follow Hyprland's 8px rounding everywhere keek draws a container: Verdic
 - **Character:** the nested Hyprland window and its Session Footer, read as one card.
 - **States:** at rest (Border Inactive), Help Request (whole card Needs-you Orange, footer background stays Bar Navy), Takeover (Border Active, footer Control Navy), ended (last frame dimmed, one Verdict panel).
 - **Behaviour:** a new session that needs the slot replaces an ended card.
+- **Session Window:** fills the slot above the Session Footer when the Project Profile sets no `window`. A smaller window is centred on black at its true size, and no panel over it is wider than the window.
 
 ### Session Footer
 - **Character:** a status bar for one session; quiet unless it needs the developer.
@@ -291,7 +292,6 @@ Designed and approved, not built yet. The screens are in the proposals canvas (h
 ### Layout with a rail
 - **Focus slot:** x 24, top 50, 2822×1298, with its 76px Session Footer below at the same width. One open session has no rail, and the focus slot spans the workspace.
 - **Rail:** a 560px column at x 2856, 10px right of the focus slot, from top 50. Rail cards are 560×384, 11px apart, stacked from the top.
-- **Session Window:** fills the focus slot when the Project Profile sets no `window`. A smaller window stays centred on black, and no panel over it is wider than the window.
 
 ### Session Footer changes
 - **State column:** a fixed 420px. Its left edge never moves; the label and the detail line truncate on the right.

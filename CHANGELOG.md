@@ -10,6 +10,7 @@ What changed in each keek release, for a person who uses it. The format follows 
 
 ### Changed
 
+- A Session Window with no `window` in its Project Profile now fills its slot. The Verification Video size follows the developer's monitor, and the Verdict panel stays within the window.
 - The Verifier is reminded every 8 calls to mark the Checks it has already observed, and the Session Footer rings the Check in progress, so the ticks fill in during the session.
 
 ## 0.1.1 - 2026-11-15
