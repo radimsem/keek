@@ -265,7 +265,9 @@ async fn live_project_reuses_layers_and_applies_isolation_settings_and_warnings(
             if index == 0 || index == 2 {
                 let new: Vec<_> = entries
                     .iter()
-                    .filter(|name| *name != ".lock" && !keys.contains(*name))
+                    .filter(|name| {
+                        *name != ".lock" && *name != ".used" && !keys.contains(*name)
+                    })
                     .cloned()
                     .collect();
                 anyhow::ensure!(
@@ -275,7 +277,7 @@ async fn live_project_reuses_layers_and_applies_isolation_settings_and_warnings(
                 keys.extend(new);
             }
             let mut expected = keys.clone();
-            expected.push(".lock".into());
+            expected.extend([".lock".into(), ".used".into()]);
             expected.sort();
             anyhow::ensure!(
                 entries == expected,
