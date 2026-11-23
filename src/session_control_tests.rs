@@ -14,7 +14,8 @@ mod step_away_failure;
 mod unanswered;
 use super::*;
 use crate::compositor::{
-    CompositorFuture, EventsFuture, Placement, SlotFuture, WindowEvents, WindowFuture, WindowPid,
+    CompositorFuture, EventsFuture, Placement, WindowEvents, WindowFuture, WindowPid,
+    WorkspaceFuture,
 };
 use std::sync::Mutex as StdMutex;
 struct NoClipboard;
@@ -80,6 +81,7 @@ async fn help_arriving_during_done_does_not_leave_a_stale_request() {
         opened: Instant::now(),
         window: Some(WindowAddress("0xabc".into())),
         project: "app".into(),
+        session: "app-12-00-00".parse().unwrap(),
         clipboard: Arc::new(NoClipboard),
     };
     let task = tokio::spawn(controller.run(receiver, Box::pin(std::future::pending())));
@@ -147,6 +149,7 @@ async fn failure_before_host_changes_reopens_the_gate_without_a_span() {
         opened: Instant::now(),
         window: Some(WindowAddress("0xabc".into())),
         project: "app".into(),
+        session: "app-12-00-00".parse().unwrap(),
         clipboard: Arc::new(NoClipboard),
     };
     assert!(controller.take_control(None).await.is_err());
@@ -179,12 +182,7 @@ impl Compositor for FakeCompositor {
     ) -> WindowFuture<'_> {
         Box::pin(async { Ok(WindowAddress("0xabc".into())) })
     }
-    fn slot(
-        &self,
-        _: crate::viewer::SlotId,
-        _: usize,
-        _: Option<crate::project::WindowSize>,
-    ) -> SlotFuture<'_> {
+    fn workspace(&self, _: usize) -> WorkspaceFuture<'_> {
         Box::pin(async {
             Err(ProcessError::Failed {
                 program: "fake".into(),
@@ -280,6 +278,7 @@ fn fixture_with_output(
         opened: Instant::now(),
         window: Some(WindowAddress("0xabc".into())),
         project: "app".into(),
+        session: "app-12-00-00".parse().unwrap(),
         clipboard: Arc::new(NoClipboard),
     };
     (

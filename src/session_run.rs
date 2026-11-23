@@ -106,6 +106,9 @@ impl Actor {
                 };
             }
         };
+        if let Some(address) = driver.session_window() {
+            self.window.placed(address, &*self.compositor).await;
+        }
         self.progress.send("Starting App Under Test");
         let opened = self.setup(driver.as_mut()).await;
         let zero = match opened {
@@ -134,6 +137,7 @@ impl Actor {
             events: self.events.clone(),
             opened: self.opened_at,
             window: driver.session_window(),
+            session: self.name.clone(),
             project: self.project.clone(),
             clipboard: std::sync::Arc::new(crate::takeover_clipboard::SessionFifo::new(
                 self.folder.root(),

@@ -5,6 +5,7 @@ use super::{
 };
 use crate::ipc::{SessionSnapshot, SessionState};
 use gtk4::{self as gtk, prelude::*};
+use std::path::PathBuf;
 
 fn label(text: &str, class: &str) -> gtk::Label {
     let label = gtk::Label::new(Some(text));
@@ -33,39 +34,7 @@ impl EndCard {
         picture.set_content_fit(gtk::ContentFit::Contain);
         picture.set_can_shrink(true);
         picture.set_size_request(geometry.window.width, geometry.window.height);
-        let frame_loader = frame.clone().map(|path| {
-            let weak = picture.downgrade();
-            gtk::glib::spawn_future_local(async move {
-                let decoded = gtk::gio::spawn_blocking(move || {
-                    let image = gtk::gdk_pixbuf::Pixbuf::from_file(path).ok()?;
-                    Some((
-                        image.width(),
-                        image.height(),
-                        image.has_alpha(),
-                        image.rowstride() as usize,
-                        image.read_pixel_bytes().as_ref().to_vec(),
-                    ))
-                })
-                .await;
-                if let (Ok(Some((width, height, alpha, stride, pixels))), Some(picture)) =
-                    (decoded, weak.upgrade())
-                {
-                    let format = if alpha {
-                        gtk::gdk::MemoryFormat::R8g8b8a8
-                    } else {
-                        gtk::gdk::MemoryFormat::R8g8b8
-                    };
-                    let texture = gtk::gdk::MemoryTexture::new(
-                        width,
-                        height,
-                        format,
-                        &gtk::glib::Bytes::from_owned(pixels),
-                        stride,
-                    );
-                    picture.set_paintable(Some(&texture));
-                }
-            })
-        });
+        let frame_loader = frame.clone().map(|path| load_frame(&picture, path));
         let frame = gtk::Fixed::new();
         frame.put(
             &picture,
@@ -127,6 +96,42 @@ impl Drop for EndCard {
         }
     }
 }
+
+pub(super) fn load_frame(picture: &gtk::Picture, path: PathBuf) -> gtk::glib::JoinHandle<()> {
+    let weak = picture.downgrade();
+    gtk::glib::spawn_future_local(async move {
+        let decoded = gtk::gio::spawn_blocking(move || {
+            let image = gtk::gdk_pixbuf::Pixbuf::from_file(path).ok()?;
+            Some((
+                image.width(),
+                image.height(),
+                image.has_alpha(),
+                image.rowstride() as usize,
+                image.read_pixel_bytes().as_ref().to_vec(),
+            ))
+        })
+        .await;
+        if let (Ok(Some((width, height, alpha, stride, pixels))), Some(picture)) =
+            (decoded, weak.upgrade())
+            && picture.paintable().is_none()
+        {
+            let format = if alpha {
+                gtk::gdk::MemoryFormat::R8g8b8a8
+            } else {
+                gtk::gdk::MemoryFormat::R8g8b8
+            };
+            let texture = gtk::gdk::MemoryTexture::new(
+                width,
+                height,
+                format,
+                &gtk::glib::Bytes::from_owned(pixels),
+                stride,
+            );
+            picture.set_paintable(Some(&texture));
+        }
+    })
+}
+
 pub fn update_slot(
     card: &mut Option<EndCard>,
     body: &gtk::Overlay,

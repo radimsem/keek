@@ -17,15 +17,7 @@ pub async fn capture(
         return None;
     }
     let directory = frames.to_owned();
-    let prepared = tokio::task::spawn_blocking(move || {
-        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-        std::fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(&directory)?;
-        std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))
-    })
-    .await;
+    let prepared = tokio::task::spawn_blocking(move || prepare_directory(&directory)).await;
     match prepared {
         Ok(Ok(())) => {}
         Ok(Err(error)) => {
@@ -69,6 +61,15 @@ pub async fn capture(
     }
     Some(frame)
 }
+pub(crate) fn prepare_directory(directory: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(directory)?;
+    std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))
+}
+
 pub async fn clear(runtime: &Path) {
     let frames = runtime.join("frames");
     let result = tokio::task::spawn_blocking(move || match std::fs::remove_dir_all(frames) {

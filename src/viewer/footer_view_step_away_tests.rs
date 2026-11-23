@@ -3,6 +3,15 @@ use crate::ipc::{ControlState, HostShortcuts, TakeoverPhase};
 use crate::timeline::Millis;
 
 fn info() -> super::super::SessionInfo {
+    let placement = crate::slots::geometry(
+        crate::slots::Slot {
+            x: 0,
+            y: 0,
+            width: 1000,
+            height: 800,
+        },
+        None,
+    );
     super::super::SessionInfo {
         name: "app_12-00-00".parse().unwrap(),
         project: "app".into(),
@@ -10,15 +19,8 @@ fn info() -> super::super::SessionInfo {
         goal: "verify login".into(),
         opened: chrono::DateTime::from_timestamp(0, 0).unwrap(),
         slot: super::super::SlotId(1),
-        placement: crate::slots::geometry(
-            crate::slots::Slot {
-                x: 0,
-                y: 0,
-                width: 1000,
-                height: 800,
-            },
-            None,
-        ),
+        placement,
+        spot: crate::viewer::CardSpot::Focus(placement),
         monitor: "DP-1".into(),
     }
 }

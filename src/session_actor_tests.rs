@@ -22,12 +22,7 @@ impl crate::compositor::Compositor for FakeCompositor {
     ) -> crate::compositor::WindowFuture<'_> {
         Box::pin(async { Ok(crate::compositor::WindowAddress("0xabc".into())) })
     }
-    fn slot(
-        &self,
-        _: crate::viewer::SlotId,
-        _: usize,
-        _: Option<crate::project::WindowSize>,
-    ) -> crate::compositor::SlotFuture<'_> {
+    fn workspace(&self, _: usize) -> crate::compositor::WorkspaceFuture<'_> {
         Box::pin(async {
             Err(crate::process::ProcessError::Failed {
                 program: "fake".into(),
@@ -198,8 +193,13 @@ async fn start_configured(
         control: control.clone(),
         control_commands: Some(control_commands),
         compositor: Arc::new(FakeCompositor),
+        window: crate::window_seat::WindowSeat::new(crate::compositor::WindowSpot::Shown {
+            x: 24,
+            y: 50,
+        }),
         opened_at: clock.zero,
         placement: crate::compositor::Placement {
+            initial: crate::compositor::WindowSpot::Shown { x: 24, y: 50 },
             monitor: "fake".into(),
             origin: (0, 0),
             geometry: crate::slots::geometry(

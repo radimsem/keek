@@ -1,4 +1,5 @@
 use super::*;
+use crate::window_seat::WindowSeat;
 /// What the connection that sent an open_session offers the open.
 pub(super) struct Caller {
     pub(super) opener: Option<watch::Receiver<()>>,
@@ -109,30 +110,23 @@ impl Registry {
                 worktree.display()
             )));
         }
-        let free = (0..self.dependencies.cap).find(|index| {
-            !self.sessions.values().any(|entry| entry.slot.0 == *index)
-                && !self.cards.values().any(|card| card.slot.0 == *index)
-        });
-        let (slot, victim) = if let Some(index) = free {
-            (crate::viewer::SlotId(index), None)
-        } else if let Some((oldest, slot)) = self
-            .cards
-            .iter()
-            .min_by_key(|(_, card)| (card.ended, card.slot.0))
-            .map(|(name, card)| (name.clone(), card.slot))
-        {
-            (slot, Some(oldest))
-        } else {
-            return Err(SessionError::Refused(
-                "No free Session Card slot. Close an Agent Session first.".into(),
-            ));
-        };
-        let placement = self
+        let arrival = self.places.vacancy().ok_or_else(occupied)?;
+        let workspace = self
             .dependencies
             .compositor
-            .slot(slot, self.dependencies.cap, profile.window)
+            .workspace(self.dependencies.cap)
             .await
-            .map_err(|e| SessionError::Refused(e.to_string()))?;
+            .map_err(|error| SessionError::Refused(error.to_string()))?;
+        let slot = self
+            .free_slot(arrival.replaced.as_ref())
+            .ok_or_else(occupied)?;
+        let (placement, spot) =
+            self.opening_placement(&workspace, arrival.place, profile.window)?;
+        let window = WindowSeat::new(placement.initial);
+        let window_size = (
+            placement.geometry.window.width,
+            placement.geometry.window.height,
+        );
         let opened_at = self.dependencies.clock.now();
         let started = self.dependencies.clock.local_time();
         let time = started.format("%H-%M-%S").to_string();
@@ -213,11 +207,16 @@ impl Registry {
         });
         // Set when a close is queued, before the actor can report it, and cleared if the actor refuses it.
         let closing = Arc::new(AtomicBool::new(false));
-        if let Some(victim) = victim {
-            let frame = self.cards.remove(&victim).and_then(|card| card.frame);
-            self.dependencies.viewer.closed(slot).await;
-            remove_frame(frame).await;
+        let Some(arrival) = self.places.arrive(name.clone()) else {
+            journal.remove().await;
+            return Err(occupied());
+        };
+        if let Some(victim) = arrival.replaced
+            && let Some(card) = self.cards.remove(&victim)
+        {
+            self.close_card(&victim, card.slot, card.frame).await;
         }
+        self.workspace = Some(workspace);
         self.dependencies
             .viewer
             .opened(
@@ -230,6 +229,7 @@ impl Registry {
                     slot,
                     placement: placement.geometry,
                     monitor: placement.monitor.clone(),
+                    spot,
                 },
                 event_receiver.clone(),
             )
@@ -246,8 +246,12 @@ impl Registry {
                 mailbox: sender,
                 close,
                 events: event_receiver,
+                window: window.clone(),
+                window_size,
+                still_warning: Arc::default(),
             },
         );
+        self.arrange().await;
         Ok((
             Actor {
                 test_files,
@@ -260,6 +264,7 @@ impl Registry {
                 compositor: self.dependencies.compositor.clone(),
                 opened_at,
                 placement,
+                window,
                 credentials,
                 project,
                 worktree,
@@ -284,6 +289,10 @@ impl Registry {
             Inbox::new(receiver, close_receiver),
         ))
     }
+}
+
+fn occupied() -> SessionError {
+    SessionError::Refused("No free Session Card slot. Close an Agent Session first.".into())
 }
 
 /// The worktree's canonical git root, refused when it isn't absolute, isn't a plain git worktree or sits inside the sessions folder.

@@ -84,24 +84,28 @@ impl Tick {
 pub enum SessionColour {
     Cyan,
     Violet,
+    Pink,
+    Green,
 }
 impl SessionColour {
     pub fn for_slot(slot: super::SlotId) -> Self {
-        match slot.0 % 2 {
-            0 => Self::Cyan,
-            _ => Self::Violet,
-        }
+        let colours = [Self::Cyan, Self::Violet, Self::Pink, Self::Green];
+        colours[slot.0 % colours.len()]
     }
     pub fn css_class(self) -> &'static str {
         match self {
             Self::Cyan => "cyan",
             Self::Violet => "violet",
+            Self::Pink => "pink",
+            Self::Green => "green",
         }
     }
     pub fn color(self) -> &'static str {
         match self {
             Self::Cyan => "#4ccce0",
             Self::Violet => "#a77bf3",
+            Self::Pink => "#f58fc2",
+            Self::Green => "#8fd6a0",
         }
     }
 }
@@ -208,6 +212,26 @@ pub fn action_words(tool: &str) -> &str {
         _ => "use desktop",
     }
 }
+pub(super) fn check_ticks(snapshot: &SessionSnapshot) -> impl Iterator<Item = Tick> + '_ {
+    let mut show_in_progress = snapshot.state == SessionState::Open
+        && matches!(
+            snapshot.control,
+            ControlState::Verifier | ControlState::HandBack { .. }
+        );
+    snapshot.checks.iter().map(move |check| match &check.mark {
+        Mark::Unmarked if show_in_progress => {
+            show_in_progress = false;
+            Tick::InProgress
+        }
+        Mark::Unmarked => Tick::Unmarked,
+        Mark::Outcome { outcome, .. } => match outcome {
+            CheckOutcome::Passed => Tick::Passed,
+            CheckOutcome::Failed => Tick::Failed,
+            CheckOutcome::Skipped => Tick::Skipped,
+        },
+    })
+}
+
 pub fn for_session(
     info: &super::SessionInfo,
     snapshot: &SessionSnapshot,
@@ -412,22 +436,14 @@ pub fn for_session(
             }
         }
     }
-    let show_in_progress = snapshot.state == SessionState::Open
-        && matches!(
-            snapshot.control,
-            ControlState::Verifier | ControlState::HandBack { .. }
-        );
     let mut counts = [0; 4];
     let mut ticks = Vec::new();
-    for check in &snapshot.checks {
-        let (index, tick) = match &check.mark {
-            Mark::Unmarked if show_in_progress && counts[3] == 0 => (3, Tick::InProgress),
-            Mark::Unmarked => (3, Tick::Unmarked),
-            Mark::Outcome { outcome, .. } => match outcome {
-                CheckOutcome::Passed => (0, Tick::Passed),
-                CheckOutcome::Failed => (1, Tick::Failed),
-                CheckOutcome::Skipped => (2, Tick::Skipped),
-            },
+    for tick in check_ticks(snapshot) {
+        let index = match tick {
+            Tick::Passed => 0,
+            Tick::Failed => 1,
+            Tick::Skipped => 2,
+            Tick::Unmarked | Tick::InProgress => 3,
         };
         counts[index] += 1;
         if ticks.len() < 8 {

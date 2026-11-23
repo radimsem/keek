@@ -74,7 +74,7 @@ fn main() -> Result<std::process::ExitCode> {
             let receiver_and_viewer = match keek::viewer::init() {
                 Ok(()) => Some(keek::viewer::channel()),
                 Err(error) => {
-                    tracing::warn!(%error, "GTK could not initialise; Agent Sessions will run without Session Footers");
+                    tracing::warn!(%error, "GTK could not initialise. Agent Sessions will run without Session Footers, and sessions in the rail will stay stacked on the Agents Workspace");
                     None
                 }
             };

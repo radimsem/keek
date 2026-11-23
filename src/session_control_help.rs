@@ -73,19 +73,22 @@ impl Controller {
     }
 
     async fn send_notification(&self, summary: &str, body: &str) -> Result<String, ProcessError> {
+        let session = self
+            .session
+            .to_string()
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', "\\n")
+            .replace('\r', "\\r");
+        let lua = format!(
+            r#"hl.dispatch(hl.dsp.focus({{ workspace = "name:keek" }})); hl.dispatch(hl.dsp.event("keek-show {session}"))"#
+        );
         // Omarchy expires a normal notification after 8 s; a critical one stays until acted on.
         self.runner
             .output(
                 "omarchy-notification-send",
                 &[
-                    "-u",
-                    "critical",
-                    summary,
-                    body,
-                    "--exec",
-                    "hyprctl",
-                    "eval",
-                    "hl.dispatch(hl.dsp.focus({ workspace = \"name:keek\" }))",
+                    "-u", "critical", summary, body, "--exec", "hyprctl", "eval", &lua,
                 ],
                 None,
             )

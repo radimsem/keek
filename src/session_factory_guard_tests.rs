@@ -19,12 +19,7 @@ impl Compositor for Host {
     ) -> WindowFuture<'_> {
         unreachable!()
     }
-    fn slot(
-        &self,
-        _: crate::viewer::SlotId,
-        _: usize,
-        _: Option<crate::project::WindowSize>,
-    ) -> SlotFuture<'_> {
+    fn workspace(&self, _: usize) -> WorkspaceFuture<'_> {
         unreachable!()
     }
     fn window_events(&self) -> EventsFuture<'_> {

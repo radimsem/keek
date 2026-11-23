@@ -213,12 +213,7 @@ async fn a_slot_failure_keeps_the_old_card_and_frame() {
                 })
             })
         }
-        fn slot(
-            &self,
-            _: crate::viewer::SlotId,
-            _: usize,
-            _: Option<crate::project::WindowSize>,
-        ) -> crate::compositor::SlotFuture<'_> {
+        fn workspace(&self, _: usize) -> crate::compositor::WorkspaceFuture<'_> {
             Box::pin(async {
                 Err(ProcessError::Failed {
                     program: "fixture".into(),

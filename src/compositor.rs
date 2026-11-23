@@ -37,12 +37,10 @@ pub trait Compositor: Send + Sync {
         slot: Placement,
         events: Option<WindowEvents>,
     ) -> WindowFuture<'_>;
-    fn slot(
-        &self,
-        index: crate::viewer::SlotId,
-        count: usize,
-        size: Option<crate::project::WindowSize>,
-    ) -> SlotFuture<'_>;
+    fn workspace(&self, places: usize) -> WorkspaceFuture<'_>;
+    fn move_window(&self, _: WindowAddress, _: WindowSpot) -> CompositorFuture<'_> {
+        Box::pin(async { Ok(()) })
+    }
     fn window_events(&self) -> EventsFuture<'_>;
     fn install(&self) -> CompositorFuture<'_>;
     fn remove(&self) -> CompositorFuture<'_>;
@@ -51,13 +49,25 @@ pub trait Compositor: Send + Sync {
         Box::pin(async { Ok(()) })
     }
 }
-pub type SlotFuture<'a> =
-    Pin<Box<dyn Future<Output = Result<Placement, ProcessError>> + Send + 'a>>;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowSpot {
+    Shown { x: i32, y: i32 },
+    Hidden,
+}
+pub type WorkspaceFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<WorkspacePlacement, ProcessError>> + Send + 'a>>;
+#[derive(Debug, Clone)]
+pub struct WorkspacePlacement {
+    pub layout: crate::slots::WorkspaceLayout,
+    pub monitor: String,
+    pub origin: (i32, i32),
+}
 #[derive(Debug, Clone)]
 pub struct Placement {
     pub geometry: crate::slots::CardGeometry,
     pub monitor: String,
     pub origin: (i32, i32),
+    pub initial: WindowSpot,
 }
 pub type WindowEvents = tokio::io::Lines<tokio::io::BufReader<tokio::net::UnixStream>>;
 pub type EventsFuture<'a> =
@@ -95,13 +105,15 @@ impl Compositor for HostCompositor {
     ) -> WindowFuture<'_> {
         Box::pin(crate::window_placement::place(pid, slot, events))
     }
-    fn slot(
-        &self,
-        index: crate::viewer::SlotId,
-        count: usize,
-        size: Option<crate::project::WindowSize>,
-    ) -> SlotFuture<'_> {
-        Box::pin(crate::window_placement::slot(index, count, size))
+    fn workspace(&self, places: usize) -> WorkspaceFuture<'_> {
+        Box::pin(crate::window_placement::workspace(places))
+    }
+    fn move_window(&self, window: WindowAddress, spot: WindowSpot) -> CompositorFuture<'_> {
+        Box::pin(async move {
+            let window = format!("address:{}", window.0);
+            let lua = crate::window_placement::move_script(&window, spot);
+            check_eval(self.runner.output("hyprctl", &["eval", &lua], None).await?)
+        })
     }
     fn install(&self) -> CompositorFuture<'_> {
         Box::pin(async move {
@@ -131,7 +143,11 @@ impl Compositor for HostCompositor {
             let clients = self.host_json("clients").await?;
             let mut caught = Vec::new();
             for client in clients.as_array().into_iter().flatten() {
-                if client["class"] != SESSION_WINDOW_CLASS || client["workspace"]["name"] != "keek"
+                if client["class"] != SESSION_WINDOW_CLASS
+                    || !matches!(
+                        client["workspace"]["name"].as_str(),
+                        Some("keek" | "keek-rail")
+                    )
                 {
                     continue;
                 }
@@ -328,7 +344,7 @@ mod tests {
             r#"[{"address":"0xaaa","pid":7,"class":"aquamarine","workspace":{"name":"keek"}},
                 {"address":"0xbbb","pid":7,"class":"aquamarine","workspace":{"name":"2"}},
                 {"address":"0xccc","pid":7,"class":"kitty","workspace":{"name":"keek"}},
-                {"address":"0xddd","pid":7,"class":"aquamarine","workspace":{"name":"keek"}}]"#,
+                {"address":"0xddd","pid":7,"class":"aquamarine","workspace":{"name":"keek-rail"}}]"#,
             r#"{"id":3,"name":"3"}"#,
         )
         .await;
@@ -385,6 +401,49 @@ mod tests {
         let error = result.unwrap_err().to_string();
         assert!(error.contains("hyprctl clients"), "{error}");
         assert_eq!(calls.len(), 1);
+    }
+    #[tokio::test]
+    async fn a_shown_window_moves_to_the_agents_workspace_and_a_hidden_one_out_of_sight() {
+        let runner = Arc::new(Runner(Mutex::new(Vec::new()), "ok"));
+        let compositor = HostCompositor::new(runner.clone());
+        compositor
+            .move_window(
+                WindowAddress("0xabc".into()),
+                WindowSpot::Shown { x: 24, y: 50 },
+            )
+            .await
+            .unwrap();
+        compositor
+            .move_window(WindowAddress("0xabc".into()), WindowSpot::Hidden)
+            .await
+            .unwrap();
+        let calls = runner.0.lock().unwrap();
+        assert_eq!(
+            calls[0],
+            [
+                "hyprctl",
+                "eval",
+                "hl.dispatch(hl.dsp.window.move({ window = 'address:0xabc', workspace = 'name:keek', follow = false })); hl.dispatch(hl.dsp.window.move({ window = 'address:0xabc', x = 24, y = 50, relative = false }))"
+            ]
+        );
+        assert_eq!(
+            calls[1],
+            [
+                "hyprctl",
+                "eval",
+                "hl.dispatch(hl.dsp.window.move({ window = 'address:0xabc', workspace = 'name:keek-rail', follow = false }))"
+            ]
+        );
+    }
+    #[tokio::test]
+    async fn a_refused_window_move_is_reported() {
+        let runner = Arc::new(Runner(Mutex::new(Vec::new()), "no such window"));
+        let error = HostCompositor::new(runner)
+            .move_window(WindowAddress("0xabc".into()), WindowSpot::Hidden)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("no such window"), "{error}");
     }
     #[tokio::test]
     async fn a_rejected_rule_is_reported() {

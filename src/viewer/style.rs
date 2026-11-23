@@ -19,7 +19,7 @@ pub fn style(theme: &Theme) -> String {
 pub fn install_style() {
     let t = super::theme::load();
     let provider = gtk::CssProvider::new();
-    provider.load_from_data(&format!("window.footer {{ background: {}; color: {}; font-family: 'JetBrains Mono'; font-size: 12px; border: 2px solid {}; border-top: 2px solid {}; border-radius: 0 0 8px 8px; }} window.violet {{border-top-color:{};}} .violet .cursor {{color:{};}} .cyan .cursor {{color:{};}} .dim {{color:{};}} .hint {{color:{};}} .value {{font-weight:700; font-feature-settings: 'tnum';}} button {{background:alpha({},0.10);color:{};border:1px solid {};border-radius:8px;font-weight:700;padding:0 18px;}} button:hover,.footer-actions.hinted button.take-control {{background:alpha({},0.22);}} window.hover-surface {{background:black;}} .card-edge {{border:2px solid {border};border-bottom:0;border-radius:8px 8px 0 0;}} .tick {{min-width:10px;min-height:10px;border-radius:2px;}} .tick.passed {{background:{};}} .tick.failed {{background:{};}} .tick.skipped {{border:1px solid {};color:{};}} .tick.unmarked, .tick.in-progress {{border:1px solid {};}} .check-ring {{min-width:15px;min-height:15px;border-radius:4px;box-shadow:inset 0 0 0 1.2px {accent};background-image:radial-gradient(circle closest-side, {accent} 1.6px, transparent 1.6px);}}",t.background,t.foreground,t.border,super::footer_view::SessionColour::Cyan.color(),super::footer_view::SessionColour::Violet.color(),super::footer_view::SessionColour::Violet.color(),super::footer_view::SessionColour::Cyan.color(),t.dim,t.accent,t.accent,t.accent,t.accent,t.accent,t.green,t.red,t.yellow,t.yellow,t.dim, border=t.border, accent=t.accent));
+    provider.load_from_data(&format!("window.footer {{ background: {}; color: {}; font-family: 'JetBrains Mono'; font-size: 12px; border: 2px solid {}; border-radius: 0 0 8px 8px; }} .dim {{color:{};}} .hint {{color:{};}} .value {{font-weight:700; font-feature-settings: 'tnum';}} button {{background:alpha({},0.10);color:{};border:1px solid {};border-radius:8px;font-weight:700;padding:0 18px;}} button:hover,.footer-actions.hinted button.take-control {{background:alpha({},0.22);}} window.hover-surface {{background:black;}} .card-edge {{border:2px solid {border};border-bottom:0;border-radius:8px 8px 0 0;}} .tick {{min-width:10px;min-height:10px;border-radius:2px;}} .tick.passed {{background:{};}} .tick.failed {{background:{};}} .tick.skipped {{border:1px solid {};color:{};}} .tick.unmarked, .tick.in-progress {{border:1px solid {};}} .check-ring {{min-width:15px;min-height:15px;border-radius:4px;box-shadow:inset 0 0 0 1.2px {accent};background-image:radial-gradient(circle closest-side, {accent} 1.6px, transparent 1.6px);}}",t.background,t.foreground,t.border,t.dim,t.accent,t.accent,t.accent,t.accent,t.accent,t.green,t.red,t.yellow,t.yellow,t.dim, border=t.border, accent=t.accent));
     let controls = gtk::CssProvider::new();
     controls.load_from_data(&format!(
         "window.needs-you {{border-left-color:{orange};border-right-color:{orange};border-bottom-color:{orange};}}
@@ -48,6 +48,8 @@ pub fn install_style() {
         border = t.border,
         foreground = t.foreground,
     ));
+    let rail_style = gtk::CssProvider::new();
+    rail_style.load_from_data(&super::rail_style::style(&t));
     let end_style = gtk::CssProvider::new();
     end_style.load_from_data(&style(&t));
     // GTK breaks ties between equal-priority providers by the order they were added, so `controls` goes last.
@@ -60,6 +62,11 @@ pub fn install_style() {
         gtk::style_context_add_provider_for_display(
             &display,
             &end_style,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+        gtk::style_context_add_provider_for_display(
+            &display,
+            &rail_style,
             gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
         gtk::style_context_add_provider_for_display(

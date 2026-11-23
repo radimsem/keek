@@ -51,7 +51,7 @@ async fn watch(
                     }
                 } => match event {
                     Ok(Some(HyprEvent::OpenWindow { .. })) => break,
-                    Ok(Some(HyprEvent::Submap(_) | HyprEvent::Workspace(_) | HyprEvent::FocusedMonitor(_) | HyprEvent::MoveWorkspace { .. } | HyprEvent::CloseWindow(_))) => {},
+                    Ok(Some(HyprEvent::Submap(_) | HyprEvent::Workspace(_) | HyprEvent::FocusedMonitor(_) | HyprEvent::MoveWorkspace { .. } | HyprEvent::CloseWindow(_) | HyprEvent::Custom(_))) => {},
                     Ok(None) => events = None,
                     Err(error) => {
                         tracing::warn!(%error, "Host window events stopped; the guard will keep polling");

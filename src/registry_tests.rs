@@ -13,8 +13,12 @@ struct FakeDriver {
     folder: PathBuf,
     calls: Calls,
     controls: Arc<Controls>,
+    window: crate::compositor::WindowAddress,
 }
 impl Driver for FakeDriver {
+    fn session_window(&self) -> Option<crate::compositor::WindowAddress> {
+        Some(self.window.clone())
+    }
     fn list_tools(&mut self) -> DriverFuture<'_, Vec<Tool>> {
         Box::pin(async { Ok(vec![]) })
     }
@@ -59,18 +63,25 @@ struct Controls {
     fail_stop: std::sync::atomic::AtomicBool,
     stop_hangs: std::sync::atomic::AtomicBool,
     fail_open: std::sync::atomic::AtomicBool,
+    windows: std::sync::atomic::AtomicUsize,
+    placements: Mutex<Vec<crate::compositor::Placement>>,
 }
 struct Factory(Calls, Arc<Controls>);
 impl DriverFactory for Factory {
     fn open<'a>(
         &'a self,
         folder: &'a SessionFolder,
-        _: &'a crate::session::Opening,
+        opening: &'a crate::session::Opening,
         _: &'a crate::session::Mounts,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<Box<dyn Driver>, SessionError>> + Send + 'a>,
     > {
         Box::pin(async move {
+            self.1
+                .placements
+                .lock()
+                .unwrap()
+                .push(opening.placement.clone());
             if self
                 .1
                 .fail_open
@@ -78,10 +89,15 @@ impl DriverFactory for Factory {
             {
                 return Err(SessionError::Refused("fixture open failed".into()));
             }
+            let window = self
+                .1
+                .windows
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             Ok(Box::new(FakeDriver {
                 folder: folder.root().to_owned(),
                 calls: self.0.clone(),
                 controls: self.1.clone(),
+                window: crate::compositor::WindowAddress(format!("0xa{window}")),
             }) as Box<dyn Driver>)
         })
     }
@@ -120,8 +136,30 @@ impl ProcessRunner for Runner {
         })
     }
 }
+type Moves = Mutex<
+    Vec<(
+        crate::compositor::WindowAddress,
+        crate::compositor::WindowSpot,
+    )>,
+>;
 #[derive(Default)]
-struct Compositor(Mutex<Vec<&'static str>>, AtomicBool);
+struct Compositor(Mutex<Vec<&'static str>>, AtomicBool, Moves);
+/// The reference 3440x1440 Agents Workspace, with the monitor at the origin.
+fn reference_workspace(places: usize) -> crate::compositor::WorkspacePlacement {
+    crate::compositor::WorkspacePlacement {
+        layout: crate::slots::workspace(crate::slots::Layout {
+            width: 3440,
+            height: 1440,
+            reserved: [0, 26, 0, 0],
+            outer: 24,
+            gap: 10,
+            count: places,
+        })
+        .unwrap(),
+        monitor: "fake".into(),
+        origin: (0, 0),
+    }
+}
 impl crate::compositor::Compositor for Compositor {
     fn window_events(&self) -> crate::compositor::EventsFuture<'_> {
         Box::pin(async { Ok(None) })
@@ -134,26 +172,17 @@ impl crate::compositor::Compositor for Compositor {
     ) -> crate::compositor::WindowFuture<'_> {
         Box::pin(async { Ok(crate::compositor::WindowAddress("0xabc".into())) })
     }
-    fn slot(
+    fn workspace(&self, places: usize) -> crate::compositor::WorkspaceFuture<'_> {
+        Box::pin(async move { Ok(reference_workspace(places)) })
+    }
+    fn move_window(
         &self,
-        index: crate::viewer::SlotId,
-        _: usize,
-        _: Option<crate::project::WindowSize>,
-    ) -> crate::compositor::SlotFuture<'_> {
+        window: crate::compositor::WindowAddress,
+        spot: crate::compositor::WindowSpot,
+    ) -> CompositorFuture<'_> {
         Box::pin(async move {
-            Ok(crate::compositor::Placement {
-                geometry: crate::slots::geometry(
-                    crate::slots::Slot {
-                        x: index.0 as i32 * 1701 + 24,
-                        y: 50,
-                        width: 1691,
-                        height: 1298,
-                    },
-                    None,
-                ),
-                monitor: "fake".into(),
-                origin: (0, 0),
-            })
+            self.2.lock().unwrap().push((window, spot));
+            Ok(())
         })
     }
     fn install(&self) -> CompositorFuture<'_> {
@@ -619,6 +648,9 @@ mod progress;
 
 #[path = "registry_viewer_tests.rs"]
 mod viewer;
+
+#[path = "registry_rail_tests.rs"]
+mod rail;
 
 #[path = "registry_incomplete_tests.rs"]
 mod incomplete;

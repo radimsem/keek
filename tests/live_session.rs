@@ -186,8 +186,12 @@ async fn live_viewer_open_session_preserves_host_focus_and_workspace() -> Result
         use keek::compositor::Compositor;
         let compositor =
             keek::compositor::HostCompositor::new(std::sync::Arc::new(keek::process::HostRunner));
-        let placement = compositor.slot(keek::viewer::SlotId(0), 2, None).await?;
-        let slot = placement.geometry.window;
+        let placement = compositor
+            .workspace(keek::config::Config::default().session_cap)
+            .await?;
+        let focus = placement.layout.focus;
+        let slot =
+            keek::slots::geometry(placement.layout.alone, Some((focus.width, focus.height))).window;
         anyhow::ensure!(
             client["workspace"]["name"] == "keek" && client["floating"] == true,
             "Session Window is not floating on keek: workspace {}, floating {}",

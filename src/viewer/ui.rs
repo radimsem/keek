@@ -1,12 +1,14 @@
 use super::{
-    SessionInfo, SlotId, ViewerCommand, ViewerMessage, end_card,
-    footer_content::FooterContent,
-    footer_view::{self, FooterButton},
-    paused_card,
+    CardSpot, SessionInfo, ShowTarget, SlotId, Still, ViewerCommand, end_card,
+    focus_card::FocusCard,
+    footer_view::{self, FooterButton, Hover, SessionColour},
+    rail_card::RailCard,
+    rail_panels,
+    rail_view::{self, NoteSpot, RailCardView},
 };
 use crate::{
     ipc::{SessionSnapshot, SessionState},
-    slots::Slot,
+    slots::{RailShape, Slot},
 };
 use gtk4::{self as gtk, glib, prelude::*};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
@@ -16,56 +18,281 @@ use std::{
     rc::Rc,
     time::Duration,
 };
+use tokio::sync::mpsc;
+
+mod messages;
+pub use messages::run;
 
 struct Card {
     info: SessionInfo,
     snapshot: SessionSnapshot,
     frozen: Option<u64>,
-    hover: footer_view::Hover,
-    footer: gtk::Window,
-    surface: gtk::Window,
-    paused: gtk::Window,
-    body: gtk::Overlay,
-    content: FooterContent,
     watcher: Option<glib::JoinHandle<()>>,
-    end_card: Option<end_card::EndCard>,
+    monitor: gtk::gdk::Monitor,
+    spot: CardSpot,
+    still: Option<Still>,
+    texture: Option<gtk::gdk::Texture>,
+    surfaces: Surfaces,
 }
+
+enum Surfaces {
+    Focus(FocusCard),
+    Rail(RailCard),
+}
+
+impl Surfaces {
+    fn new(
+        info: &SessionInfo,
+        snapshot: &SessionSnapshot,
+        frozen: Option<u64>,
+        monitor: &gtk::gdk::Monitor,
+        spot: CardSpot,
+        state: &Rc<RefCell<State>>,
+    ) -> Self {
+        let slot = info.slot;
+        let colour = SessionColour::for_slot(slot);
+        let now = chrono::Utc::now();
+        let weak = Rc::downgrade(state);
+        match spot {
+            CardSpot::Focus(geometry) => {
+                let body_state = weak.clone();
+                let hover_state = weak.clone();
+                let view = footer_view::for_session(info, snapshot, now, Hover::Away, frozen);
+                let focus = FocusCard::new(
+                    monitor,
+                    geometry,
+                    &view,
+                    snapshot,
+                    move |action| {
+                        if let Some(state) = weak.upgrade() {
+                            let data = state.borrow();
+                            if let Some(card) = data.cards.get(&slot) {
+                                data.activate(card, action);
+                            }
+                        }
+                    },
+                    move || {
+                        if let Some(state) = body_state.upgrade() {
+                            let data = state.borrow();
+                            if let Some(card) = data.cards.get(&slot)
+                                && let Some(action) = footer_view::body_click(&card.snapshot)
+                            {
+                                data.activate(card, action);
+                            }
+                        }
+                    },
+                    move |hover| {
+                        if let Some(state) = hover_state.upgrade()
+                            && let Ok(mut data) = state.try_borrow_mut()
+                            && let Some(card) = data.cards.get_mut(&slot)
+                            && let Surfaces::Focus(focus) = &mut card.surfaces
+                            && (hover == Hover::Away || card.snapshot.state == SessionState::Open)
+                        {
+                            focus.hover = hover;
+                            card.draw();
+                        }
+                    },
+                );
+                focus.draw(&view, colour);
+                Self::Focus(focus)
+            }
+            CardSpot::Rail(rect) => {
+                let hover_state = weak.clone();
+                let view = rail_view::for_rail(info, snapshot, now, None, false);
+                Self::Rail(RailCard::new(
+                    monitor,
+                    rect,
+                    colour,
+                    &view,
+                    move || {
+                        if let Some(state) = weak.upgrade()
+                            && let Ok(data) = state.try_borrow()
+                            && let Some(card) = data.cards.get(&slot)
+                            && let Surfaces::Rail(rail) = &card.surfaces
+                            && !rail.locked
+                        {
+                            data.show(ShowTarget::Session(card.info.name.clone()));
+                        }
+                    },
+                    move |over| {
+                        if let Some(state) = hover_state.upgrade()
+                            && State::set_rail_hover(&state, slot, over)
+                        {
+                            State::visibility(&state);
+                        }
+                    },
+                ))
+            }
+        }
+    }
+
+    fn close(self) {
+        match self {
+            Self::Focus(focus) => focus.close(),
+            Self::Rail(rail) => rail.close(),
+        }
+    }
+}
+
 impl Card {
-    fn draw(&self) {
-        let view = footer_view::for_session(
+    fn rearranged(mut self, spot: CardSpot, state: &Rc<RefCell<State>>) -> Self {
+        self.surfaces.close();
+        self.spot = spot;
+        self.surfaces = Surfaces::new(
+            &self.info,
+            &self.snapshot,
+            self.frozen,
+            &self.monitor,
+            spot,
+            state,
+        );
+        if let Surfaces::Rail(rail) = &mut self.surfaces {
+            if let Some(texture) = &self.texture {
+                rail.set_texture(texture);
+            }
+            rail.load_end_frame(&self.snapshot.state);
+        }
+        self
+    }
+
+    fn focus_view(&self, hover: Hover) -> footer_view::FooterView {
+        footer_view::for_session(
             &self.info,
             &self.snapshot,
             chrono::Utc::now(),
-            self.hover,
+            hover,
             self.frozen,
-        );
-        let mut classes = vec![
-            "footer",
-            footer_view::SessionColour::for_slot(self.info.slot).css_class(),
-        ];
-        if let Some(class) = view.label.css_class() {
-            classes.push(class);
-        }
-        self.footer.set_css_classes(&classes);
-        classes[0] = "hover-surface";
-        self.surface.set_css_classes(&classes);
-        self.content.draw(&view);
+        )
     }
+
+    fn draw_focus(&self, focus: &FocusCard) {
+        focus.draw(
+            &self.focus_view(focus.hover),
+            SessionColour::for_slot(self.info.slot),
+        );
+    }
+
+    fn rail_view(&self, locked: bool) -> RailCardView {
+        let mut view = rail_view::for_rail(
+            &self.info,
+            &self.snapshot,
+            chrono::Utc::now(),
+            self.still.as_ref().map(|still| still.taken),
+            locked,
+        );
+        if self.snapshot.state.ticks()
+            && let Some(seconds) = self.frozen
+        {
+            view.elapsed = footer_view::duration(seconds);
+        }
+        view
+    }
+
+    fn draw(&self) {
+        match &self.surfaces {
+            Surfaces::Focus(focus) => self.draw_focus(focus),
+            Surfaces::Rail(rail) => rail.draw(&self.rail_view(rail.locked)),
+        }
+    }
+
+    fn freeze_elapsed(&mut self) {
+        if self.snapshot.state == SessionState::Closing && self.frozen.is_none() {
+            self.frozen = Some(
+                chrono::Utc::now()
+                    .signed_duration_since(self.info.opened)
+                    .num_seconds()
+                    .max(0) as u64,
+            );
+        }
+    }
+
+    fn update(&mut self, snapshot: SessionSnapshot) {
+        self.snapshot = snapshot;
+        self.freeze_elapsed();
+        if let Surfaces::Focus(focus) = &mut self.surfaces
+            && let CardSpot::Focus(geometry) = self.spot
+        {
+            focus.update_end(&self.snapshot, geometry);
+            self.draw();
+        }
+        if let Surfaces::Rail(rail) = &mut self.surfaces {
+            rail.load_end_frame(&self.snapshot.state);
+        }
+    }
+
+    fn set_still(&mut self, still: Still) {
+        match gtk::gdk::Texture::from_filename(&still.path) {
+            Ok(texture) => {
+                if let Surfaces::Rail(rail) = &self.surfaces {
+                    rail.set_texture(&texture);
+                }
+                self.still = Some(still);
+                self.texture = Some(texture);
+            }
+            Err(error) => {
+                tracing::debug!(%error, slot = ?self.info.slot, "Could not load the rail still")
+            }
+        }
+    }
+
+    fn set_visible(&mut self, shown: bool, locked: bool) {
+        match self.spot {
+            CardSpot::Focus(_) => {
+                if let Surfaces::Focus(focus) = &mut self.surfaces {
+                    let reset = !shown && focus.hover != Hover::Away;
+                    if reset {
+                        focus.hover = Hover::Away;
+                    }
+                    focus.set_visible(shown, &self.snapshot);
+                    if reset {
+                        self.draw();
+                    }
+                }
+            }
+            CardSpot::Rail(rect) => {
+                let view = self.rail_view(locked);
+                if let Surfaces::Rail(rail) = &mut self.surfaces {
+                    rail.locked = locked;
+                    if !shown {
+                        rail.over = false;
+                    }
+                    rail.draw(&view);
+                    rail.window.set_visible(shown);
+                    rail.sync_hover(
+                        &self.monitor,
+                        shown.then(|| {
+                            let shape = RailShape::for_width(self.monitor.geometry().width());
+                            rail_view::hover_spot(rect, shape)
+                        }),
+                        view.hover,
+                    );
+                }
+            }
+        }
+    }
+
+    fn needs_tick(&self) -> bool {
+        self.snapshot.state.ticks()
+            || (matches!(&self.surfaces, Surfaces::Rail(_))
+                && !matches!(self.snapshot.state, SessionState::Ended(_))
+                && self.still.is_some())
+    }
+
     fn close(self) {
         if let Some(handle) = self.watcher {
             handle.abort();
         }
-        self.footer.close();
-        self.surface.close();
-        self.paused.close();
+        self.surfaces.close();
     }
 }
+
 struct State {
     cards: HashMap<SlotId, Card>,
     missing: HashMap<SlotId, glib::JoinHandle<()>>,
     visible: HashSet<String>,
     tick: Option<glib::SourceId>,
-    commands: Option<tokio::sync::mpsc::Sender<ViewerCommand>>,
+    notes: HashMap<String, (NoteSpot, gtk::Window)>,
+    commands: Option<mpsc::Sender<ViewerCommand>>,
 }
 impl State {
     fn activate(&self, card: &Card, action: FooterButton) {
@@ -97,47 +324,98 @@ impl State {
         }
     }
 
+    fn show(&self, target: ShowTarget) {
+        if let Some(commands) = &self.commands
+            && let Err(error) = commands.try_send(ViewerCommand::Show(target))
+        {
+            tracing::warn!(%error, "Show command could not be delivered");
+        }
+    }
+
+    fn set_rail_hover(state: &Rc<RefCell<Self>>, slot: SlotId, over: bool) -> bool {
+        if let Ok(mut data) = state.try_borrow_mut()
+            && let Some(card) = data.cards.get_mut(&slot)
+            && let Surfaces::Rail(rail) = &mut card.surfaces
+        {
+            rail.over = over;
+            true
+        } else {
+            false
+        }
+    }
+
     fn visibility(state: &Rc<RefCell<Self>>) {
         let mut data = state.borrow_mut();
-        let visible = data.visible.clone();
+        let data = &mut *data;
+        let locked = rail_view::rail_locked(data.cards.values().map(|card| &card.snapshot));
+        let mut rails = HashMap::<String, (gtk::gdk::Monitor, Vec<Slot>)>::new();
+        for card in data.cards.values() {
+            if let CardSpot::Rail(rect) = card.spot
+                && data.visible.contains(&card.info.monitor)
+            {
+                rails
+                    .entry(card.info.monitor.clone())
+                    .or_insert_with(|| (card.monitor.clone(), Vec::new()))
+                    .1
+                    .push(rect);
+            }
+        }
+        let visible = &data.visible;
         for card in data.cards.values_mut() {
-            let shown = visible.contains(&card.info.monitor);
-            if !shown && card.hover != footer_view::Hover::Away {
-                card.hover = footer_view::Hover::Away;
-                card.draw();
-            }
-            let paused = shown && footer_view::is_paused(&card.snapshot);
-            if paused && !card.paused.is_visible() {
-                card.footer.set_visible(false);
-            }
-            // Mapping the footer last keeps its overlapping edge above the card surfaces.
-            card.surface.set_visible(shown);
-            card.paused.set_visible(paused);
-            card.footer.set_visible(shown);
+            card.set_visible(visible.contains(&card.info.monitor), locked);
         }
         let ticking = data
             .cards
             .values()
-            .any(|card| visible.contains(&card.info.monitor) && card.snapshot.state.ticks());
+            .any(|card| visible.contains(&card.info.monitor) && card.needs_tick());
+        data.sync_notes(locked, &rails);
         if ticking && data.tick.is_none() {
             let weak = Rc::downgrade(state);
-            data.tick = Some(glib::timeout_add_local(Duration::from_secs(1), move || {
-                let Some(state) = weak.upgrade() else {
-                    return glib::ControlFlow::Break;
-                };
-                for card in state
-                    .borrow()
-                    .cards
-                    .values()
-                    .filter(|card| card.footer.is_visible() && card.snapshot.state.ticks())
-                {
-                    card.draw();
-                }
-                glib::ControlFlow::Continue
-            }));
+            data.tick =
+                Some(glib::timeout_add_local(Duration::from_secs(1), move || {
+                    let Some(state) = weak.upgrade() else {
+                        return glib::ControlFlow::Break;
+                    };
+                    let data = state.borrow();
+                    for card in data.cards.values().filter(|card| {
+                        data.visible.contains(&card.info.monitor) && card.needs_tick()
+                    }) {
+                        card.draw();
+                    }
+                    glib::ControlFlow::Continue
+                }));
         }
         if !ticking && let Some(tick) = data.tick.take() {
             tick.remove();
+        }
+    }
+
+    fn sync_notes(
+        &mut self,
+        locked: bool,
+        rails: &HashMap<String, (gtk::gdk::Monitor, Vec<Slot>)>,
+    ) {
+        let spots: HashMap<_, _> = rails
+            .iter()
+            .filter(|_| locked)
+            .filter_map(|(name, (monitor, slots))| {
+                let shape = RailShape::for_width(monitor.geometry().width());
+                rail_view::locked_note_spot(slots, shape).map(|spot| (name, (monitor, spot)))
+            })
+            .collect();
+        self.notes.retain(|name, (spot, window)| {
+            let keep = spots.get(&name).is_some_and(|(_, wanted)| wanted == spot);
+            if !keep {
+                window.close();
+            }
+            keep
+        });
+        for (name, (monitor, spot)) in spots {
+            self.notes.entry(name.clone()).or_insert_with(|| {
+                let note = rail_panels::locked_surface(monitor, spot);
+                note.set_visible(true);
+                (spot, note)
+            });
         }
     }
 }
@@ -164,7 +442,7 @@ pub(super) fn surface(
     window
 }
 
-fn primary_click(activate: impl Fn() + 'static) -> gtk::GestureClick {
+pub(super) fn primary_click(activate: impl Fn() + 'static) -> gtk::GestureClick {
     let click = gtk::GestureClick::new();
     click.set_button(gtk::gdk::BUTTON_PRIMARY);
     click.connect_released(move |_, _, _, _| activate());
@@ -189,96 +467,21 @@ fn create(
         tracing::warn!(connector = %info.monitor, "No GTK monitor matches the Session Card; skipping it");
         return None;
     };
-    let footer = surface(&monitor, Layer::Top, "keek-footer", info.placement.footer);
-    let surface = surface(&monitor, Layer::Bottom, "keek-footer", info.placement.body);
-    let paused = paused_card::new(info.placement, &monitor);
-    let body = gtk::Overlay::new();
-    let edge = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    edge.add_css_class("card-edge");
-    edge.set_can_target(false);
-    body.add_overlay(&edge);
-    surface.set_child(Some(&body));
-    let view = footer_view::for_session(
-        &info,
-        &snapshot,
-        chrono::Utc::now(),
-        footer_view::Hover::Away,
-        None,
-    );
-    let weak = Rc::downgrade(state);
-    let slot = info.slot;
-    let content = FooterContent::new(&view, move |action| {
-        if let Some(state) = weak.upgrade() {
-            let data = state.borrow();
-            if let Some(card) = data.cards.get(&slot) {
-                data.activate(card, action);
-            }
-        }
-    });
-    footer.set_child(Some(&content.row));
-    let weak = Rc::downgrade(state);
-    let activate_body = move || {
-        if let Some(state) = weak.upgrade() {
-            let data = state.borrow();
-            if let Some(card) = data.cards.get(&slot)
-                && let Some(action) = footer_view::body_click(&card.snapshot)
-            {
-                data.activate(card, action);
-            }
-        }
-    };
-    surface.add_controller(primary_click(activate_body.clone()));
-    paused.add_controller(primary_click(activate_body));
-    let motion = gtk::EventControllerMotion::new();
-    let weak = Rc::downgrade(state);
-    let slot = info.slot;
-    motion.connect_enter(move |_, _, _| {
-        if let Some(state) = weak.upgrade()
-            && let Ok(mut data) = state.try_borrow_mut()
-            && let Some(card) = data.cards.get_mut(&slot)
-        {
-            if card.snapshot.state != SessionState::Open {
-                return;
-            }
-            card.hover = footer_view::Hover::Over;
-            card.draw();
-        }
-    });
-    let weak = Rc::downgrade(state);
-    motion.connect_leave(move |_| {
-        if let Some(state) = weak.upgrade()
-            && let Ok(mut data) = state.try_borrow_mut()
-            && let Some(card) = data.cards.get_mut(&slot)
-        {
-            card.hover = footer_view::Hover::Away;
-            card.draw();
-        }
-    });
-    surface.add_controller(motion);
-    let frozen = (snapshot.state == SessionState::Closing).then(|| {
-        chrono::Utc::now()
-            .signed_duration_since(info.opened)
-            .num_seconds()
-            .max(0) as u64
-    });
-    let end_card = end_card::EndCard::new(&snapshot, info.placement);
-    let card = Card {
+    let spot = info.spot;
+    let mut card = Card {
+        surfaces: Surfaces::new(&info, &snapshot, None, &monitor, spot, state),
         info,
         snapshot,
-        frozen,
-        hover: footer_view::Hover::Away,
-        footer,
-        surface,
-        paused,
-        body,
-        content,
+        frozen: None,
         watcher: None,
-        end_card,
+        monitor,
+        spot,
+        still: None,
+        texture: None,
     };
-    card.body
-        .set_child(card.end_card.as_ref().map(|end| &end.overlay));
-    if card.end_card.is_some() {
-        card.footer.set_layer(Layer::Bottom);
+    card.freeze_elapsed();
+    if let Surfaces::Rail(rail) = &mut card.surfaces {
+        rail.load_end_frame(&card.snapshot.state);
     }
     card.draw();
     Some(card)
@@ -292,119 +495,4 @@ pub fn init() -> Result<(), glib::BoolError> {
         ));
     }
     Ok(())
-}
-pub fn run(
-    mut receiver: tokio::sync::mpsc::Receiver<ViewerMessage>,
-    handle: tokio::runtime::Handle,
-) {
-    super::style::install_style();
-    let main_loop = glib::MainLoop::new(None, false);
-    let state = Rc::new(RefCell::new(State {
-        cards: HashMap::new(),
-        missing: HashMap::new(),
-        visible: HashSet::new(),
-        tick: None,
-        commands: None,
-    }));
-    let (workspace_tx, mut workspace_rx) = tokio::sync::mpsc::channel(8);
-    let monitor_task = handle.spawn(super::events::watch(workspace_tx));
-    let workspace_state = state.clone();
-    let workspace_watcher = glib::spawn_future_local(async move {
-        while let Some(names) = workspace_rx.recv().await {
-            workspace_state.borrow_mut().visible = names;
-            State::visibility(&workspace_state);
-        }
-    });
-    let message_state = state.clone();
-    let quit = main_loop.clone();
-    let message_watcher = glib::spawn_future_local(async move {
-        while let Some(message) = receiver.recv().await {
-            match message {
-                ViewerMessage::Commands(commands) => {
-                    message_state.borrow_mut().commands = Some(commands);
-                }
-                ViewerMessage::Opened(info, mut snapshots) => {
-                    let slot = info.slot;
-                    let name = info.name.clone();
-                    let snapshot = snapshots.borrow_and_update().clone();
-                    if let Some(old) = message_state.borrow_mut().missing.remove(&slot) {
-                        old.abort();
-                    }
-                    if let Some(old) = message_state.borrow_mut().cards.remove(&slot) {
-                        old.close();
-                    }
-                    let Some(card) = create(info, snapshot, &message_state) else {
-                        let commands = message_state.borrow().commands.clone();
-                        if let Some(commands) = commands {
-                            let task = super::missing_card::watch(snapshots, name, commands);
-                            message_state.borrow_mut().missing.insert(slot, task);
-                        }
-                        continue;
-                    };
-                    message_state.borrow_mut().cards.insert(slot, card);
-                    let weak = Rc::downgrade(&message_state);
-                    let watcher = glib::spawn_future_local(async move {
-                        while snapshots.changed().await.is_ok() {
-                            let snapshot = snapshots.borrow_and_update().clone();
-                            let Some(state) = weak.upgrade() else {
-                                return;
-                            };
-                            if let Some(card) = state.borrow_mut().cards.get_mut(&slot) {
-                                if snapshot.state == SessionState::Closing && card.frozen.is_none()
-                                {
-                                    card.frozen = Some(
-                                        chrono::Utc::now()
-                                            .signed_duration_since(card.info.opened)
-                                            .num_seconds()
-                                            .max(0) as u64,
-                                    );
-                                }
-                                end_card::update_slot(
-                                    &mut card.end_card,
-                                    &card.body,
-                                    &snapshot,
-                                    card.info.placement,
-                                );
-                                if card.end_card.is_some() {
-                                    card.footer.set_layer(Layer::Bottom);
-                                }
-                                card.snapshot = snapshot;
-                                card.draw();
-                            }
-                            State::visibility(&state);
-                        }
-                    });
-                    if let Some(card) = message_state.borrow_mut().cards.get_mut(&slot) {
-                        card.watcher = Some(watcher);
-                    }
-                    State::visibility(&message_state);
-                }
-                ViewerMessage::Closed(slot) => {
-                    if let Some(task) = message_state.borrow_mut().missing.remove(&slot) {
-                        task.abort();
-                    }
-                    if let Some(card) = message_state.borrow_mut().cards.remove(&slot) {
-                        card.close();
-                    }
-                    State::visibility(&message_state);
-                }
-                ViewerMessage::Shutdown => break,
-            }
-        }
-        quit.quit();
-    });
-    main_loop.run();
-    message_watcher.abort();
-    workspace_watcher.abort();
-    monitor_task.abort();
-    let mut state = state.borrow_mut();
-    if let Some(tick) = state.tick.take() {
-        tick.remove();
-    }
-    for (_, card) in state.cards.drain() {
-        card.close();
-    }
-    for (_, task) in state.missing.drain() {
-        task.abort();
-    }
 }

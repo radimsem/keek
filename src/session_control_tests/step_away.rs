@@ -58,6 +58,7 @@ fn host(
         opened: Instant::now(),
         window: Some(WindowAddress("0xabc".into())),
         project: "app".into(),
+        session: "app-12-00-00".parse().unwrap(),
         clipboard: Arc::new(NoClipboard),
     };
     (
@@ -245,6 +246,40 @@ async fn the_paused_notification_goes_up_on_each_step_away_and_down_on_resume_an
             "{notices:?}"
         );
     }
+}
+
+#[tokio::test]
+async fn activating_the_help_request_notification_shows_its_session_on_the_agents_workspace() {
+    let (control, task, calls, mut snapshots) = host(FULL_BINDS, None);
+    let (reply, _waiting) = oneshot::channel();
+    control
+        .commands
+        .send(Command::Help {
+            arrival: control.gate.arrival(),
+            reason: "2FA code".into(),
+            reply,
+        })
+        .await
+        .unwrap();
+    while !matches!(
+        snapshots.borrow_and_update().control,
+        ControlState::HelpRequest { .. }
+    ) {
+        snapshots.changed().await.unwrap();
+    }
+    control.stop().await;
+    task.await.unwrap();
+    let calls = calls.lock().unwrap();
+    let notice = calls
+        .iter()
+        .find(|call| {
+            call.starts_with("omarchy-notification-send") && call.contains("Agent needs you")
+        })
+        .unwrap_or_else(|| panic!("no Help Request notification in {calls:?}"));
+    assert!(
+        notice.ends_with(r#"--exec hyprctl eval hl.dispatch(hl.dsp.focus({ workspace = "name:keek" })); hl.dispatch(hl.dsp.event("keek-show app-12-00-00"))"#),
+        "{notice}"
+    );
 }
 
 #[tokio::test]
