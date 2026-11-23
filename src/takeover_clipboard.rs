@@ -192,6 +192,15 @@ pub fn create_fifo(session_dir: &Path) -> io::Result<()> {
     fs::set_permissions(path, fs::Permissions::from_mode(0o600))
 }
 
+/// Removes the clipboard FIFO once the sandbox has stopped, so no reader of a kept session
+/// folder blocks on it. A missing FIFO is not an error.
+pub fn remove_fifo(session_dir: &Path) -> io::Result<()> {
+    match fs::remove_file(session_dir.join(FIFO_NAME)) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        result => result,
+    }
+}
+
 #[cfg(test)]
 #[path = "takeover_clipboard_tests.rs"]
 mod tests;

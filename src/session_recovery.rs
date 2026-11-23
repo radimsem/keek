@@ -107,6 +107,7 @@ async fn recover_one(
             root.join("verification.mp4.parts"),
             root.join("recovery-timeline.tmp"),
             root.join("timeline.json"),
+            root.join(crate::takeover_clipboard::FIFO_NAME),
         ] {
             let result = match std::fs::symlink_metadata(&path) {
                 Ok(metadata) if metadata.is_dir() => crate::project::layer::remove_build(&path),

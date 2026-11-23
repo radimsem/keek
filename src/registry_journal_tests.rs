@@ -1,4 +1,6 @@
 use super::*;
+#[path = "registry_journal_fifo_tests.rs"]
+mod fifo;
 #[tokio::test]
 async fn an_open_journal_tracks_checks_and_calls_and_disappears_after_filing() {
     let mut h = Harness::new(1);

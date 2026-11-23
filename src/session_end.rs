@@ -63,6 +63,13 @@ impl Actor {
         // Closing the sandbox drops the window guard and its cause.
         let cause = driver.end_cause();
         let closed = close_driver(driver).await;
+        let root = self.folder.root().to_owned();
+        match tokio::task::spawn_blocking(move || crate::takeover_clipboard::remove_fifo(&root))
+            .await
+        {
+            Ok(Ok(())) => {}
+            error => tracing::warn!(?error, "could not remove the session's clipboard FIFO"),
+        }
         let written = write_records(&self.folder, timeline, &summary).await;
         let Some(end) = end else {
             self.scrub_retained().await;

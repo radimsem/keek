@@ -104,3 +104,59 @@ async fn a_carried_secret_reaches_the_session_fifo_and_no_evidence_or_cua_call()
         "a Cua call or host command carried the text"
     );
 }
+
+fn fifos_in(folder: &Path, found: &mut Vec<std::path::PathBuf>) {
+    use std::os::unix::fs::FileTypeExt;
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return;
+    };
+    for entry in entries {
+        let path = entry.unwrap().path();
+        let kind = std::fs::symlink_metadata(&path).unwrap().file_type();
+        if kind.is_dir() {
+            fifos_in(&path, found);
+        } else if kind.is_fifo() {
+            found.push(path);
+        }
+    }
+}
+
+#[tokio::test]
+async fn no_clipboard_fifo_is_left_after_a_close_an_incomplete_end_or_a_disconnect() {
+    for end in ["close", "incomplete", "disconnect"] {
+        let root = tempfile::tempdir().unwrap();
+        let actor = start_actor(root.path(), "app_12-00-00", false).await;
+        let folder = actor.folder.root().to_owned();
+        crate::takeover_clipboard::create_fifo(&folder).unwrap();
+        let evidence = match end {
+            "close" => {
+                let Response::Closed(value) = finish(actor).await else {
+                    panic!("expected filed evidence");
+                };
+                Some(value)
+            }
+            "incomplete" => {
+                actor.ended.send(()).unwrap();
+                let Response::Closed(value) = actor.task.await.unwrap().response else {
+                    panic!("expected filed evidence");
+                };
+                Some(value)
+            }
+            _ => {
+                drop(actor.sender);
+                assert!(matches!(
+                    actor.task.await.unwrap().response,
+                    Response::WatchEnded
+                ));
+                None
+            }
+        };
+        let mut found = Vec::new();
+        fifos_in(&folder, &mut found);
+        if let Some(value) = evidence {
+            let timeline = Path::new(value["evidence"]["timeline"].as_str().unwrap());
+            fifos_in(timeline.parent().unwrap(), &mut found);
+        }
+        assert!(found.is_empty(), "{end} left a FIFO: {found:?}");
+    }
+}
