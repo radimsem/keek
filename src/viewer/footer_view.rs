@@ -317,13 +317,27 @@ pub fn for_session(
                 );
                 button = Some(FooterButton::Done);
             }
-            crate::ipc::ControlState::HandBack { end_ms, length } => {
+            crate::ipc::ControlState::HandBack {
+                end_ms,
+                length,
+                result,
+            } => {
                 if hover == Hover::Over {
                     label = StateLabel::ViewOnly;
                     detail = "Use Take control to interact.".into();
                 } else {
                     label = StateLabel::HandBack;
-                    detail = format!("You were in control for {}", duration(length.0 / 1000));
+                    use crate::ipc::HandBackResult;
+                    let held = duration(length.0 / 1000);
+                    detail = match result {
+                        HandBackResult::Handed => format!("Handed back after {held}."),
+                        HandBackResult::HelpAnswered => {
+                            format!("Handed back after {held}. Help Request answered.")
+                        }
+                        HandBackResult::Unchanged | HandBackResult::HelpUnanswered => {
+                            "The screen looks unchanged. The Verifier was told.".into()
+                        }
+                    };
                     if let Some(action) = &snapshot.last_action
                         && action.time_ms > *end_ms
                     {

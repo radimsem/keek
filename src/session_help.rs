@@ -29,6 +29,9 @@ impl Actor {
                 reply: help_reply,
             })
             .await;
+        let mut control = self.events.subscribe();
+        let current = self.events.borrow().control.clone();
+        self.sample_takeover(state, &current).await;
         let mut keepalive = keepalive::timer();
         let span = loop {
             tokio::select! {
@@ -55,12 +58,17 @@ impl Actor {
                     }
                     () = &mut state.ended => { let _ = reply.send(refusal("The Agent Session ended while the Help Request waited. Open a new Agent Session.")); return Some(IncompleteReason::DesktopStopped); }
                     _ = keepalive.tick() => keepalive::keep_recording(state.driver.as_mut()).await,
+                    _ = control.changed() => {
+                        let current = self.events.borrow().control.clone();
+                        self.sample_takeover(state, &current).await;
+                    }
             }
         };
         let result = match self
             .hand_back(
                 state.driver.as_mut(),
                 span,
+                &state.takeover_screen,
                 &mut state.opener,
                 &mut state.deadline,
             )

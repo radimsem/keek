@@ -83,6 +83,7 @@ It shows that session's:
 - Elapsed time since the session opened, so a stuck session stands out. Once the session ends it reads "Ran" with the total.
 - Help Request state: the whole card turns orange, the window border through a window rule and the footer and any black backdrop with it, and the footer shows the Verifier's reason.
 - During a Takeover: "You are in control" and its running time, with the window border in the active colour.
+- After Done: "Back to the Verifier" over "Handed back after 1:12. Help Request answered." Without a Help Request behind the Takeover it reads "Handed back after 1:12." When the screen looks unchanged it reads "The screen looks unchanged. The Verifier was told."
 - The **Take control** button, which becomes **Done** during a Takeover.
 
 When keek reminds the Verifier to mark Checks (see [`design.md`](design.md#agent-interface)), the state column reads "Reminded the Verifier to mark Checks" over "8 actions since the last mark" until the Verifier's next call. A Help Request, a Takeover and the view-only hint take precedence.
@@ -108,6 +109,8 @@ A Takeover starts only from the **Take control** button. Looking at, hovering ov
 2. keek clears `no_focus`, focuses the Session Window and switches the host Hyprland into the `keek` submap. That submap binds only Super+Esc, which means Done, so every other key, host shortcuts included, goes to the nested desktop. The developer's input arrives on the nested Hyprland's own seat, not through Cua, so it never enters the Action Log.
 3. Done, from the footer button or Super+Esc: keek resets the submap, sets `no_focus` again, returns focus to the developer's previous window and releases the held call. Instead of the call's normal result, the Verifier receives a note ("The developer pressed Done and handed control back after 0:42 (reason). If you raised a Help Request, it is answered. The screen may have changed.") and a fresh screenshot, so it re-reads the screen before acting. The note names the screenshot's pixel size, the desktop size and the scale between them. If the image size cannot be read, it says the scale is unknown and to call `get_window_state` before acting on coordinates.
 
+   keek cannot see the developer's input, so it compares the screen at Take control with the screen at Done ([`facts.md`](facts.md#screen-comparison-results)). If the screen differs, or either screenshot cannot be read, the note is the one above. If it looks the same, keek still releases the held call, and the note says instead: "The screen looks unchanged, so if you raised a Help Request, it may not be answered. Re-read the screen, then call request_help again or skip the Check with a comment." The Verifier is told rather than assumed answered, so it does not close the session on the same blocker. A caret blink or a clock tick alone is not a change. The footer says which of the two happened, and the Help Request is recorded as unanswered.
+
 The developer adds keek's submap snippet to their Hyprland config once. If it is missing, Take control still works, but host shortcuts stay live and the footer says so. *(my call)*
 
 ```lua
@@ -126,11 +129,11 @@ Recording during a Takeover:
 
 - The Raw Recording keeps running and keeps the footage locally.
 - The Session Timeline gets one Takeover entry: start, end and reason. keek reads the start before it clears `no_focus` and the end after it sets `no_focus` again, so the entry spans all of the developer's input. None of that input is logged.
-- It also gets one Help Request entry: reason, start, end and whether it was answered or withdrawn. An answered Help Request ends where its Takeover starts. One still open when the session ends counts as withdrawn.
-- The Verification Video cuts the Help Request's wait with nothing in its place.
+- It also gets one Help Request entry: reason, start, end and whether it was answered, unanswered or withdrawn. An answered or unanswered Help Request ends where its Takeover starts. It is unanswered when the developer pressed Done and the screen looked unchanged. One still open when the session ends counts as withdrawn.
+- The Verification Video cuts the Help Request's wait with nothing in its place, whether it was answered or unanswered.
 - Each Takeover shows as about 2 s of its own footage, blurred, with "You were in control" centred on top. The text has no box: it is navy on light footage and cream on dark footage, picked from the footage's mean brightness.
 - What stays on screen after Done shows unblurred in the video, so a code left visible in a field still shows after the Takeover.
-- The Verdict Report keeps the wait, the time in control and the reason.
+- The Verdict Report keeps the wait, the time in control and the reason, and says when the Help Request was unanswered.
 
 ### Session end
 

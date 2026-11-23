@@ -12,7 +12,8 @@ fn keepalives(actor: &RunningActor) -> usize {
 
 async fn wait_minutes(minutes: u32) {
     for _ in 0..minutes {
-        tokio::time::advance(Duration::from_secs(60)).await;
+        // Let the baseline decoder finish before the paused clock jumps.
+        tokio::time::sleep(Duration::from_secs(60)).await;
         for _ in 0..10 {
             tokio::task::yield_now().await;
         }

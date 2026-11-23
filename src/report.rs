@@ -165,6 +165,16 @@ pub fn render(input: &ReportInputs<'_>) -> String {
                 clock(*in_control),
                 ending(reason)
             ),
+            crate::title_card::TitleCard::Unanswered {
+                waited,
+                in_control,
+                reason,
+            } => format!(
+                "a Help Request waited {}, then the developer pressed Done after {} with the screen looking unchanged, so it may not be answered{}",
+                clock(*waited),
+                clock(*in_control),
+                ending(reason)
+            ),
             crate::title_card::TitleCard::Withdrawn { waited, reason } => format!(
                 "a Help Request waited {} and was withdrawn{}",
                 clock(*waited),
@@ -265,6 +275,50 @@ pub fn index_line(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_report_says_an_unanswered_help_request_may_not_be_answered() {
+        use crate::timeline::{HelpOutcome, TimelineEvent};
+
+        let rendered = render(&ReportInputs {
+            session: "s",
+            goal: "g",
+            revision: &Revision {
+                branch: None,
+                commit: "abc".into(),
+                dirty: false,
+            },
+            summary: "",
+            timeline_events: &[
+                TimelineEvent::HelpRequest {
+                    reason: "2FA code.".into(),
+                    start_ms: Millis(1000),
+                    end_ms: Millis(284_000),
+                    outcome: HelpOutcome::Unanswered,
+                },
+                TimelineEvent::Takeover {
+                    reason: Some("2FA code.".into()),
+                    start_ms: Millis(284_000),
+                    end_ms: Millis(306_000),
+                },
+            ],
+            checks: &[],
+            end: &SessionEnd::Verdict(crate::checklist::Verdict::Pass),
+            time_map: &IdentityTimeMap,
+            actions_error: None,
+            video_error: None,
+            profile: &ProfileSummary::default(),
+        });
+
+        assert!(
+            rendered.contains(concat!(
+                "- At 0:01 in the video, a Help Request waited 4:43, then the developer ",
+                "pressed Done after 0:22 with the screen looking unchanged, ",
+                "so it may not be answered: 2FA code.\n"
+            )),
+            "{rendered}"
+        );
+    }
 
     #[test]
     fn a_project_profile_summary_saved_before_test_files_loads_with_none() {

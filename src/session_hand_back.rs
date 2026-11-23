@@ -1,3 +1,4 @@
+use super::screen::{Sample, Screen};
 use super::*;
 use crate::checklist::IncompleteReason;
 impl Actor {
@@ -5,11 +6,12 @@ impl Actor {
         &self,
         driver: &mut dyn Driver,
         span: gate::Span,
+        baseline: &Option<Sample>,
         opener: &mut Option<watch::Receiver<()>>,
         deadline: &mut tokio::time::Instant,
     ) -> Result<Response, IncompleteReason> {
         let mut ended = driver.ended();
-        let capture = self.capture_hand_back(driver, span);
+        let capture = self.capture_hand_back(driver, span, baseline);
         tokio::pin!(capture);
         tokio::select! { biased;
                 () = &mut ended => Err(IncompleteReason::DesktopStopped),
@@ -20,23 +22,18 @@ impl Actor {
                 () = self.opener_gone(opener) => Err(IncompleteReason::OpenerLeft),
         }
     }
-    async fn capture_hand_back(&self, driver: &mut dyn Driver, mut span: gate::Span) -> Response {
+    async fn capture_hand_back(
+        &self,
+        driver: &mut dyn Driver,
+        mut span: gate::Span,
+        baseline: &Option<Sample>,
+    ) -> Response {
         let _permit = loop {
             match self.control.gate.enter().await {
                 gate::Entry::Run(permit) => break permit,
                 gate::Entry::HandBack(current) => span = current,
             }
         };
-        let seconds = span.end.saturating_duration_since(span.start).as_secs();
-        let length = format!("{}:{:02}", seconds / 60, seconds % 60);
-        let reason = span
-            .reason
-            .map(|reason| format!(" ({reason})"))
-            .unwrap_or_default();
-        // A held tool call gets this note too, with no Help Request behind it.
-        let note = format!(
-            "The developer pressed Done and handed control back after {length}{reason}. If you raised a Help Request, it is answered. The screen may have changed."
-        );
         let capture = call_driver(
             driver,
             "get_desktop_state",
@@ -55,7 +52,9 @@ impl Actor {
             }
         });
         match capture {
-            Ok(mut result) => {
+            Ok(result) => {
+                let (mut result, unchanged) = self.compare_hand_back(&span, baseline, result).await;
+                let note = hand_back_note(&span, unchanged);
                 let note = format!(
                     "{note}\n{}",
                     screenshot_scale(&result, self.placement.geometry.window)
@@ -73,13 +72,70 @@ impl Actor {
             }
             Err(error) => {
                 tracing::warn!(%error, "Could not take a fresh screenshot after Takeover");
-                let note = format!("{note}\n{UNKNOWN_SCALE}");
+                let note = format!("{}\n{UNKNOWN_SCALE}", hand_back_note(&span, false));
                 Response::ToolResult(
                     json!({"content":[{"type":"text", "text":note}, {"type":"text", "text":"keek couldn't take a fresh screenshot. Take one before you act."}]}),
                 )
             }
         }
     }
+
+    async fn compare_hand_back(
+        &self,
+        span: &gate::Span,
+        baseline: &Option<Sample>,
+        result: Value,
+    ) -> (Value, bool) {
+        let before = baseline
+            .as_ref()
+            .filter(|sample| sample.start == self.control_time(span.start))
+            .and_then(|sample| sample.screen.as_ref());
+        let Some(before) = before else {
+            return (result, false);
+        };
+        let result = Arc::new(result);
+        let captured = Arc::clone(&result);
+        let after = tokio::task::spawn_blocking(move || Screen::decode(&captured))
+            .await
+            .ok()
+            .flatten();
+        let unchanged = after.is_some_and(|after| before.looks_unchanged(&after));
+        if unchanged {
+            self.control.mark_unanswered(span.start).await;
+            let end = self.control_time(span.end);
+            self.events.send_if_modified(|snapshot| {
+                if let crate::ipc::ControlState::HandBack {
+                    end_ms,
+                    result: card,
+                    ..
+                } = &mut snapshot.control
+                    && *end_ms == end
+                    && *card != card.unchanged()
+                {
+                    *card = card.unchanged();
+                    return true;
+                }
+                false
+            });
+        }
+        (Arc::unwrap_or_clone(result), unchanged)
+    }
+}
+
+fn hand_back_note(span: &gate::Span, unchanged: bool) -> String {
+    let seconds = span.end.saturating_duration_since(span.start).as_secs();
+    let length = format!("{}:{:02}", seconds / 60, seconds % 60);
+    let reason = span
+        .reason
+        .as_ref()
+        .map(|reason| format!(" ({reason})"))
+        .unwrap_or_default();
+    let status = if unchanged {
+        "The screen looks unchanged, so if you raised a Help Request, it may not be answered. Re-read the screen, then call request_help again or skip the Check with a comment."
+    } else {
+        "If you raised a Help Request, it is answered. The screen may have changed."
+    };
+    format!("The developer pressed Done and handed control back after {length}{reason}. {status}")
 }
 
 const UNKNOWN_SCALE: &str =
@@ -160,7 +216,7 @@ fn jpeg_size(bytes: &[u8]) -> Option<(u32, u32)> {
     }
 }
 
-fn decode_base64(data: &str) -> Option<Vec<u8>> {
+pub(super) fn decode_base64(data: &str) -> Option<Vec<u8>> {
     let value = |byte| match byte {
         b'A'..=b'Z' => Some(byte - b'A'),
         b'a'..=b'z' => Some(byte - b'a' + 26),

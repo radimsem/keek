@@ -70,11 +70,12 @@ mod tests {
         let mut s = snapshot(SessionState::Open);
         s.control = crate::ipc::ControlState::HandBack {
             end_ms: crate::timeline::Millis(43000),
+            result: crate::ipc::HandBackResult::Handed,
             length: crate::timeline::Millis(42000),
         };
         let view = render(&s, 45, false);
         assert_eq!(view.label.text(), "Back to the Verifier");
-        assert_eq!(view.detail, "You were in control for 0:42");
+        assert_eq!(view.detail, "Handed back after 0:42.");
         assert_eq!(view.button, Some(FooterButton::TakeControl));
         assert_eq!(render(&s, 45, true).label.text(), "View only");
         for time in [42000, 43000] {
@@ -82,7 +83,7 @@ mod tests {
                 tool: "click".into(),
                 time_ms: crate::timeline::Millis(time),
             });
-            assert_eq!(render(&s, 45, false).detail, "You were in control for 0:42");
+            assert_eq!(render(&s, 45, false).detail, "Handed back after 0:42.");
         }
         s.last_action = Some(crate::ipc::LastAction {
             tool: "click".into(),
@@ -90,8 +91,38 @@ mod tests {
         });
         assert_eq!(
             render(&s, 45, false).detail,
-            "You were in control for 0:42 · click · 0:01 ago"
+            "Handed back after 0:42. · click · 0:01 ago"
         );
+    }
+    fn hand_back_detail(result: crate::ipc::HandBackResult) -> String {
+        let mut s = snapshot(SessionState::Open);
+        s.control = crate::ipc::ControlState::HandBack {
+            end_ms: crate::timeline::Millis(43000),
+            length: crate::timeline::Millis(42000),
+            result,
+        };
+        render(&s, 45, false).detail
+    }
+
+    #[test]
+    fn hand_back_says_when_the_help_request_was_answered() {
+        assert_eq!(
+            hand_back_detail(crate::ipc::HandBackResult::HelpAnswered),
+            "Handed back after 0:42. Help Request answered."
+        );
+    }
+
+    #[test]
+    fn hand_back_says_when_the_verifier_was_told_the_screen_looks_unchanged() {
+        for result in [
+            crate::ipc::HandBackResult::Unchanged,
+            crate::ipc::HandBackResult::HelpUnanswered,
+        ] {
+            assert_eq!(
+                hand_back_detail(result),
+                "The screen looks unchanged. The Verifier was told."
+            );
+        }
     }
     #[test]
     fn non_open_sessions_never_offer_a_control_button() {
@@ -492,6 +523,7 @@ mod live_checks {
         let mut s = open_with(&[None]);
         s.control = ControlState::HandBack {
             end_ms: Millis(0),
+            result: crate::ipc::HandBackResult::Handed,
             length: Millis(1000),
         };
         assert_eq!(ticks(&s), [Tick::InProgress]);

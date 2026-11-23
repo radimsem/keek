@@ -170,7 +170,7 @@ The first spike found the video running a steady 1.45 s behind Cua's turn times.
 
 - keek reads a monotonic clock just before it forwards `start_recording`, and counts every later time from there, less a constant of 116 ms, because the video's clock sits that far behind this zero ([`facts.md`](facts.md#sandbox-spike-results)).
 - Each forwarded call gets its start and end. A call is an Action when its tool isn't marked `readOnlyHint`, the same rule Cua uses for turns. One `run_steps` call is one active span, even though Cua logs a turn per step. A click's effect lands somewhere inside its call, up to 333 ms after its start, so nothing treats a call's start as the moment its effect shows.
-- Check marks, Help Requests and Takeovers go on the same timeline. A Help Request records whether it was answered or withdrawn.
+- Check marks, Help Requests and Takeovers go on the same timeline. A Help Request records whether it was answered, unanswered or withdrawn. It is unanswered when the developer pressed Done and the screen looked unchanged from Take control ([`viewer.md`](viewer.md#takeover)).
 - Each Check reminder goes on it with its time. It is not an Action and not in the Action Log, and the editor and the Verdict Report ignore it.
 
 It is data only in v1: the editor and the Verdict Report read it, and nothing draws it. Cua's `t_ms_from_session_start` stays in the Action Log as recorded, so on 0.38.0 it reads about 1.45 s behind the video.

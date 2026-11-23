@@ -24,6 +24,7 @@ fn snapshots_round_trip_every_control_and_shortcut_state() {
         },
         ControlState::HandBack {
             end_ms: Millis(3),
+            result: keek::ipc::HandBackResult::Handed,
             length: Millis(2),
         },
     ] {

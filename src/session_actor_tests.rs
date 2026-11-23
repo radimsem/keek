@@ -563,3 +563,6 @@ mod hand_back;
 
 #[path = "session_actor_tests/hand_back_scale.rs"]
 mod hand_back_scale;
+
+#[path = "session_actor_tests/screen_hand_back.rs"]
+mod screen_hand_back;
