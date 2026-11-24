@@ -4,6 +4,8 @@ What changed in each keek release, for a person who uses it. The format follows 
 
 ## Unreleased
 
+## 0.2.0 - 2026-11-24
+
 ### Added
 
 - Step away from a Takeover with the footer button or Super+Tab to use your own desktop, then click the session to resume. The Verifier keeps waiting until you press Done. Add the Super+Tab bind from the updated submap snippet in the viewer docs to use the shortcut.
