@@ -240,23 +240,9 @@ impl Controller {
 }
 
 pub fn has_submap(binds: &serde_json::Value) -> bool {
-    has_super_bind(binds, "Escape")
+    crate::hypr::has_super_bind(binds, "keek", "Escape")
 }
 
 pub fn has_step_away(binds: &serde_json::Value) -> bool {
-    has_super_bind(binds, "Tab")
-}
-
-fn has_super_bind(binds: &serde_json::Value, expected_key: &str) -> bool {
-    binds.as_array().into_iter().flatten().any(|bind| {
-        bind.get("submap").and_then(serde_json::Value::as_str) == Some("keek")
-            && bind
-                .get("key")
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(|key| key.eq_ignore_ascii_case(expected_key))
-            && bind
-                .get("modmask")
-                .and_then(serde_json::Value::as_u64)
-                .is_some_and(|mask| mask & 64 != 0)
-    })
+    crate::hypr::has_super_bind(binds, "keek", "Tab")
 }

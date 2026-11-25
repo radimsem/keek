@@ -4,7 +4,13 @@ What changed in each keek release, for a person who uses it. The format follows 
 
 ## Unreleased
 
+### Changed
+
+- Switch sessions with Super+F1 to Super+F4, so Super+number switches workspaces on the Agents Workspace too. Remove the Super+1 to Super+4 snippet from your Hyprland config and add the new one from the viewer docs.
+
 ### Fixed
+
+- A rail card shows its session's shortcut only once you have added the bind, so it never names a key that does nothing.
 
 - The Check in progress is now a blue-outlined tick with a dot in its centre, the same size as the other ticks, in place of a ring that sat off-centre.
 

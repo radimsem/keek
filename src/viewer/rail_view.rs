@@ -93,6 +93,31 @@ pub enum HoverMark {
     Checking,
 }
 
+const SHORTCUTS: usize = 4;
+
+/// The Super+F1 to Super+F4 binds the developer has added; keek ships none.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ShowKeys([bool; SHORTCUTS]);
+
+impl ShowKeys {
+    pub fn from_binds(binds: &serde_json::Value) -> Self {
+        Self(std::array::from_fn(|index| {
+            crate::hypr::has_super_bind(binds, "", &function_key(index + 1))
+        }))
+    }
+
+    fn keys(self, slot: super::SlotId) -> Option<[String; 2]> {
+        self.0
+            .get(slot.0)
+            .copied()?
+            .then(|| ["Super".into(), function_key(slot.0 + 1)])
+    }
+}
+
+fn function_key(number: usize) -> String {
+    format!("F{number}")
+}
+
 pub fn rail_locked<'a>(snapshots: impl IntoIterator<Item = &'a SessionSnapshot>) -> bool {
     snapshots.into_iter().any(|snapshot| {
         snapshot.state == SessionState::Open
@@ -106,6 +131,7 @@ pub fn for_rail(
     now: DateTime<Utc>,
     still_taken: Option<DateTime<Utc>>,
     locked: bool,
+    show_keys: ShowKeys,
 ) -> RailCardView {
     let footer = for_session(info, snapshot, now, Hover::Away, None);
     let verdict = matches!(snapshot.state, SessionState::Ended(_)).then_some(footer.label);
@@ -150,7 +176,7 @@ pub fn for_rail(
         line: verdict.map_or(footer.detail, |label| label.text().into()),
         verdict,
         checked: footer.checked,
-        keys: (info.slot.0 < 4).then(|| ["Super".into(), (info.slot.0 + 1).to_string()]),
+        keys: show_keys.keys(info.slot),
         still,
         locked,
         hover: RailHover {

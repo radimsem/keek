@@ -77,7 +77,7 @@ A rail session's Session Window waits on the `keek-rail` workspace, which nobody
 A rail card shows:
 
 - A still of the Session Window with its age ("Still · 3 s ago"). keek takes one every 3 s with `grim -T` on the host, from the window's stable id, and keeps it beside the end-card frames, outside the session folder. It never goes through Cua Driver, so it is in neither the Action Log nor the Session Timeline. An ended card shows its last frame.
-- The Project, branch and elapsed time; one state line (the last Action, "Needs you" and the reason, or the Verdict); "2 of 4" with the tick squares, where the first unmarked Check is marked in progress as in the footer; and the session's `Super` number.
+- The Project, branch and elapsed time; one state line (the last Action, "Needs you" and the reason, or the Verdict); "2 of 4" with the tick squares, where the first unmarked Check is marked in progress as in the footer; and the session's shortcut keys, `Super` `F2` for the second session, once that bind exists.
 - On hover, a panel to its left with the goal and each Check's text and outcome, the one being checked tagged "checking".
 
 A rail card is one button and has no others. Clicking it swaps its session with the focused one; an ended card brings its full end card to focus. Take control and everything else the Session Footer offers, including ending a session by hand, are reached by showing the session first.
@@ -86,18 +86,16 @@ A Help Request turns its rail card orange. The session does not swap in by itsel
 
 While a Takeover runs or is paused, its session stays in focus. The rail cards are dimmed and do nothing, and a line under the rail reads "Other sessions unlock when you press Done." Shortcuts and notifications don't swap either.
 
-Super+1 to Super+4 show the matching session while `keek` is the active workspace, once the developer adds the binds below beside the `keek` submap; keek ships none. Each bind emits a Hyprland custom event, `keek-show <n>`, that keek reads from the event socket; on any other workspace it does what Omarchy's own Super+number does. The numbers follow the order sessions opened in and stay with a session while it moves between the focus slot and the rail. *(my call)*
+Super+F1 to Super+F4 show the matching session while `keek` is the active workspace, once the developer adds the binds below beside the `keek` submap; keek ships none. Omarchy binds no function key with Super, so Super+number keeps switching workspaces. Each bind emits a Hyprland custom event, `keek-show <n>`, that keek reads from the event socket; on any other workspace the bind does nothing. keek acts on the event on any workspace, so the workspace check lives in the bind. The numbers follow the order sessions opened in and stay with a session while it moves between the focus slot and the rail. A developer who added the earlier Super+1 to Super+4 snippet removes it, so Omarchy's workspace binds come back. *(my call)*
+
+A rail card shows its `Super` `F<n>` keys only while `hyprctl binds -j` lists a Super+F<n> bind outside any submap, so a card never names a shortcut that does nothing. keek reads the binds when the viewer starts and on each workspace change, so a bind added and reloaded elsewhere shows the next time the developer switches to `keek`.
 
 ```lua
 for n = 1, 4 do
-  local key = "SUPER + code:" .. tostring(n + 9)
-  hl.unbind(key)
-  hl.bind(key, function()
+  hl.bind("SUPER + F" .. n, function()
     local workspace = hl.get_active_workspace()
     if workspace and workspace.name == "keek" then
       hl.dispatch(hl.dsp.event("keek-show " .. n))
-    else
-      hl.dispatch(o.workspaces.focus(n))
     end
   end)
 end

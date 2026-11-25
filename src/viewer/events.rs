@@ -1,9 +1,13 @@
-use super::ShowTarget;
+use super::{ShowTarget, rail_view::ShowKeys};
 use crate::hypr::{self, HyprEvent};
 use std::collections::HashSet;
 use tokio::sync::mpsc;
 
-pub async fn watch(sender: mpsc::Sender<HashSet<String>>, shows: mpsc::Sender<ShowTarget>) {
+pub async fn watch(
+    sender: mpsc::Sender<HashSet<String>>,
+    shows: mpsc::Sender<ShowTarget>,
+    keys: mpsc::Sender<ShowKeys>,
+) {
     let mut lines = match hypr::subscribe().await {
         Ok(lines) => lines,
         Err(error) => {
@@ -39,6 +43,18 @@ pub async fn watch(sender: mpsc::Sender<HashSet<String>>, shows: mpsc::Sender<Sh
                 Err(error) => tracing::warn!(%error, "Cannot parse Hyprland monitors"),
             },
             Err(error) => tracing::warn!(%error, "Cannot query Hyprland monitors"),
+        }
+        // Rail cards show only on `keek`, so a bind added elsewhere shows once the developer switches back.
+        match hypr::command("j/binds").await {
+            Ok(json) => match serde_json::from_str::<serde_json::Value>(&json) {
+                Ok(binds) => {
+                    if keys.send(ShowKeys::from_binds(&binds)).await.is_err() {
+                        return;
+                    }
+                }
+                Err(error) => tracing::warn!(%error, "Cannot parse Hyprland binds"),
+            },
+            Err(error) => tracing::warn!(%error, "Cannot query Hyprland binds"),
         }
         loop {
             match lines.next_line().await {

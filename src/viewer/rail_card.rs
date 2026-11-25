@@ -145,6 +145,7 @@ pub(super) struct RailCardParts {
     needs_you: gtk::Label,
     line: gtk::Label,
     checked: gtk::Box,
+    keys: gtk::Box,
 }
 
 impl RailCardParts {
@@ -171,6 +172,14 @@ impl RailCardParts {
             let row = checked_row(checked);
             row.update_property(&[gtk::accessible::Property::Label(&checked.accessible)]);
             self.checked.append(&row);
+        }
+        while let Some(child) = self.keys.first_child() {
+            self.keys.remove(&child);
+        }
+        // A hidden child takes no Box spacing, so the row ends at the ticks.
+        self.keys.set_visible(view.keys.is_some());
+        if let Some(keys) = &view.keys {
+            self.keys.append(&keycaps(keys.iter().map(String::as_str)));
         }
     }
 }
@@ -228,12 +237,10 @@ pub(super) fn rail_card_widget(
     let checked = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     checked.set_hexpand(true);
     summary.append(&checked);
-    if let Some(keys) = &view.keys {
-        let keys = keycaps(keys.iter().map(String::as_str));
-        keys.add_css_class("dim");
-        keys.set_valign(gtk::Align::Center);
-        summary.append(&keys);
-    }
+    let keys = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    keys.add_css_class("dim");
+    keys.set_valign(gtk::Align::Center);
+    summary.append(&keys);
     text.append(&summary);
     root.append(&text);
     let parts = RailCardParts {
@@ -245,6 +252,7 @@ pub(super) fn rail_card_widget(
         needs_you,
         line,
         checked,
+        keys,
     };
     parts.draw(view);
     (root.upcast(), parts)

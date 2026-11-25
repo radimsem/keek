@@ -4,7 +4,7 @@ use super::{
     footer_view::{self, FooterButton, Hover, SessionColour},
     rail_card::RailCard,
     rail_panels,
-    rail_view::{self, NoteSpot, RailCardView},
+    rail_view::{self, NoteSpot, RailCardView, ShowKeys},
 };
 use crate::{
     ipc::{SessionSnapshot, SessionState},
@@ -32,6 +32,7 @@ struct Card {
     spot: CardSpot,
     still: Option<Still>,
     texture: Option<gtk::gdk::Texture>,
+    show_keys: ShowKeys,
     surfaces: Surfaces,
 }
 
@@ -47,6 +48,7 @@ impl Surfaces {
         frozen: Option<u64>,
         monitor: &gtk::gdk::Monitor,
         spot: CardSpot,
+        show_keys: ShowKeys,
         state: &Rc<RefCell<State>>,
     ) -> Self {
         let slot = info.slot;
@@ -98,7 +100,7 @@ impl Surfaces {
             }
             CardSpot::Rail(rect) => {
                 let hover_state = weak.clone();
-                let view = rail_view::for_rail(info, snapshot, now, None, false);
+                let view = rail_view::for_rail(info, snapshot, now, None, false, show_keys);
                 Self::Rail(RailCard::new(
                     monitor,
                     rect,
@@ -144,6 +146,7 @@ impl Card {
             self.frozen,
             &self.monitor,
             spot,
+            self.show_keys,
             state,
         );
         if let Surfaces::Rail(rail) = &mut self.surfaces {
@@ -179,6 +182,7 @@ impl Card {
             chrono::Utc::now(),
             self.still.as_ref().map(|still| still.taken),
             locked,
+            self.show_keys,
         );
         if self.snapshot.state.ticks()
             && let Some(seconds) = self.frozen
@@ -293,6 +297,7 @@ struct State {
     tick: Option<glib::SourceId>,
     notes: HashMap<String, (NoteSpot, gtk::Window)>,
     commands: Option<mpsc::Sender<ViewerCommand>>,
+    show_keys: ShowKeys,
 }
 impl State {
     fn activate(&self, card: &Card, action: FooterButton) {
@@ -452,6 +457,7 @@ pub(super) fn primary_click(activate: impl Fn() + 'static) -> gtk::GestureClick 
 fn create(
     info: SessionInfo,
     snapshot: SessionSnapshot,
+    show_keys: ShowKeys,
     state: &Rc<RefCell<State>>,
 ) -> Option<Card> {
     let monitor = gtk::gdk::Display::default().and_then(|display| {
@@ -469,7 +475,7 @@ fn create(
     };
     let spot = info.spot;
     let mut card = Card {
-        surfaces: Surfaces::new(&info, &snapshot, None, &monitor, spot, state),
+        surfaces: Surfaces::new(&info, &snapshot, None, &monitor, spot, show_keys, state),
         info,
         snapshot,
         frozen: None,
@@ -478,6 +484,7 @@ fn create(
         spot,
         still: None,
         texture: None,
+        show_keys,
     };
     card.freeze_elapsed();
     if let Surfaces::Rail(rail) = &mut card.surfaces {

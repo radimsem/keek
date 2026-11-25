@@ -130,6 +130,37 @@ ln -s ~/.agents/skills/keek-setup ~/.claude/skills/keek-setup
 ln -s ~/.agents/skills/keek-setup ~/.gemini/config/skills/keek-setup
 ```
 
+## Add the Hyprland shortcuts (optional)
+
+keek adds no binds to your Hyprland config. Every action has a button, so you can skip this step. To use the keyboard, paste this block into `~/.config/hypr/bindings.lua`, the file Omarchy keeps for your own binds. Hyprland reloads it when you save; run `hyprctl reload` if it doesn't.
+
+```lua
+-- keek-start
+-- Takeover: Super+Esc is Done and Super+Tab is Step away. Every other key reaches the session.
+hl.define_submap("keek", function()
+  hl.bind("SUPER + Escape", hl.dsp.submap("reset"))
+  hl.bind("SUPER + Tab", hl.dsp.submap("keek-away"))
+end)
+-- Super+F1 to Super+F4 show session 1 to 4 while the Agents Workspace is active.
+for n = 1, 4 do
+  hl.bind("SUPER + F" .. n, function()
+    local workspace = hl.get_active_workspace()
+    if workspace and workspace.name == "keek" then
+      hl.dispatch(hl.dsp.event("keek-show " .. n))
+    end
+  end)
+end
+-- keek-end
+```
+
+| Shortcut | What it does | Without the block |
+|---|---|---|
+| `Super` `Esc` | Done: hands a Takeover back to the Verifier | Press the Done button. Your own shortcuts stay live during a Takeover. |
+| `Super` `Tab` | Step away from a Takeover to use your own desktop | Press the Step away button |
+| `Super` `F1` to `F4` | Shows that session in the focus slot | Click its rail card |
+
+Omarchy's defaults leave these keys free. keek reads your binds and shows a shortcut on screen only once it is bound. To remove the shortcuts, delete everything from `-- keek-start` to `-- keek-end`.
+
 ## Set up a project
 
 Each project needs a Project Profile once per machine. It holds the commands that install and start your app. Ask your agent to run the `keek-setup` skill in the repository. The agent reads the repository, writes the profile to `~/.config/keek/projects/<project>.toml`, and proves that the app starts.
