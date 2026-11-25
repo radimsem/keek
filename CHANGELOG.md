@@ -4,6 +4,10 @@ What changed in each keek release, for a person who uses it. The format follows 
 
 ## Unreleased
 
+### Fixed
+
+- The Check in progress is now a blue-outlined tick with a dot in its centre, the same size as the other ticks, in place of a ring that sat off-centre.
+
 ## 0.2.0 - 2026-11-24
 
 ### Added
