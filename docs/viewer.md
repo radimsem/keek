@@ -77,7 +77,7 @@ A rail session's Session Window waits on the `keek-rail` workspace, which nobody
 A rail card shows:
 
 - A still of the Session Window with its age ("Still · 3 s ago"). keek takes one every 3 s with `grim -T` on the host, from the window's stable id, and keeps it beside the end-card frames, outside the session folder. It never goes through Cua Driver, so it is in neither the Action Log nor the Session Timeline. An ended card shows its last frame.
-- The Project, branch and elapsed time; one state line (the last Action, "Needs you" and the reason, or the Verdict); "2 of 4" with the tick squares, where the first unmarked Check wears the same ring as in the footer; and the session's `Super` number.
+- The Project, branch and elapsed time; one state line (the last Action, "Needs you" and the reason, or the Verdict); "2 of 4" with the tick squares, where the first unmarked Check is marked in progress as in the footer; and the session's `Super` number.
 - On hover, a panel to its left with the goal and each Check's text and outcome, the one being checked tagged "checking".
 
 A rail card is one button and has no others. Clicking it swaps its session with the focused one; an ended card brings its full end card to focus. Take control and everything else the Session Footer offers, including ending a session by hand, are reached by showing the session first.
@@ -116,7 +116,7 @@ It shows that session's:
 - Project and branch (`myapp`, `fix/17-login-redirect`), after a small arrow in the session's cursor colour. The start time stays in the Evidence file names, not on screen.
 - Goal.
 - Last Action in plain words (`click "Sign in"`) and the time since it, counting up.
-- The Verification Checklist's progress ("Checked 2 of 4", counting marked Checks) with one tick per Check: filled green for passed, filled red for failed, an outlined yellow dash for skipped, a dim outline for not yet marked. While the Verifier works, the first unmarked Check's tick wears a Harbor Blue ring and dot, so the footer shows which Check is being checked. The ring is absent during a Help Request or a Takeover and once the session ends.
+- The Verification Checklist's progress ("Checked 2 of 4", counting marked Checks) with one tick per Check: filled green for passed, filled red for failed, an outlined yellow dash for skipped, a dim outline for not yet marked. While the Verifier works, the first unmarked Check's tick has a Harbor Blue outline and a centred Harbor Blue dot, so the footer shows which Check is being checked. The mark is absent during a Help Request or a Takeover and once the session ends.
 - Elapsed time since the session opened, so a stuck session stands out. Once the session ends it reads "Ran" with the total.
 - Help Request state: the whole card turns orange, the window border through a window rule and the footer and any black backdrop with it, and the footer shows the Verifier's reason.
 - During a Takeover: "You are in control" and its running time, with the window border in the active colour. If the `keek` submap has no Step away bind, the detail line says so instead.

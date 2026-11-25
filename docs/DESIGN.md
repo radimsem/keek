@@ -265,7 +265,7 @@ Corners follow Hyprland's 8px rounding everywhere keek draws a container: Verdic
 ### Checked ticks
 - **Shape:** 10px squares, 2px radius, 4px apart, after "2 of 4".
 - **Outcomes:** passed is a filled green square, failed a filled coral square, skipped a yellow outline with a dash, unmarked a dim parchment outline.
-- **In progress:** the first unmarked Check's tick gets a 15px Harbor Blue ring (1.2px stroke, 4px radius) around the 10px square, and a 3.2px Harbor Blue dot inside it, while the Verifier works. Not during a Help Request, a Takeover or after the session ends. The same ring marks the tick on a rail card.
+- **In progress:** while the Verifier works, the first unmarked Check's tick keeps its size but swaps the dim outline for a Harbor Blue one, with a 4px Harbor Blue dot centred inside, 3px from the outline on every side. Nothing is drawn over the square, so the row doesn't shift when the mark moves on. Not during a Help Request, a Takeover or after the session ends. A rail card marks the tick the same way.
 - **In a Check list:** the row in progress is bold and carries a "checking" tag: 11px Harbor Blue Text in a pill with a 1px Harbor Blue outline at 65%.
 - **Overflow:** at most 8 ticks, then "+n".
 - **Accessible name:** "2 passed, 1 failed, 1 skipped, 0 not checked yet".

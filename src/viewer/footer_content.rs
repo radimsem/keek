@@ -95,8 +95,7 @@ pub(super) fn checked_row(checked: &CheckedView) -> gtk::Box {
         tick.set_valign(gtk::Align::Center);
         let mark = match kind {
             Tick::Skipped => Some(label("−", "skipped")),
-            Tick::InProgress => Some(label("", "check-ring")),
-            Tick::Passed | Tick::Failed | Tick::Unmarked => None,
+            Tick::Passed | Tick::Failed | Tick::Unmarked | Tick::InProgress => None,
         };
         let Some(mark) = mark else {
             value.append(&tick);
