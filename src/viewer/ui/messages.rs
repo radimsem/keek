@@ -1,5 +1,6 @@
 use super::{State, create};
 use crate::viewer::ViewerMessage;
+use crate::viewer::rail_view::ShowKeys;
 use gtk4::{glib, prelude::*};
 use std::{
     cell::RefCell,
@@ -18,10 +19,28 @@ pub fn run(mut receiver: mpsc::Receiver<ViewerMessage>, handle: tokio::runtime::
         tick: None,
         notes: HashMap::new(),
         commands: None,
+        show_keys: ShowKeys::default(),
     }));
     let (workspace_tx, mut workspace_rx) = mpsc::channel(8);
     let (show_tx, mut show_rx) = mpsc::channel(8);
-    let monitor_task = handle.spawn(crate::viewer::events::watch(workspace_tx, show_tx));
+    let (keys_tx, mut keys_rx) = mpsc::channel(8);
+    let monitor_task = handle.spawn(crate::viewer::events::watch(workspace_tx, show_tx, keys_tx));
+    let keys_state = state.clone();
+    let keys_watcher = glib::spawn_future_local(async move {
+        while let Some(keys) = keys_rx.recv().await {
+            {
+                let mut data = keys_state.borrow_mut();
+                if data.show_keys == keys {
+                    continue;
+                }
+                data.show_keys = keys;
+                for card in data.cards.values_mut() {
+                    card.show_keys = keys;
+                }
+            }
+            State::visibility(&keys_state);
+        }
+    });
     let show_state = state.clone();
     let show_watcher = glib::spawn_future_local(async move {
         while let Some(target) = show_rx.recv().await {
@@ -54,7 +73,8 @@ pub fn run(mut receiver: mpsc::Receiver<ViewerMessage>, handle: tokio::runtime::
                     if let Some(old) = message_state.borrow_mut().cards.remove(&slot) {
                         old.close();
                     }
-                    let Some(card) = create(info, snapshot, &message_state) else {
+                    let show_keys = message_state.borrow().show_keys;
+                    let Some(card) = create(info, snapshot, show_keys, &message_state) else {
                         let commands = message_state.borrow().commands.clone();
                         if let Some(commands) = commands {
                             let task =
@@ -121,6 +141,7 @@ pub fn run(mut receiver: mpsc::Receiver<ViewerMessage>, handle: tokio::runtime::
     message_watcher.abort();
     workspace_watcher.abort();
     show_watcher.abort();
+    keys_watcher.abort();
     monitor_task.abort();
     let mut state = state.borrow_mut();
     if let Some(tick) = state.tick.take() {

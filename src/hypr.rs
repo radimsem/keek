@@ -69,6 +69,22 @@ pub fn parse(line: &str) -> Option<HyprEvent> {
         _ => None,
     }
 }
+/// Whether `hyprctl binds -j` lists a bind of `key` with Super held, in `submap` (`""` outside any submap).
+pub fn has_super_bind(binds: &serde_json::Value, submap: &str, key: &str) -> bool {
+    // Hyprland reports modifiers as a bitmask, and Super is bit 6.
+    const SUPER: u64 = 64;
+    binds.as_array().into_iter().flatten().any(|bind| {
+        bind.get("submap").and_then(serde_json::Value::as_str) == Some(submap)
+            && bind
+                .get("key")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|bound| bound.eq_ignore_ascii_case(key))
+            && bind
+                .get("modmask")
+                .and_then(serde_json::Value::as_u64)
+                .is_some_and(|mask| mask & SUPER != 0)
+    })
+}
 use crate::process::ProcessError;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::net::UnixStream;

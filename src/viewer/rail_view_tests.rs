@@ -77,7 +77,14 @@ fn working() -> SessionSnapshot {
 
 #[test]
 fn a_rail_card_shows_project_branch_elapsed_state_ticks_and_its_shortcut() {
-    let view = for_rail(&info(1), &working(), at(42), Some(at(39)), false);
+    let view = for_rail(
+        &info(1),
+        &working(),
+        at(42),
+        Some(at(39)),
+        false,
+        bound(&[1, 2]),
+    );
     assert_eq!(view.project, "billing");
     assert_eq!(view.branch, "fix/17-invite-role");
     assert_eq!(view.elapsed, "0:42");
@@ -89,7 +96,7 @@ fn a_rail_card_shows_project_branch_elapsed_state_ticks_and_its_shortcut() {
         checked.ticks,
         vec![Tick::Passed, Tick::InProgress, Tick::Unmarked]
     );
-    assert_eq!(view.keys, Some(["Super".to_owned(), "2".to_owned()]));
+    assert_eq!(view.keys, Some(["Super".to_owned(), "F2".to_owned()]));
     assert_eq!(view.still.as_deref(), Some("Still · 3 s ago"));
     assert_eq!(view.accessible, "Show billing");
     assert!(!view.locked);
@@ -97,26 +104,91 @@ fn a_rail_card_shows_project_branch_elapsed_state_ticks_and_its_shortcut() {
 
 #[test]
 fn a_rail_card_without_a_still_yet_shows_no_age() {
-    let view = for_rail(&info(1), &working(), at(42), None, false);
+    let view = for_rail(
+        &info(1),
+        &working(),
+        at(42),
+        None,
+        false,
+        ShowKeys::default(),
+    );
     assert_eq!(view.still, None);
 }
 
 #[test]
 fn an_old_still_says_its_age_in_minutes() {
-    let view = for_rail(&info(1), &working(), at(200), Some(at(70)), false);
+    let view = for_rail(
+        &info(1),
+        &working(),
+        at(200),
+        Some(at(70)),
+        false,
+        ShowKeys::default(),
+    );
     assert_eq!(view.still.as_deref(), Some("Still · 2 min ago"));
 }
 
 #[test]
 fn only_the_first_four_sessions_have_a_shortcut() {
+    let keys = bound(&[1, 2, 3, 4, 5]);
     assert_eq!(
-        for_rail(&info(3), &working(), at(42), None, false).keys,
-        Some(["Super".to_owned(), "4".to_owned()])
+        for_rail(&info(3), &working(), at(42), None, false, keys).keys,
+        Some(["Super".to_owned(), "F4".to_owned()])
     );
     assert_eq!(
-        for_rail(&info(4), &working(), at(42), None, false).keys,
+        for_rail(&info(4), &working(), at(42), None, false, keys).keys,
         None
     );
+}
+
+fn bound(numbers: &[u8]) -> ShowKeys {
+    let binds: Vec<_> = numbers
+        .iter()
+        .map(|n| serde_json::json!({"submap": "", "key": format!("F{n}"), "modmask": 64}))
+        .collect();
+    ShowKeys::from_binds(&serde_json::Value::from(binds))
+}
+
+#[test]
+fn a_rail_card_shows_its_shortcut_only_once_its_super_function_key_is_bound() {
+    for (keys, expected) in [
+        (ShowKeys::default(), None),
+        (bound(&[1, 3]), None),
+        (bound(&[2]), Some(["Super".to_owned(), "F2".to_owned()])),
+    ] {
+        assert_eq!(
+            for_rail(&info(1), &working(), at(42), None, false, keys).keys,
+            expected
+        );
+    }
+}
+
+#[test]
+fn only_a_super_function_key_bind_outside_any_submap_counts_as_bound() {
+    for (submap, key, mask, expected) in [
+        ("", "F2", 64, true),
+        ("", "f2", 65, true),
+        ("keek", "F2", 64, false),
+        ("", "F2", 0, false),
+        ("", "2", 64, false),
+        ("", "F12", 64, false),
+    ] {
+        let binds = serde_json::json!([{"submap": submap, "key": key, "modmask": mask}]);
+        assert_eq!(
+            for_rail(
+                &info(1),
+                &working(),
+                at(42),
+                None,
+                false,
+                ShowKeys::from_binds(&binds)
+            )
+            .keys
+            .is_some(),
+            expected,
+            "{submap:?} {key} {mask}"
+        );
+    }
 }
 
 #[test]
@@ -126,7 +198,14 @@ fn a_help_request_makes_the_card_say_needs_you_with_its_reason_and_drops_the_rin
         reason: "Recovery key for the export step".into(),
         start_ms: Millis(30_000),
     };
-    let view = for_rail(&info(1), &snapshot, at(42), None, false);
+    let view = for_rail(
+        &info(1),
+        &snapshot,
+        at(42),
+        None,
+        false,
+        ShowKeys::default(),
+    );
     assert_eq!(
         view.needs_you.as_deref(),
         Some("Recovery key for the export step")
@@ -139,7 +218,14 @@ fn a_help_request_makes_the_card_say_needs_you_with_its_reason_and_drops_the_rin
 
 #[test]
 fn hovering_shows_the_goal_and_each_check_with_the_one_being_checked_tagged() {
-    let view = for_rail(&info(1), &working(), at(42), None, false);
+    let view = for_rail(
+        &info(1),
+        &working(),
+        at(42),
+        None,
+        false,
+        ShowKeys::default(),
+    );
     assert_eq!(view.hover.goal, "An invited member gets the Editor role");
     assert_eq!(
         view.hover.checks,
@@ -174,12 +260,19 @@ fn hovering_shows_failed_and_skipped_outcomes() {
         comment: String::new(),
         at: Millis(0),
     };
-    let marks: Vec<_> = for_rail(&info(1), &snapshot, at(42), None, false)
-        .hover
-        .checks
-        .into_iter()
-        .map(|check| check.mark)
-        .collect();
+    let marks: Vec<_> = for_rail(
+        &info(1),
+        &snapshot,
+        at(42),
+        None,
+        false,
+        ShowKeys::default(),
+    )
+    .hover
+    .checks
+    .into_iter()
+    .map(|check| check.mark)
+    .collect();
     assert_eq!(
         marks,
         vec![HoverMark::Passed, HoverMark::Failed, HoverMark::Skipped]
@@ -190,7 +283,14 @@ fn hovering_shows_failed_and_skipped_outcomes() {
 fn an_ended_rail_card_shows_its_verdict() {
     let snapshot =
         crate::viewer::verdict_view::tests::ended(SessionEnd::Verdict(Verdict::NeedsFixes));
-    let view = for_rail(&info(1), &snapshot, at(42), None, false);
+    let view = for_rail(
+        &info(1),
+        &snapshot,
+        at(42),
+        None,
+        false,
+        ShowKeys::default(),
+    );
     assert_eq!(view.verdict, Some(StateLabel::NeedsFixes));
     assert_eq!(view.line, "Needs fixes");
     assert!(
@@ -223,7 +323,17 @@ fn a_running_or_paused_takeover_locks_the_rail() {
     assert!(rail_locked([&working(), &running]));
     assert!(rail_locked([&paused, &working()]));
     assert!(!rail_locked([&working(), &helped]));
-    assert!(for_rail(&info(1), &working(), at(42), None, true).locked);
+    assert!(
+        for_rail(
+            &info(1),
+            &working(),
+            at(42),
+            None,
+            true,
+            ShowKeys::default()
+        )
+        .locked
+    );
 }
 
 fn card(x: i32, y: i32) -> crate::slots::Slot {
