@@ -4,6 +4,8 @@ What changed in each keek release, for a person who uses it. The format follows 
 
 ## Unreleased
 
+## 0.3.0 - 2026-11-26
+
 ### Added
 
 - Add the omarchy-keek Bar Widget to see open sessions in the Omarchy bar, spot a Help Request at a glance, and switch to the Agents Workspace and back.
@@ -17,7 +19,6 @@ What changed in each keek release, for a person who uses it. The format follows 
 ### Fixed
 
 - A rail card shows its session's shortcut only once you have added the bind, so it never names a key that does nothing.
-
 - The Check in progress is now a blue-outlined tick with a dot in its centre, the same size as the other ticks, in place of a ring that sat off-centre.
 
 ## 0.2.0 - 2026-11-24
