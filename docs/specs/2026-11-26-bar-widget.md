@@ -79,7 +79,7 @@ The widget is a separate repository, `radimsem/omarchy-keek`, MIT-licensed like 
 
   An ended session's dot shows as a ring in its colour *(my call; not drawn)*.
 - **Takeover.** While a Takeover runs or is paused, the button shows the in-control state and does nothing on click, and the list's rows are dimmed and inert. This matches the rail and notifications, which don't swap during a Takeover ([`viewer.md`](../viewer.md)). Super+Tab and Super+Esc stay the way out. The daemon therefore publishes the Takeover phase in `bar.json`.
-- **Click.** Off `keek`, a click switches to `name:keek`. If a session needs you, the click also emits `keek-show <n>` for it, as activating the notification does. On `keek`, a click goes back to the previous workspace, with the same rule as the spaces widget's click-active-to-go-back: the last workspace focused before `keek`, never `keek-rail`. The widget records that workspace from Hyprland's `workspacev2` events, since Hyprland's own "previous" can name `keek-rail` after a rail swap.
+- **Click.** Off `keek`, a click switches to `name:keek`. If a session needs you, the click also emits `keek-show <n>` for it, as activating the notification does. On `keek`, a click goes back to the previous workspace, with the same rule as the spaces widget's click-active-to-go-back: the last workspace focused before `keek`, never `keek-rail`. The widget records that workspace from `Hyprland.focusedWorkspace`, since `workspacev2` events miss a move to a workspace on another monitor, and Hyprland's own "previous" can name `keek-rail` after a rail swap.
 - **Hover list.** A popup under the button with one row per session, laid out like a rail card. Clicking a row switches to `keek` and emits `keek-show <n>`. The header shows Super+Shift+K, and each row shows its Super F key, only when that bind exists.
 - **Accessibility.** The button's label names the session count and the needs-you state, as on the canvas.
 
@@ -96,7 +96,7 @@ keek keeps sending as Omarchy's default app, `omarchy-action`, and adds `-i keek
 
 ## Verification
 
-- Unit: the daemon writes, updates and removes `bar.json` as sessions open, need help, end and close; a reader never sees a partial file. Uses the injected clock and a temp runtime folder.
+- Unit: the daemon writes, updates and removes `bar.json` as sessions open, need help, end and close; a reader never sees a partial file. Passes `now` in, so no clock is needed, and uses a temp runtime folder.
 - Unit: the notification call carries `-i keek` and no `--app-name`, and the icon install writes each size once and rewrites only changed bytes.
 - Live (`live_*`, `#[ignore]`): open two sessions, raise a Help Request, and check that `bar.json` and the notification call match. The developer's workspace, focus and windows end as they began.
 - Manual checklist *(my call)*: the widget installed and enabled is a precondition, never something a test sets up, since keek must not edit `shell.json`. A person checks the button's states, the toggle back to the previous workspace and the toast icon against the canvas. Quickshell gives a test no way to read a widget's state.

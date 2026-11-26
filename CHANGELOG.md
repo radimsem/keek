@@ -6,7 +6,8 @@ What changed in each keek release, for a person who uses it. The format follows 
 
 ### Added
 
-- keek's notifications show the keek logo, and keek publishes session state for the omarchy-keek bar widget.
+- Add the omarchy-keek Bar Widget to see open sessions in the Omarchy bar, spot a Help Request at a glance, and switch to the Agents Workspace and back.
+- keek's notifications show the keek logo.
 
 ### Changed
 
