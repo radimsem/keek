@@ -97,3 +97,47 @@ fn every_paragraph_of_the_instructions_after_the_checklist_appears_word_for_word
         );
     }
 }
+
+const LOCAL_MODEL: &str =
+    "[decision_model]\nendpoint = \"http://127.0.0.1:9\"\nmodel = \"jev-test\"\nthreshold = 0.8\n";
+
+#[tokio::test]
+async fn a_configured_decision_model_lists_delegate_step_and_shows_in_keek_status() -> Result<()> {
+    let env = TestEnv::new()?;
+    env.write_config(LOCAL_MODEL)?;
+    let client = env.connect_mcp().await?;
+
+    let tools = client.list_all_tools().await?;
+    let names: Vec<&str> = tools.iter().map(|tool| tool.name.as_ref()).collect();
+    assert_eq!(names.last(), Some(&"delegate_step"), "{names:?}");
+    let status = common::keek_status(&client).await?;
+    let model = status
+        .decision_model
+        .context("keek_status shows no model")?;
+    assert_eq!(
+        (
+            model.endpoint.as_str(),
+            model.model.as_str(),
+            model.threshold
+        ),
+        ("http://127.0.0.1:9", "jev-test", 0.8)
+    );
+    client.cancel().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_decision_model_with_an_unset_key_variable_leaves_delegate_step_unlisted() -> Result<()> {
+    let env = TestEnv::new()?;
+    env.write_config(&format!(
+        "{LOCAL_MODEL}api_key_env = \"KEEK_TEST_UNSET_KEY_VARIABLE\"\n"
+    ))?;
+    let client = env.connect_mcp().await?;
+
+    let tools = client.list_all_tools().await?;
+    assert!(tools.iter().all(|tool| tool.name != "delegate_step"));
+    let status = common::keek_status(&client).await?;
+    assert!(status.decision_model.is_none());
+    client.cancel().await?;
+    Ok(())
+}

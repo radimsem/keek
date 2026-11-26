@@ -4,6 +4,10 @@ What changed in each keek release, for a person who uses it. The format follows 
 
 ## Unreleased
 
+### Added
+
+- The Verifier can hand routine steps to a fast decision model, such as TypeSafe's Jev, and keek acts only when the model is confident.
+
 ### Changed
 
 - Switch sessions with Super+F1 to Super+F4, so Super+number switches workspaces on the Agents Workspace too. Remove the Super+1 to Super+4 snippet from your Hyprland config and add the new one from the viewer docs.

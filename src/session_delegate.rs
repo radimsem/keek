@@ -14,6 +14,7 @@ pub const TOOL: &str = "delegate_step";
 const SHOWN_CANDIDATES: usize = 5;
 const DRIVER_LIMIT: Duration = Duration::from_secs(150);
 
+#[derive(Clone)]
 pub struct Delegate {
     pub model: Arc<dyn DecisionModel>,
     pub config: DecisionModelConfig,

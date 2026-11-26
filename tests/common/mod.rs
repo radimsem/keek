@@ -46,6 +46,12 @@ impl TestEnv {
         self.runtime_dir().join("keek/daemon.lock")
     }
 
+    pub fn write_config(&self, text: &str) -> Result<()> {
+        let path = self.dir.path().join(".config/keek/config.toml");
+        std::fs::create_dir_all(path.parent().context("the config has no folder")?)?;
+        Ok(std::fs::write(path, text)?)
+    }
+
     pub fn state_dir(&self) -> PathBuf {
         self.dir.path().join("state")
     }

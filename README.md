@@ -183,6 +183,32 @@ keek's server instructions tell an agent how to verify a change. The repository'
 - Put the Verdict and each Check's outcome in the pull request, and tell the developer the Verification Video's path to attach.
 ```
 
+## Hand routine steps to a decision model (optional)
+
+A Verifier can hand a routine step, such as "click Sign in", to a fast decision model through the `delegate_step` tool. keek reads the window once, asks the model which control the step means, and acts only when the model is confident. Otherwise it takes no action and hands back the top candidates, and the Verifier acts itself. The tool is listed only when keek's config has a `[decision_model]` table, and a Decision Model never marks a Check.
+
+Add the table to `~/.config/keek/config.toml`. For TypeSafe's hosted Jev:
+
+```toml
+[decision_model]
+endpoint = "https://api.typesafe.ai"
+model = "jev-latest"
+api_key_env = "TYPESAFE_API_KEY"
+```
+
+For a local Jev-compatible server, leave out `api_key_env`. keek then sends no key:
+
+```toml
+[decision_model]
+endpoint = "http://127.0.0.1:8080"
+model = "jev-latest"
+```
+
+`threshold` (default 0.9) is the probability keek needs before it acts, and `timeout_ms` (default 1500) is how long it waits for an answer.
+
+- `api_key_env` names an environment variable. It must be set where the keek daemon starts, which is the coding agent's environment. keek never writes the key to its config, output, Evidence or commits, and `keek_status` shows only the endpoint, model and threshold. If the variable is unset or empty, the daemon logs one line and leaves `delegate_step` unlisted.
+- For each step, the screen's accessibility tree goes to the configured endpoint, with Test Credential values masked. A hosted endpoint is your explicit choice: leave the table out and nothing leaves your machine.
+
 ## Verify a change
 
 Ask your agent to verify its change with keek. The agent writes a Verification Checklist and hands it to a fresh Verifier. The Verifier opens an Agent Session, uses the app, and marks each Check.
@@ -203,7 +229,7 @@ Attach the video to the pull request by hand.
 ## Known limitations
 
 - An X11-only app can't run, because Xwayland is off in the sandbox.
-- Evidence stays on your machine. keek uploads nothing.
+- Evidence stays on your machine. keek uploads none of it. Only a configured decision model receives screen state, as described above.
 - Two Agent Sessions can be open at once by default, one per git worktree.
 - During a Takeover the nested desktop types with the `us` layout, whatever your own layout is.
 - A Hyprland update needs a matching `cua-hyprland-plugin` build from Omarchy before keek works again.

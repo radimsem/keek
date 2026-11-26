@@ -78,6 +78,8 @@ pub struct Dependencies {
     pub runner: Arc<dyn ProcessRunner>,
     pub compositor: Arc<dyn Compositor>,
     pub factory: Arc<dyn DriverFactory>,
+    /// `None` unless keek's config has a `[decision_model]` table and its client could be built.
+    pub delegate: Option<crate::session::delegate::Delegate>,
 }
 pub struct Prepared {
     opener: Option<watch::Receiver<()>>,
@@ -362,14 +364,7 @@ impl Registry {
             }
             Request::ListTools => self.list_tools(reply),
             Request::Status => {
-                let _ = reply.send(Response::Status(crate::ipc::DaemonStatus {
-                    version: crate::VERSION.into(),
-                    build: crate::build_id::current()
-                        .await
-                        .map(|build| build.to_string()),
-                    pid: std::process::id(),
-                    open_sessions: self.len(),
-                }));
+                let _ = reply.send(Response::Status(self.status().await));
             }
             Request::SetProjectProfile {
                 project,

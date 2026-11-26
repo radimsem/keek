@@ -248,7 +248,20 @@ pub struct DaemonStatus {
     pub build: Option<String>,
     pub pid: u32,
     pub open_sessions: usize,
+    /// Set only while `delegate_step` is on. It never carries the API key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_model: Option<DecisionModelStatus>,
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct DecisionModelStatus {
+    pub endpoint: String,
+    pub model: String,
+    pub threshold: f64,
+}
+
+// The config check refuses a threshold outside 0 to 1, so it is never NaN.
+impl Eq for DecisionModelStatus {}
 
 #[derive(Debug, thiserror::Error)]
 pub enum IpcError {
