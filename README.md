@@ -62,7 +62,7 @@ keek runs on Omarchy only. It needs:
 3. Build and install keek. The build refuses a default toolchain older than Rust 1.97. Run `rustup update` to update it.
 
    ```sh
-   cargo install --git https://github.com/radimsem/keek --tag v0.2.0 --locked
+   cargo install --git https://github.com/radimsem/keek --tag v0.3.0 --locked
    ```
 
 4. Check the result.
@@ -119,7 +119,7 @@ To install it by hand, download the skill to `~/.agents/skills`. Codex, OpenCode
 
 ```sh
 mkdir -p ~/.agents/skills/keek-setup
-curl -fsSL https://raw.githubusercontent.com/radimsem/keek/v0.2.0/skills/keek-setup/SKILL.md \
+curl -fsSL https://raw.githubusercontent.com/radimsem/keek/v0.3.0/skills/keek-setup/SKILL.md \
   -o ~/.agents/skills/keek-setup/SKILL.md
 ```
 
