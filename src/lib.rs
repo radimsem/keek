@@ -55,6 +55,7 @@ pub mod window_seat;
 mod session_journal;
 
 pub mod attempts;
+pub mod decision_model;
 pub mod session_frame;
 pub mod step_candidates;
 
