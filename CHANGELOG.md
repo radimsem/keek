@@ -6,7 +6,7 @@ What changed in each keek release, for a person who uses it. The format follows 
 
 ### Added
 
-- The Verifier can hand routine steps to a fast decision model, such as TypeSafe's Jev, and keek acts only when the model is confident.
+- The Verifier can hand routine steps to a fast Decision Model, such as TypeSafe's Jev, and keek acts only when the model is confident.
 
 ### Changed
 

@@ -85,7 +85,7 @@ A `[decision_model]` table in keek's config (`~/.config/keek/config.toml`):
 - `threshold`: the probability needed to act.
 - `timeout_ms`: how long to wait for a decision.
 
-`get_config` shows the endpoint, model and threshold, never the key. An unreachable endpoint or a timeout returns the candidates, as a low-confidence pick does, and the session goes on.
+`get_config` shows the endpoint, model and threshold, never the key. *(As built, `keek_status` shows them instead, because `get_config` is Cua Driver's own tool, forwarded unchanged.)* An unreachable endpoint or a timeout returns the candidates, as a low-confidence pick does, and the session goes on.
 
 ### Verifier guidance
 
