@@ -4,7 +4,7 @@ use crate::{
     timeline::CheckOutcome,
     viewer::{
         SessionInfo,
-        footer_view::SessionColour,
+        footer_view::{SessionColour, action_words},
         rail_view::{ShowKeys, for_rail},
     },
 };
@@ -21,10 +21,18 @@ pub const BAR_STATE_VERSION: u32 = 1;
 #[derive(Debug, thiserror::Error)]
 pub enum BarStateError {
     #[error(
-        "the bar state could not be written to {}: {source}. Check that $XDG_RUNTIME_DIR/keek is writable.",
+        "The bar state could not be written to {}: {source}. Check that $XDG_RUNTIME_DIR/keek is writable.",
         path.display()
     )]
     Write {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    #[error(
+        "The bar state at {} could not be removed: {source}. Check that $XDG_RUNTIME_DIR/keek is writable.",
+        path.display()
+    )]
+    Remove {
         path: PathBuf,
         source: std::io::Error,
     },
@@ -82,9 +90,38 @@ pub fn bar_session(
         | SessionState::Closing
         | SessionState::Rendering { .. } => (control_state(&snapshot.control), None),
     };
+    // bar.json is rewritten only on events, so `detail` carries no age that would go stale.
+    let rail_line = || for_rail(info, snapshot, now, None, false, ShowKeys::default()).line;
+    let open = snapshot.state == SessionState::Open;
     let detail = match (&snapshot.control, state) {
         (ControlState::HelpRequest { reason, .. }, BarSessionState::NeedsYou) => reason.clone(),
-        _ => for_rail(info, snapshot, now, None, false, ShowKeys::default()).line,
+        (
+            ControlState::Takeover { .. },
+            BarSessionState::Takeover | BarSessionState::TakeoverPaused,
+        ) => String::new(),
+        (ControlState::Verifier, BarSessionState::Working) => match &snapshot.last_action {
+            Some(action) if open && !snapshot.reminded => action_words(&action.tool).into(),
+            Some(_) | None => rail_line(),
+        },
+        (ControlState::HandBack { end_ms, .. }, BarSessionState::Working) => {
+            match &snapshot.last_action {
+                Some(action) if open && action.time_ms > *end_ms => {
+                    action_words(&action.tool).into()
+                }
+                Some(_) | None => rail_line(),
+            }
+        }
+        (
+            ControlState::HelpRequest { .. }
+            | ControlState::Verifier
+            | ControlState::Takeover { .. }
+            | ControlState::HandBack { .. },
+            BarSessionState::Working
+            | BarSessionState::NeedsYou
+            | BarSessionState::Takeover
+            | BarSessionState::TakeoverPaused
+            | BarSessionState::Ended,
+        ) => rail_line(),
     };
     BarSession {
         n: info.slot.0 + 1,
@@ -159,11 +196,12 @@ pub fn write(path: &Path, state: &BarState) -> Result<(), BarStateError> {
 
 pub fn remove(path: &Path) -> Result<(), BarStateError> {
     match std::fs::remove_file(path) {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(BarStateError::Write {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(BarStateError::Remove {
             path: path.to_owned(),
-            source: error,
+            source: e,
         }),
-        Ok(()) | Err(_) => Ok(()),
     }
 }
 

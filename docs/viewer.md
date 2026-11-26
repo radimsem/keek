@@ -220,7 +220,7 @@ The widget reads the Bar State, a file keek publishes at `$XDG_RUNTIME_DIR/keek/
 | `opened_at` | When the session opened, in UTC (RFC 3339). |
 | `state` | `working`, `needs_you` (a Help Request is open), `takeover`, `takeover_paused` or `ended`. |
 | `verdict` | `null` until the session ends, then `pass`, `needs_fixes`, `partly_verified` or `incomplete`. |
-| `detail` | The rail card's state line: the last Action, the Help Request reason or the Verdict. |
+| `detail` | The rail card's state line without an age: the last Action's words, the Help Request reason or the Verdict. It is empty during a Takeover. A widget shows elapsed time itself, from `opened_at`. |
 | `checks` | One letter per Check in checklist order: `p` passed, `f` failed, `s` skipped, `-` unmarked. |
 | `in_focus` | Whether the session is in the focus slot. |
 

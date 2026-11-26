@@ -1,7 +1,10 @@
 use super::*;
 use crate::{
     checklist::{IncompleteReason, Mark, SessionEnd, Verdict},
-    ipc::{CheckStatus, ControlState, EndedSession, HostShortcuts, SessionState, TakeoverPhase},
+    ipc::{
+        CheckStatus, ControlState, EndedSession, HostShortcuts, LastAction, SessionState,
+        TakeoverPhase,
+    },
     revision::Revision,
     timeline::{CheckId, CheckOutcome, Millis},
     viewer::{CardSpot, SessionInfo, SlotId},
@@ -124,6 +127,30 @@ fn a_help_request_reads_as_needs_you_with_its_reason_as_detail() {
     );
     assert_eq!(session.state, BarSessionState::NeedsYou);
     assert_eq!(session.detail, "2FA code");
+}
+
+#[test]
+fn a_working_session_names_its_last_action_without_an_age() {
+    let mut snapshot = working();
+    snapshot.last_action = Some(LastAction {
+        tool: "click".into(),
+        time_ms: Millis(0),
+    });
+    let session = bar_session(&info(0), &snapshot, false, at(90));
+    assert!(!session.detail.contains("ago"), "{}", session.detail);
+    assert_eq!(session.detail, "click");
+}
+
+#[test]
+fn a_takeover_has_an_empty_detail() {
+    let paused = TakeoverPhase::Paused {
+        since_ms: Millis(0),
+    };
+    for phase in [TakeoverPhase::Running, paused] {
+        let snapshot = snapshot(takeover(phase), SessionState::Open);
+        let session = bar_session(&info(0), &snapshot, false, at(90));
+        assert_eq!(session.detail, "");
+    }
 }
 
 #[test]
