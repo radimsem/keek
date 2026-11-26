@@ -67,7 +67,6 @@ pub async fn run_with_viewer(
         .unwrap_or_default();
     let compositor: std::sync::Arc<dyn crate::compositor::Compositor> =
         std::sync::Arc::new(crate::compositor::HostCompositor::new(runner.clone()));
-    // The caller shuts down the given viewer, so only the bar writer stops here.
     let bar = crate::viewer::bar_viewer::BarStateViewer::new(viewer, paths.bar_state());
     let viewer: std::sync::Arc<dyn crate::viewer::Viewer> = bar.clone();
     let dependencies = crate::registry::Dependencies {
@@ -115,6 +114,7 @@ pub async fn run_with_viewer(
         terminated,
     )
     .await;
+    // The caller shuts down the given viewer, so only the bar writer stops here.
     bar.stop_writer().await;
     remove_bar_state(&paths.bar_state());
     let removed = remove_socket(&socket);

@@ -18,12 +18,7 @@ const ICONS: [(&str, &[u8]); 3] = [
     ("128x128", include_bytes!("../assets/icons/keek-128.png")),
 ];
 
-/// Writes the keek icon into an icon theme folder, one file per size.
-///
 /// A file that already holds the same bytes is left alone, so its modification time stays put.
-///
-/// # Errors
-/// Returns the first folder or file that could not be written.
 pub fn install(theme_dir: &Path) -> Result<(), IconError> {
     for (size, bytes) in ICONS {
         let path = theme_dir.join(size).join("apps/keek.png");
