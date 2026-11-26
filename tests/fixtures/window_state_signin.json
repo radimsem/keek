@@ -1,0 +1,146 @@
+{
+  "content": [{ "type": "text", "text": "Window state captured." }],
+  "structuredContent": {
+    "pid": 4242,
+    "window_id": 7,
+    "snapshot_id": "s00000008",
+    "app_name": "Example",
+    "window_title": "Example - Sign in",
+    "element_count": 12,
+    "returned_element_count": 12,
+    "elements_complete": true,
+    "elements": [
+      {
+        "element_index": 0,
+        "role": "frame",
+        "depth": 0,
+        "label": "Example - Sign in",
+        "frame": { "x": 0.0, "y": 0.0, "w": 1280.0, "h": 800.0 }
+      },
+      {
+        "element_index": 1,
+        "role": "entry",
+        "depth": 2,
+        "element_token": "s00000008:12",
+        "label": "Email address",
+        "value": "",
+        "enabled": true,
+        "in_web_content": true,
+        "actions": ["activate", "showContextMenu"],
+        "parent_index": 0,
+        "frame": { "x": 420.0, "y": 240.0, "w": 440.0, "h": 40.0 }
+      },
+      {
+        "element_index": 2,
+        "role": "password text",
+        "depth": 2,
+        "element_token": "s00000008:17",
+        "label": "Password",
+        "enabled": true,
+        "in_web_content": true,
+        "actions": ["activate", "showContextMenu"],
+        "parent_index": 0,
+        "frame": { "x": 420.0, "y": 300.0, "w": 440.0, "h": 40.0 }
+      },
+      {
+        "element_index": 3,
+        "role": "static",
+        "depth": 2,
+        "label": "Welcome back",
+        "in_web_content": true,
+        "parent_index": 0,
+        "frame": { "x": 420.0, "y": 180.0, "w": 200.0, "h": 24.0 }
+      },
+      {
+        "element_index": 4,
+        "role": "combo box",
+        "depth": 2,
+        "element_token": "s00000008:23",
+        "label": "Language",
+        "value": "English",
+        "enabled": true,
+        "in_web_content": true,
+        "actions": ["press", "showContextMenu"],
+        "parent_index": 0,
+        "frame": { "x": 420.0, "y": 360.0, "w": 200.0, "h": 36.0 }
+      },
+      {
+        "element_index": 5,
+        "role": "menu item",
+        "depth": 3,
+        "element_token": "s00000008:24",
+        "label": "English",
+        "enabled": true,
+        "in_web_content": true,
+        "parent_index": 4,
+        "frame": { "x": 420.0, "y": 396.0, "w": 200.0, "h": 32.0 }
+      },
+      {
+        "element_index": 6,
+        "role": "menu item",
+        "depth": 3,
+        "element_token": "s00000008:25",
+        "label": "Deutsch",
+        "enabled": true,
+        "in_web_content": true,
+        "parent_index": 4,
+        "frame": { "x": 420.0, "y": 428.0, "w": 200.0, "h": 32.0 }
+      },
+      {
+        "element_index": 7,
+        "role": "link",
+        "depth": 2,
+        "element_token": "s00000008:31",
+        "label": "Forgot password?",
+        "enabled": true,
+        "in_web_content": true,
+        "actions": ["press", "showContextMenu"],
+        "parent_index": 0,
+        "frame": { "x": 420.0, "y": 420.0, "w": 140.0, "h": 20.0 }
+      },
+      {
+        "element_index": 8,
+        "role": "button",
+        "depth": 2,
+        "element_token": "s00000008:39",
+        "label": "Sign in",
+        "enabled": true,
+        "in_web_content": true,
+        "actions": ["press", "showContextMenu"],
+        "parent_index": 0,
+        "frame": { "x": 420.0, "y": 460.0, "w": 440.0, "h": 44.0 }
+      },
+      {
+        "element_index": 9,
+        "role": "button",
+        "depth": 2,
+        "element_token": "s00000008:41",
+        "label": "Sign in with SSO",
+        "enabled": false,
+        "in_web_content": true,
+        "parent_index": 0,
+        "frame": { "x": 420.0, "y": 516.0, "w": 440.0, "h": 44.0 }
+      },
+      {
+        "element_index": 10,
+        "role": "button",
+        "depth": 2,
+        "element_token": "s00000008:44",
+        "label": "Help",
+        "enabled": true,
+        "in_web_content": true,
+        "parent_index": 0
+      },
+      {
+        "element_index": 11,
+        "role": "link",
+        "depth": 2,
+        "label": "Terms",
+        "enabled": true,
+        "in_web_content": true,
+        "parent_index": 0,
+        "frame": { "x": 420.0, "y": 580.0, "w": 60.0, "h": 20.0 }
+      }
+    ]
+  }
+}

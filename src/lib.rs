@@ -56,6 +56,7 @@ mod session_journal;
 
 pub mod attempts;
 pub mod session_frame;
+pub mod step_candidates;
 
 mod window_guard;
 
