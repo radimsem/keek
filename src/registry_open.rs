@@ -285,6 +285,7 @@ impl Registry {
                 catalog,
                 events,
                 progress,
+                delegate: None,
             },
             Inbox::new(receiver, close_receiver),
         ))

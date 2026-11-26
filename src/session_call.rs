@@ -57,6 +57,11 @@ impl Actor {
         };
         self.events
             .send_if_modified(|snapshot| std::mem::take(&mut snapshot.reminded));
+        if tool == super::delegate::TOOL {
+            let response = self.delegate_step(state, arguments).await;
+            let _ = reply.send(self.mask_reply(response));
+            return CallEnd::Replied;
+        }
         let (mut arguments, action) = match self.catalog.prepare_call(&tool, &self.name, arguments)
         {
             Ok(args) => args,

@@ -1,4 +1,8 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+use crate::step_candidates::StepAction;
+use crate::step_policy::HandBackReason;
 
 const SCHEMA_VERSION: u32 = 1;
 
@@ -37,7 +41,38 @@ pub struct PausedSpan {
     pub end_ms: Millis,
 }
 
+/// A candidate as the Session Timeline keeps it: no element token, and a label already masked.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CandidateSummary {
+    pub id: String,
+    pub role: String,
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DelegatedOutcome {
+    Acted,
+    HandedBack(HandBackReason),
+}
+
+/// One `delegate_step` call. `intent` keeps `${NAME}` unsubstituted, and `probabilities`
+/// holds every option the Decision Model was offered, `abstain` and `reobserve` included.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DelegatedStepEvent {
+    pub at_ms: Millis,
+    pub intent: String,
+    pub action: StepAction,
+    pub candidates: Vec<CandidateSummary>,
+    pub probabilities: BTreeMap<String, f64>,
+    pub pick: Option<String>,
+    pub outcome: DelegatedOutcome,
+    pub threshold: f64,
+    pub model: String,
+    pub latency_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TimelineEvent {
     /// One forwarded tool call. `action` is true when the tool isn't marked
@@ -70,9 +105,10 @@ pub enum TimelineEvent {
         end_ms: Millis,
         outcome: HelpOutcome,
     },
+    DelegatedStep(DelegatedStepEvent),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionTimeline {
     schema_version: u32,
     video_lead_ms: Millis,
@@ -130,6 +166,7 @@ impl SessionTimeline {
             | TimelineEvent::Takeover { start_ms, .. }
             | TimelineEvent::HelpRequest { start_ms, .. } => *start_ms,
             TimelineEvent::CheckMark { at_ms, .. } | TimelineEvent::Reminder { at_ms } => *at_ms,
+            TimelineEvent::DelegatedStep(step) => step.at_ms,
         });
     }
 }

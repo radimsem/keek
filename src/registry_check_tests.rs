@@ -79,7 +79,8 @@ async fn refused_close_keeps_calls_and_check_marks_working() {
             TimelineEvent::Call { .. }
             | TimelineEvent::Takeover { .. }
             | TimelineEvent::Reminder { .. }
-            | TimelineEvent::HelpRequest { .. } => None,
+            | TimelineEvent::HelpRequest { .. }
+            | TimelineEvent::DelegatedStep(_) => None,
         })
         .collect();
     assert_eq!(

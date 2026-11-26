@@ -67,7 +67,8 @@ pub fn plan_edit(
             | TimelineEvent::CheckMark { .. }
             | TimelineEvent::Reminder { .. }
             | TimelineEvent::Takeover { .. }
-            | TimelineEvent::HelpRequest { .. } => None,
+            | TimelineEvent::HelpRequest { .. }
+            | TimelineEvent::DelegatedStep(_) => None,
         })
         .collect();
     let mut edges = vec![Millis(0), duration];
@@ -147,7 +148,8 @@ pub fn plan_edit(
         TimelineEvent::Call { .. }
         | TimelineEvent::CheckMark { .. }
         | TimelineEvent::Reminder { .. }
-        | TimelineEvent::HelpRequest { .. } => None,
+        | TimelineEvent::HelpRequest { .. }
+        | TimelineEvent::DelegatedStep(_) => None,
     }));
     segments.sort_by_key(|segment| segment.start);
     EditPlan { segments }

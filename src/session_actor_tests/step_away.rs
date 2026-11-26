@@ -181,7 +181,8 @@ async fn the_timeline_keeps_one_takeover_with_each_paused_span_inside_it() {
             TimelineEvent::Call { .. }
             | TimelineEvent::CheckMark { .. }
             | TimelineEvent::Reminder { .. }
-            | TimelineEvent::HelpRequest { .. } => None,
+            | TimelineEvent::HelpRequest { .. }
+            | TimelineEvent::DelegatedStep(_) => None,
         })
         .collect();
     assert_eq!(takeovers.len(), 1, "{takeovers:?}");

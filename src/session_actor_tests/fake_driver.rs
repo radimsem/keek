@@ -15,6 +15,7 @@ pub(super) enum WindowsReply {
     ReportedFailure,
 }
 pub(super) struct FakeDriver {
+    pub(super) window_state: Arc<Mutex<Value>>,
     pub(super) windows: Arc<Mutex<WindowsReply>>,
     pub(super) cause: Arc<Mutex<Option<IncompleteReason>>>,
     pub(super) screenshot: Arc<Mutex<Screenshot>>,
@@ -70,6 +71,9 @@ impl Driver for FakeDriver {
                 return Ok(
                     json!({"isError":arguments["non_error"] != true,"content":[{"type":"text","text":text}]}),
                 );
+            }
+            if tool == "get_window_state" {
+                return Ok(self.window_state.lock().unwrap().clone());
             }
             if tool == "get_desktop_state" {
                 let mode = *self.screenshot.lock().unwrap();

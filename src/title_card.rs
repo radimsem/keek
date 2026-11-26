@@ -82,7 +82,8 @@ pub fn title_cards(events: &[TimelineEvent]) -> Vec<(Span, TitleCard)> {
                             | TimelineEvent::Call { .. }
                             | TimelineEvent::CheckMark { .. }
                             | TimelineEvent::Reminder { .. }
-                            | TimelineEvent::HelpRequest { .. } => None,
+                            | TimelineEvent::HelpRequest { .. }
+                            | TimelineEvent::DelegatedStep(_) => None,
                         })
                     })
                     .flatten();
@@ -127,7 +128,8 @@ pub fn title_cards(events: &[TimelineEvent]) -> Vec<(Span, TitleCard)> {
             TimelineEvent::Call { .. }
             | TimelineEvent::CheckMark { .. }
             | TimelineEvent::Reminder { .. }
-            | TimelineEvent::Takeover { .. } => None,
+            | TimelineEvent::Takeover { .. }
+            | TimelineEvent::DelegatedStep(_) => None,
         })
         .collect();
     cards.extend(events.iter().filter_map(|event| match event {
@@ -150,7 +152,8 @@ pub fn title_cards(events: &[TimelineEvent]) -> Vec<(Span, TitleCard)> {
         | TimelineEvent::Call { .. }
         | TimelineEvent::CheckMark { .. }
         | TimelineEvent::Reminder { .. }
-        | TimelineEvent::HelpRequest { .. } => None,
+        | TimelineEvent::HelpRequest { .. }
+        | TimelineEvent::DelegatedStep(_) => None,
     }));
     cards.sort_by_key(|(span, _)| span.start);
     cards
@@ -185,7 +188,8 @@ pub fn cut_spans(timeline: &SessionTimeline, duration: Millis, after: Millis) ->
                         | TimelineEvent::CheckMark { .. }
                         | TimelineEvent::Reminder { .. }
                         | TimelineEvent::Takeover { .. }
-                        | TimelineEvent::HelpRequest { .. } => None,
+                        | TimelineEvent::HelpRequest { .. }
+                        | TimelineEvent::DelegatedStep(_) => None,
                     })
                     .max()
                     .unwrap_or(Millis(0));
@@ -196,7 +200,8 @@ pub fn cut_spans(timeline: &SessionTimeline, duration: Millis, after: Millis) ->
             }
             TimelineEvent::Call { .. }
             | TimelineEvent::CheckMark { .. }
-            | TimelineEvent::Reminder { .. } => None,
+            | TimelineEvent::Reminder { .. }
+            | TimelineEvent::DelegatedStep(_) => None,
         })
         .map(|span| Span {
             start: Millis(span.start.0.min(duration.0)),

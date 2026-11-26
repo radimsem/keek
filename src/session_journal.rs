@@ -113,7 +113,8 @@ impl Journal {
             TimelineEvent::Takeover { .. } | TimelineEvent::HelpRequest { .. } => true,
             TimelineEvent::Call { .. }
             | TimelineEvent::CheckMark { .. }
-            | TimelineEvent::Reminder { .. } => false,
+            | TimelineEvent::Reminder { .. }
+            | TimelineEvent::DelegatedStep(_) => false,
         }) {
             return timeline;
         }

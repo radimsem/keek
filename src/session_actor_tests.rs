@@ -65,6 +65,7 @@ impl DriverFactory for FakeFactory {
     }
 }
 struct RunningActor {
+    window_state: Arc<Mutex<Value>>,
     windows: Arc<Mutex<fake_driver::WindowsReply>>,
     cause: Arc<Mutex<Option<IncompleteReason>>>,
     screenshot: Arc<Mutex<fake_driver::Screenshot>>,
@@ -127,6 +128,29 @@ async fn start_configured(
     idle_limit: Duration,
     opener: Option<watch::Receiver<()>>,
 ) -> (RunningActor, Response) {
+    start_with(
+        root,
+        id,
+        stop_fails,
+        fail_setup,
+        credentials,
+        idle_limit,
+        opener,
+        None,
+    )
+    .await
+}
+#[allow(clippy::too_many_arguments)]
+async fn start_with(
+    root: &Path,
+    id: &str,
+    stop_fails: bool,
+    fail_setup: Option<&str>,
+    credentials: crate::credentials::Credentials,
+    idle_limit: Duration,
+    opener: Option<watch::Receiver<()>>,
+    delegate: Option<delegate::Delegate>,
+) -> (RunningActor, Response) {
     let name: SessionName = id.parse().unwrap();
     let folder = SessionFolder::new(root, &name);
     std::fs::create_dir_all(folder.root()).unwrap();
@@ -146,7 +170,11 @@ async fn start_configured(
     let screenshot = Arc::new(Mutex::new(fake_driver::Screenshot::Ready));
     let cause = Arc::new(Mutex::new(None));
     let windows = Arc::new(Mutex::new(fake_driver::WindowsReply::Listed));
+    let window_state = Arc::new(Mutex::new(
+        serde_json::from_str(include_str!("../tests/fixtures/window_state_signin.json")).unwrap(),
+    ));
     let driver = FakeDriver {
+        window_state: window_state.clone(),
         windows: windows.clone(),
         cause: cause.clone(),
         screenshot: screenshot.clone(),
@@ -162,18 +190,26 @@ async fn start_configured(
         entered: entered.clone(),
         release: release.clone(),
     };
-    let tools = ["read", "run_steps", "slow", "click", "get_window_state"]
-        .into_iter()
-        .map(|tool| {
-            let schema = json!({"type":"object","properties":{"session":{"type":"string"}}});
-            let tool = Tool::new(tool, "fixture", schema.as_object().unwrap().clone());
-            if tool.name == "read" {
-                tool.with_annotations(ToolAnnotations::new().read_only(true))
-            } else {
-                tool
-            }
-        })
-        .collect();
+    let tools = [
+        "read",
+        "run_steps",
+        "slow",
+        "click",
+        "get_window_state",
+        "type_text",
+        "set_value",
+    ]
+    .into_iter()
+    .map(|tool| {
+        let schema = json!({"type":"object","properties":{"session":{"type":"string"}}});
+        let tool = Tool::new(tool, "fixture", schema.as_object().unwrap().clone());
+        if tool.name == "read" {
+            tool.with_annotations(ToolAnnotations::new().read_only(true))
+        } else {
+            tool
+        }
+    })
+    .collect();
     let (events, receiver) = watch::channel(SessionSnapshot {
         control: crate::ipc::ControlState::Verifier,
         state: SessionState::Opening,
@@ -241,6 +277,7 @@ async fn start_configured(
         catalog: Arc::new(Catalog::new(tools)),
         events,
         progress: Default::default(),
+        delegate,
     };
     let (sender, mailbox) = mpsc::channel(32);
     let (close, close_receiver) = mpsc::channel(1);
@@ -259,6 +296,7 @@ async fn start_configured(
     let response = opened.await.unwrap();
     (
         RunningActor {
+            window_state,
             windows,
             cause,
             screenshot,
@@ -332,6 +370,10 @@ async fn finish(actor: RunningActor) -> Response {
     response.await.unwrap()
 }
 
+#[path = "session_actor_tests/delegate.rs"]
+mod delegate_steps;
+#[path = "session_actor_tests/fake_decision_model.rs"]
+mod fake_decision_model;
 #[path = "session_actor_tests/refusal_hint.rs"]
 mod refusal_hint;
 #[path = "session_actor_tests/reminder.rs"]
