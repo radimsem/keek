@@ -166,6 +166,8 @@ pub struct Actor {
     pub catalog: Arc<Catalog>,
     pub events: watch::Sender<SessionSnapshot>,
     pub progress: crate::open_progress::OpenProgress,
+    /// `None` until keek's config has a `[decision_model]` table.
+    pub delegate: Option<delegate::Delegate>,
 }
 pub use crate::session_messages::{ActorRequest, CloseRequest, Finished};
 fn refusal(error: impl std::fmt::Display) -> Response {
@@ -228,6 +230,8 @@ impl Actor {
         Ok(zero)
     }
 }
+const DRIVER_LIMIT: Duration = Duration::from_secs(150);
+
 async fn call_driver(
     driver: &mut dyn Driver,
     tool: &str,
@@ -325,6 +329,8 @@ mod journal_watch;
 
 #[path = "session_call.rs"]
 mod call;
+#[path = "session_delegate.rs"]
+pub mod delegate;
 #[path = "session_help.rs"]
 mod help;
 #[path = "session_keepalive.rs"]

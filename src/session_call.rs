@@ -57,6 +57,11 @@ impl Actor {
         };
         self.events
             .send_if_modified(|snapshot| std::mem::take(&mut snapshot.reminded));
+        if tool == super::delegate::TOOL {
+            let (response, end) = self.delegate_step(state, inbox, arguments).await;
+            let _ = reply.send(self.mask_reply(response));
+            return end;
+        }
         let (mut arguments, action) = match self.catalog.prepare_call(&tool, &self.name, arguments)
         {
             Ok(args) => args,
@@ -82,27 +87,23 @@ impl Actor {
             )
         };
         let mut accepted_close = None;
-        let (result, interrupted) = {
-            let calling = call_driver(
-                state.driver.as_mut(),
-                &tool,
-                arguments,
-                Duration::from_secs(150),
-            );
-            tokio::pin!(calling);
-            loop {
-                tokio::select! { biased;
-                        () = &mut state.ended => break interrupt(IncompleteReason::DesktopStopped),
-                        close = Inbox::next_close(&mut inbox.close) => {
-                            if let Some(close) = close
-                                && let Some(ready) = self.prepare_close(inbox, &mut state.timeline, &state.last_action, state.zero, &mut state.deadline, close).await {
-                                    accepted_close = Some(ready);
-                                    break (Err(DriverError::Call { tool: tool.clone(), reason: "session is closing".into() }), None);
-                            }
-                        }
-                        result = &mut calling => break (result, None),
-                        () = self.opener_gone(&mut state.opener) => break interrupt(IncompleteReason::OpenerLeft),
-                }
+        let raced = self
+            .race(state, inbox, |driver| {
+                call_driver(driver, &tool, arguments, DRIVER_LIMIT)
+            })
+            .await;
+        let (result, interrupted) = match raced {
+            Raced::Finished(result) => (result, None),
+            Raced::Ended(reason) => interrupt(reason),
+            Raced::Closing(close, ready) => {
+                accepted_close = Some((close, ready));
+                (
+                    Err(DriverError::Call {
+                        tool: tool.clone(),
+                        reason: "session is closing".into(),
+                    }),
+                    None,
+                )
             }
         };
         let end_ms = timeline_time(state.zero, self.clock.now());
@@ -143,10 +144,7 @@ impl Actor {
         };
         self.persist(&state.timeline).await;
         let _ = reply.send(self.mask_reply(if accepted_close.is_some() {
-            refusal(format!(
-                "Agent Session {} is closing, so {tool} was stopped. Open a new Agent Session.",
-                self.name
-            ))
+            self.closing_refusal(&tool)
         } else if let Some(reason) = interrupted {
             refusal(reason.refusal())
         } else {
@@ -164,4 +162,52 @@ impl Actor {
         }
         CallEnd::Replied
     }
+
+    /// Runs the future `start` makes until it finishes, the desktop stops, the opener leaves or a
+    /// close is accepted. A close that is refused leaves the future running.
+    pub(super) async fn race<'s, F: Future>(
+        &mut self,
+        state: &'s mut LoopState,
+        inbox: &mut Inbox,
+        start: impl FnOnce(&'s mut dyn Driver) -> F,
+    ) -> Raced<F::Output> {
+        let LoopState {
+            driver,
+            opener,
+            deadline,
+            ended,
+            timeline,
+            last_action,
+            zero,
+            ..
+        } = state;
+        let calling = start(driver.as_mut());
+        tokio::pin!(calling);
+        loop {
+            tokio::select! { biased;
+                () = &mut *ended => break Raced::Ended(IncompleteReason::DesktopStopped),
+                close = Inbox::next_close(&mut inbox.close) => {
+                    if let Some(close) = close
+                        && let Some((close, ready)) = self.prepare_close(inbox, timeline, last_action, *zero, deadline, close).await {
+                            break Raced::Closing(close, ready);
+                    }
+                }
+                output = &mut calling => break Raced::Finished(output),
+                () = self.opener_gone(opener) => break Raced::Ended(IncompleteReason::OpenerLeft),
+            }
+        }
+    }
+
+    pub(super) fn closing_refusal(&self, tool: &str) -> Response {
+        refusal(format!(
+            "Agent Session {} is closing, so {tool} was stopped. Open a new Agent Session.",
+            self.name
+        ))
+    }
+}
+
+pub(super) enum Raced<T> {
+    Finished(T),
+    Ended(IncompleteReason),
+    Closing(CloseRequest, super::close::ReadyClose),
 }

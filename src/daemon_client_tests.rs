@@ -25,6 +25,7 @@ fn status() -> Response {
         build: None,
         pid: 1,
         open_sessions: 0,
+        decision_model: None,
     })
 }
 

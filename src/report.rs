@@ -187,6 +187,13 @@ pub fn render(input: &ReportInputs<'_>) -> String {
         text.push_str("\n## Takeovers\n\n");
         text.push_str(&takeovers);
     }
+    let (acted, handed_back) = delegated_counts(input.timeline_events);
+    if acted + handed_back > 0 {
+        text.push_str(&format!(
+            "\n## Delegated Steps\n\n- Delegated: {}\n- Acted: {acted}\n- Handed back: {handed_back}\n",
+            acted + handed_back
+        ));
+    }
     let profile = input.profile;
     // A recovered session from before Project Profiles has no start command.
     if !profile.start.is_empty() {
@@ -249,6 +256,22 @@ pub fn render(input: &ReportInputs<'_>) -> String {
     }
     text.push_str("\nTimes come from the Session Timeline, not from actions/.\n");
     text
+}
+fn delegated_counts(events: &[crate::timeline::TimelineEvent]) -> (usize, usize) {
+    use crate::timeline::{DelegatedOutcome, TimelineEvent};
+    events
+        .iter()
+        .fold((0, 0), |(acted, handed_back), event| match event {
+            TimelineEvent::DelegatedStep(step) => match step.outcome {
+                DelegatedOutcome::Acted => (acted + 1, handed_back),
+                DelegatedOutcome::HandedBack(_) => (acted, handed_back + 1),
+            },
+            TimelineEvent::Call { .. }
+            | TimelineEvent::Reminder { .. }
+            | TimelineEvent::CheckMark { .. }
+            | TimelineEvent::Takeover { .. }
+            | TimelineEvent::HelpRequest { .. } => (acted, handed_back),
+        })
 }
 pub fn index_line(
     date: &str,
@@ -317,6 +340,58 @@ mod tests {
                 "pressed Done after 0:22 with the screen looking unchanged, ",
                 "so it may not be answered: 2FA code.\n"
             )),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn the_report_counts_delegated_acted_and_handed_back_steps() {
+        use crate::step_policy::HandBackReason;
+        use crate::timeline::{DelegatedOutcome, DelegatedStepEvent, TimelineEvent};
+
+        let step = |at: u64, outcome: DelegatedOutcome| {
+            TimelineEvent::DelegatedStep(DelegatedStepEvent {
+                at_ms: Millis(at),
+                intent: "click Sign in".into(),
+                action: crate::step_candidates::StepAction::Click,
+                candidates: vec![],
+                probabilities: Default::default(),
+                pick: None,
+                outcome,
+                threshold: 0.9,
+                model: "jev-fixture".into(),
+                latency_ms: 12,
+            })
+        };
+        let events = [
+            step(1000, DelegatedOutcome::Acted),
+            step(
+                2000,
+                DelegatedOutcome::HandedBack(HandBackReason::Abstained),
+            ),
+            step(3000, DelegatedOutcome::Acted),
+        ];
+        let rendered = render(&ReportInputs {
+            session: "s",
+            goal: "g",
+            revision: &Revision {
+                branch: None,
+                commit: "abc".into(),
+                dirty: false,
+            },
+            summary: "",
+            timeline_events: &events,
+            checks: &[],
+            end: &SessionEnd::Verdict(crate::checklist::Verdict::Pass),
+            time_map: &IdentityTimeMap,
+            actions_error: None,
+            video_error: None,
+            profile: &ProfileSummary::default(),
+        });
+
+        assert!(
+            rendered
+                .contains("\n## Delegated Steps\n\n- Delegated: 3\n- Acted: 2\n- Handed back: 1\n"),
             "{rendered}"
         );
     }

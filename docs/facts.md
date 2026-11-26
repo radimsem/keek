@@ -368,6 +368,18 @@ Found 1 windows:
 
 That `list_windows` is read-only, so Cua records no turn for it, is read from source. A Cua Driver version change rechecks these texts.
 
+## Element tokens in input tools
+
+Checked on 2026-11-26 in the Cua Driver 0.38.0 source, read only, for Delegated Steps:
+
+- The Linux `click`, `double_click`, `right_click`, `type_text` and `set_value` tools each take `element_token` with `pid` (`platform-linux/src/tools/impl_.rs`). The token carries the window, so `window_id` can be left out.
+- `set_value` reads `pid` as required, although its schema calls it optional with a token. It refuses a call without a token.
+- `type_text` with a token resolves that element and types into it, so a Delegated Step needs no click first. The portable `TypeTextInput` in `cua-driver-contract` has no `element_token`; it is used only for the desktop-scope path without a pid.
+- On a combo box or list with no editable value, `set_value` picks the option whose name is `value` through AT-SPI `Selection` (`atspi/mod.rs`, `set_value_token`).
+- The contract's `ClickInput` takes `element_token` as one of three exclusive positions, with coordinates or a capture.
+
+None of this was run against a live desktop.
+
 ## Omarchy startup cover
 
 Checked on 2026-11-14 against Omarchy 4.5.0-3 source:

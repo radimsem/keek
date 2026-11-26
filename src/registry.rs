@@ -78,6 +78,8 @@ pub struct Dependencies {
     pub runner: Arc<dyn ProcessRunner>,
     pub compositor: Arc<dyn Compositor>,
     pub factory: Arc<dyn DriverFactory>,
+    /// `None` unless keek's config has a `[decision_model]` table and its client could be built.
+    pub delegate: Option<crate::session::delegate::Delegate>,
 }
 pub struct Prepared {
     opener: Option<watch::Receiver<()>>,
@@ -360,23 +362,9 @@ impl Registry {
                     let _ = reply.send(self.unknown(&session));
                 }
             }
-            Request::ListTools => {
-                let mut catalog = self.catalog.clone();
-                self.background.spawn(async move {
-                    let result = wait_catalog(&mut catalog).await;
-                    let tools = result.map_or_else(|_| vec![], |c| c.tools());
-                    let _ = reply.send(Response::Tools(serde_json::json!({"tools":tools})));
-                });
-            }
+            Request::ListTools => self.list_tools(reply),
             Request::Status => {
-                let _ = reply.send(Response::Status(crate::ipc::DaemonStatus {
-                    version: crate::VERSION.into(),
-                    build: crate::build_id::current()
-                        .await
-                        .map(|build| build.to_string()),
-                    pid: std::process::id(),
-                    open_sessions: self.len(),
-                }));
+                let _ = reply.send(Response::Status(self.status().await));
             }
             Request::SetProjectProfile {
                 project,
@@ -504,6 +492,9 @@ mod recovery;
 
 #[path = "registry_project.rs"]
 mod project;
+
+#[path = "registry_tools.rs"]
+mod tools;
 
 #[path = "registry_rail.rs"]
 mod rail;

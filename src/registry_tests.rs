@@ -232,6 +232,9 @@ struct Harness {
 }
 impl Harness {
     fn new(cap: usize) -> Self {
+        Self::with_delegate(cap, None)
+    }
+    fn with_delegate(cap: usize, delegate: Option<crate::session::delegate::Delegate>) -> Self {
         let directory = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(directory.path().join("config")).unwrap();
         std::fs::write(
@@ -266,6 +269,7 @@ impl Harness {
                 runner: Arc::new(Runner(directory.path().join("videos"))),
                 compositor: compositor.clone(),
                 factory: Arc::new(Factory(calls.clone(), controls.clone())),
+                delegate,
             },
             catalog,
         );
@@ -663,3 +667,6 @@ mod daemon;
 
 #[path = "registry_profile_tests.rs"]
 mod profile;
+
+#[path = "registry_tools_tests.rs"]
+mod tools;

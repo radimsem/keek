@@ -100,6 +100,7 @@ async fn project_prepare_can_outlast_the_desktop_handshake_limit() {
         catalog: Arc::new(Catalog::default()),
         events,
         progress: Default::default(),
+        delegate: None,
     };
     let (_sender, mailbox) = mpsc::channel(1);
     let (reply, _response) = oneshot::channel();

@@ -285,6 +285,7 @@ impl Registry {
                 catalog,
                 events,
                 progress,
+                delegate: self.dependencies.delegate.clone(),
             },
             Inbox::new(receiver, close_receiver),
         ))

@@ -95,6 +95,7 @@ pub async fn run_with_viewer(
             mise: std::sync::Arc::new(crate::toolchain::HostMise),
             prepare: paths.prepare().to_owned(),
         }),
+        delegate: decision_model(&config),
     };
     let (catalog_sender, catalog_receiver) = tokio::sync::watch::channel(None);
     let mut registry = crate::registry::Registry::new(dependencies, catalog_receiver);
@@ -123,6 +124,21 @@ pub async fn run_with_viewer(
     Ok(exit)
 }
 
+/// A client that cannot be built leaves `delegate_step` unlisted and the daemon running.
+fn decision_model(config: &crate::config::Config) -> Option<crate::session::delegate::Delegate> {
+    let model = config.decision_model.as_ref()?;
+    match crate::decision_model::JevClient::new(model) {
+        Ok(client) => Some(crate::session::delegate::Delegate {
+            model: std::sync::Arc::new(client),
+            config: model.clone(),
+        }),
+        Err(error) => {
+            tracing::error!(%error, "delegate_step stays off");
+            None
+        }
+    }
+}
+
 async fn install_icons(theme: std::path::PathBuf) {
     match tokio::task::spawn_blocking(move || crate::icons::install(&theme)).await {
         Ok(Ok(())) => {}
@@ -140,6 +156,36 @@ fn remove_bar_state(path: &std::path::Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{Config, DecisionModelConfig};
+
+    fn config(api_key_env: Option<&str>) -> Config {
+        Config {
+            decision_model: Some(DecisionModelConfig {
+                endpoint: "http://127.0.0.1:9".into(),
+                model: "jev-test".into(),
+                api_key_env: api_key_env.map(str::to_owned),
+                threshold: 0.9,
+                timeout_ms: 1500,
+            }),
+            ..Config::default()
+        }
+    }
+
+    #[test]
+    fn a_config_without_a_decision_model_builds_no_client() {
+        assert!(decision_model(&Config::default()).is_none());
+    }
+
+    #[test]
+    fn a_local_decision_model_needs_no_key() {
+        assert!(decision_model(&config(None)).is_some());
+        assert!(decision_model(&config(Some(""))).is_some());
+    }
+
+    #[test]
+    fn a_decision_model_whose_key_variable_is_unset_stays_off() {
+        assert!(decision_model(&config(Some("KEEK_TEST_UNSET_KEY_VARIABLE"))).is_none());
+    }
 
     #[tokio::test]
     async fn startup_clears_old_frames_after_acquiring_the_lock() {

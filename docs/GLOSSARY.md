@@ -76,6 +76,16 @@ _Avoid_: cut, trim, skip
 The edited video a reviewer watches: every Action with its effect at real speed, each Idle Stretch as a Fast-forward, and each Takeover as a short blurred stretch. A Help Request's wait is cut.
 _Avoid_: final cut, reel, recording
 
+## Delegation
+
+**Decision Model**:
+A model that answers a typed question with a probability for each option, such as TypeSafe's Jev. keek asks it which control on the screen an intent means, and the developer chooses the endpoint. It never marks a Check.
+_Avoid_: LLM, AI model, agent
+
+**Delegated Step**:
+One routine step the Verifier hands to keek, which a Decision Model resolves to a control before keek acts. keek acts only when the model is confident, and otherwise hands the candidates back.
+_Avoid_: auto-step, macro, shortcut
+
 ## Watching
 
 **Agents Workspace**:

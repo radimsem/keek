@@ -1,4 +1,6 @@
 use super::*;
+/// Cua refuses any call with this element token.
+pub(super) const REFUSED_TOKEN: &str = "refused-token";
 #[derive(Clone, Copy)]
 pub(super) enum Screenshot {
     Ready,
@@ -15,6 +17,7 @@ pub(super) enum WindowsReply {
     ReportedFailure,
 }
 pub(super) struct FakeDriver {
+    pub(super) window_state: Arc<Mutex<Value>>,
     pub(super) windows: Arc<Mutex<WindowsReply>>,
     pub(super) cause: Arc<Mutex<Option<IncompleteReason>>>,
     pub(super) screenshot: Arc<Mutex<Screenshot>>,
@@ -69,6 +72,14 @@ impl Driver for FakeDriver {
             if let Some(text) = arguments["refuse_with"].as_str() {
                 return Ok(
                     json!({"isError":arguments["non_error"] != true,"content":[{"type":"text","text":text}]}),
+                );
+            }
+            if tool == "get_window_state" {
+                return Ok(self.window_state.lock().unwrap().clone());
+            }
+            if arguments["element_token"] == REFUSED_TOKEN {
+                return Ok(
+                    json!({"isError":true,"content":[{"type":"text","text":"fixture refusal"}]}),
                 );
             }
             if tool == "get_desktop_state" {

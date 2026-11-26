@@ -8,6 +8,7 @@ What changed in each keek release, for a person who uses it. The format follows 
 
 - Add the omarchy-keek Bar Widget to see open sessions in the Omarchy bar, spot a Help Request at a glance, and switch to the Agents Workspace and back.
 - keek's notifications show the keek logo.
+- The Verifier can hand routine steps to a fast Decision Model, such as TypeSafe's Jev, and keek acts only when the model is confident.
 
 ### Changed
 

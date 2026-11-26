@@ -430,7 +430,8 @@ async fn assert_records(records: &Records, actions: usize, pid: u64) -> Result<(
                 | TimelineEvent::CheckMark { .. }
                 | TimelineEvent::Reminder { .. }
                 | TimelineEvent::Takeover { .. }
-                | TimelineEvent::HelpRequest { .. } => None,
+                | TimelineEvent::HelpRequest { .. }
+                | TimelineEvent::DelegatedStep(_) => None,
             })
             .collect();
         assert!(

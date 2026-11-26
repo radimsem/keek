@@ -245,6 +245,7 @@ fn every_message() -> Result<Vec<Message>> {
                 build: None,
                 pid: 42,
                 open_sessions: 1,
+                decision_model: None,
             }),
         },
         Message::Response {
