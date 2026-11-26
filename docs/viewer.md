@@ -228,7 +228,7 @@ The widget reads the Bar State, a file keek publishes at `$XDG_RUNTIME_DIR/keek/
 
 While a Takeover runs or is paused, the widget does nothing on click, as the rail does: `takeover` and `takeover_paused` carry that to the bar.
 
-keek's notifications carry the keek logo. keek still sends as `omarchy-action` and adds `-i keek`, because the shell lets only that sender through Do Not Disturb and keeps its toasts out of history. At start the daemon installs the logo at `$XDG_DATA_HOME/icons/hicolor/<size>/apps/keek.png` for 48x48, 64x64 and 128x128, and rewrites a file only when it is missing or its bytes differ. *(my call)*
+keek's notifications carry the keek logo. keek still sends as `omarchy-action` and adds `-i keek`, because the shell lets only that sender through Do Not Disturb and keeps its toasts out of history. At start the daemon installs the logo at `$XDG_DATA_HOME/icons/hicolor/<size>/apps/keek.png` for 48x48, 64x64 and 128x128, and rewrites a file only when it is missing or its bytes differ. The shell reads icons when it starts, so after the first install the logo appears from the next shell start, such as the next login. *(my call)*
 
 ## Left to the builder
 
