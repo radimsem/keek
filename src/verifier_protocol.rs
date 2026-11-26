@@ -12,7 +12,7 @@ To verify a change:
 
 To wait for the screen to change, call `get_window_state` again rather than sleeping in a shell.
 
-When a decision model is configured, use `delegate_step` for a routine step whose target is clear from its words, such as a named button, field or link. Look at the screen yourself before you mark a Check. After 'No action taken', act yourself.
+When a Decision Model is configured, use `delegate_step` for a routine step whose target is clear from its words, such as a named button, field or link. Look at the screen yourself before you mark a Check. After 'No action taken', act yourself.
 
 `open_session` returns `credentials`, the names of the Project's Test Credentials. To use one, write `${NAME}` in a tool argument, including inside `run_steps`. keek substitutes the value before forwarding and masks secret values in results, so the Verifier never sees a secret value. Public values, such as a test username, stay readable in results and Evidence. An unknown name is refused. In `run_script`, substitution is plain text inside JavaScript, so prefer `run_steps` for a value with quotes or backslashes.
 

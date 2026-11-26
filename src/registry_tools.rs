@@ -2,7 +2,7 @@ use super::*;
 use rmcp::model::Tool;
 use serde_json::json;
 
-const DELEGATE_STEP_DESCRIPTION: &str = "Hand one routine step to keek's decision model, for a target that is clear from its words, such as a named button, field or link. keek reads the window once, asks the model which element the intent means, and acts only when the model is confident. Otherwise it acts on nothing and returns the top candidates, and you act yourself. It never marks a Check.";
+const DELEGATE_STEP_DESCRIPTION: &str = "Hand one routine step to keek's Decision Model, for a target that is clear from its words, such as a named button, field or link. keek reads the window once, asks the model which element the intent means, and acts only when the model is confident. Otherwise it acts on nothing and returns the top candidates, and you act yourself. It never marks a Check.";
 
 impl Registry {
     pub(super) fn list_tools(&mut self, reply: oneshot::Sender<Response>) {
