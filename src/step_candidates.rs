@@ -34,6 +34,17 @@ pub enum StepAction {
 }
 
 impl StepAction {
+    /// The name `delegate_step` takes for this action.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Click => "click",
+            Self::DoubleClick => "double_click",
+            Self::RightClick => "right_click",
+            Self::Type => "type",
+            Self::Select => "select",
+        }
+    }
+
     pub(crate) fn roles(self) -> &'static [&'static str] {
         match self {
             Self::Click | Self::DoubleClick | Self::RightClick => CLICK_ROLES,

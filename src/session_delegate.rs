@@ -225,39 +225,48 @@ async fn run_step(
         Ok(found) => found,
         Err(error) => return Done::failed(error.into()),
     };
-    let window_title = observed
-        .get("structuredContent")
-        .unwrap_or(&observed)
-        .get("window_title")
-        .and_then(Value::as_str)
-        .map(str::to_owned);
-    let request = DecisionRequest {
-        intent: planned.intent.clone(),
-        action: planned.action,
-        window_title,
-        candidates: found.clone(),
-    };
     let config = &delegate.config;
-    let asked = tokio::time::Instant::now();
-    let answer = tokio::time::timeout(
-        Duration::from_millis(config.timeout_ms),
-        delegate.model.decide(request),
-    )
-    .await
-    .unwrap_or(Err(DecisionModelError::Timeout {
-        ms: config.timeout_ms,
-    }));
-    let (decision, step, latency) = match answer {
-        Ok(decision) => {
-            let step = decide_action(&decision, &found, config.threshold);
-            let latency = decision.latency;
-            (Some(decision), step, latency)
-        }
-        Err(error) => (
+    // A round trip with nothing to pick from can never act.
+    let (decision, step, latency) = if found.is_empty() {
+        (
             None,
-            StepDecision::HandBack(HandBackReason::ModelFailed(error.to_string())),
-            asked.elapsed(),
-        ),
+            StepDecision::HandBack(HandBackReason::NoCandidates),
+            Duration::ZERO,
+        )
+    } else {
+        let window_title = observed
+            .get("structuredContent")
+            .unwrap_or(&observed)
+            .get("window_title")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let request = DecisionRequest {
+            intent: planned.intent.clone(),
+            action: planned.action,
+            window_title,
+            candidates: found.clone(),
+        };
+        let asked = tokio::time::Instant::now();
+        let answer = tokio::time::timeout(
+            Duration::from_millis(config.timeout_ms),
+            delegate.model.decide(request),
+        )
+        .await
+        .unwrap_or(Err(DecisionModelError::Timeout {
+            ms: config.timeout_ms,
+        }));
+        match answer {
+            Ok(decision) => {
+                let step = decide_action(&decision, &found, config.threshold);
+                let latency = decision.latency;
+                (Some(decision), step, latency)
+            }
+            Err(error) => (
+                None,
+                StepDecision::HandBack(HandBackReason::ModelFailed(error.to_string())),
+                asked.elapsed(),
+            ),
+        }
     };
     let latency_ms = u64::try_from(latency.as_millis()).unwrap_or(u64::MAX);
     let probabilities = decision
@@ -282,7 +291,13 @@ async fn run_step(
             probability,
         } => (candidate, probability),
         StepDecision::HandBack(reason) => {
-            let text = hand_back_text(&reason, config.threshold, &found, &event.probabilities);
+            let text = hand_back_text(
+                &reason,
+                planned.action,
+                config.threshold,
+                &found,
+                &event.probabilities,
+            );
             let shown = ranked(&found, &event.probabilities);
             let value = json!({
                 "content": [{"type": "text", "text": text}],
@@ -391,6 +406,7 @@ fn ranked<'a>(
 
 fn hand_back_text(
     reason: &HandBackReason,
+    action: StepAction,
     threshold: f64,
     found: &[Candidate],
     probabilities: &std::collections::BTreeMap<String, f64>,
@@ -406,11 +422,11 @@ fn hand_back_text(
     };
     format!(
         "No action taken: {}. Act on the window yourself. Top candidates: {shown}.",
-        reason_text(reason, threshold)
+        reason_text(reason, action, threshold)
     )
 }
 
-fn reason_text(reason: &HandBackReason, threshold: f64) -> String {
+fn reason_text(reason: &HandBackReason, action: StepAction, threshold: f64) -> String {
     match reason {
         HandBackReason::Abstained => "the Decision Model abstained".into(),
         HandBackReason::Reobserve => {
@@ -432,6 +448,9 @@ fn reason_text(reason: &HandBackReason, threshold: f64) -> String {
             chars.next().map_or_else(String::new, |c| {
                 c.to_lowercase().chain(chars).collect::<String>()
             })
+        }
+        HandBackReason::NoCandidates => {
+            format!("nothing on screen fits a {} step", action.as_str())
         }
     }
 }

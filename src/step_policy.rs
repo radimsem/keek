@@ -21,6 +21,7 @@ pub enum HandBackReason {
     NoMatch { matches: f64 },
     NotOffered { choice: String },
     ModelFailed(String),
+    NoCandidates,
 }
 
 /// Acts only when the pick is an offered candidate and both its probability and

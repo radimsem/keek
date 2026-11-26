@@ -424,12 +424,8 @@ async fn a_step_where_nothing_matches_hands_back_with_the_top_candidates() {
 }
 
 #[tokio::test]
-async fn a_window_with_no_candidates_for_the_action_hands_back_with_none_listed() {
-    let model = Arc::new(FakeDecisionModel::answering(vec![Ok(pick(
-        "abstain",
-        &[("abstain", 0.99)],
-        0.99,
-    ))]));
+async fn a_window_with_no_candidates_for_the_action_hands_back_without_asking_the_model() {
+    let model = Arc::new(FakeDecisionModel::answering(vec![]));
     let (_root, actor) = start(&model, 1500).await;
     {
         let mut state = actor.window_state.lock().unwrap();
@@ -443,17 +439,23 @@ async fn a_window_with_no_candidates_for_the_action_hands_back_with_none_listed(
         driven(&actor),
         [("get_window_state".into(), json!({"pid":4242,"window_id":7}))]
     );
-    assert!(
-        text(&response).ends_with("Top candidates: none."),
-        "{response:?}"
+    assert_eq!(
+        text(&response),
+        "No action taken: nothing on screen fits a click step. Act on the window yourself. Top candidates: none."
     );
-    let asked: Vec<usize> = model
-        .requests
-        .lock()
-        .unwrap()
-        .iter()
-        .map(|request| request.candidates.len())
-        .collect();
-    assert_eq!(asked, [0]);
-    finish(actor).await;
+    let Response::ToolResult(value) = &response else {
+        panic!("step refused: {response:?}");
+    };
+    assert_eq!(
+        value["structuredContent"]["delegated_step"]["reason"],
+        "no_candidates"
+    );
+    assert!(model.requests.lock().unwrap().is_empty());
+    let (_, events) = filed_timeline(actor).await;
+    let [step] = delegated(&events).try_into().unwrap();
+    assert_eq!(
+        step.outcome,
+        DelegatedOutcome::HandedBack(HandBackReason::NoCandidates)
+    );
+    assert_eq!((step.pick, step.latency_ms), (None, 0));
 }
