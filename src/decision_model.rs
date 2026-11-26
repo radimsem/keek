@@ -188,13 +188,17 @@ pub struct JevClient {
 
 impl JevClient {
     /// Reads the key once from the environment variable `api_key_env` names.
+    ///
+    /// An empty `api_key_env` means a local server that takes no key.
     pub fn new(config: &DecisionModelConfig) -> Result<Self, DecisionModelError> {
-        let key = match &config.api_key_env {
+        let key = match config.api_key_env.as_deref().filter(|var| !var.is_empty()) {
             Some(var) => Some(
                 std::env::var(var)
                     .ok()
                     .filter(|key| !key.is_empty())
-                    .ok_or_else(|| DecisionModelError::MissingKey { var: var.clone() })?,
+                    .ok_or_else(|| DecisionModelError::MissingKey {
+                        var: var.to_owned(),
+                    })?,
             ),
             None => None,
         };

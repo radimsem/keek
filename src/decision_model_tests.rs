@@ -2,7 +2,12 @@ use std::collections::BTreeSet;
 
 use serde_json::{Value, json};
 
-use super::{DecisionModelError, DecisionRequest, JevClient, build_request, parse_answer};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
+
+use super::{
+    DecisionModel, DecisionModelError, DecisionRequest, JevClient, build_request, parse_answer,
+};
 use crate::config::DecisionModelConfig;
 use crate::step_candidates::{Candidate, Frame, StepAction};
 
@@ -152,4 +157,62 @@ fn the_client_debug_output_hides_the_key() {
 
     assert!(!shown.contains("sk-made-up-debug-key"));
     assert!(shown.contains("jev-test"));
+}
+
+#[test]
+fn an_empty_key_variable_name_means_a_local_server_without_a_key() {
+    let client = JevClient::new(&config(Some(""))).unwrap();
+
+    assert!(format!("{client:?}").contains("key: None"));
+}
+
+async fn read_request(stream: &mut tokio::net::TcpStream) -> String {
+    let mut seen = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        let read = stream.read(&mut chunk).await.unwrap();
+        seen.extend_from_slice(&chunk[..read]);
+        let text = String::from_utf8_lossy(&seen).to_string();
+        if let Some((head, body)) = text.split_once("\r\n\r\n") {
+            let length = head
+                .to_lowercase()
+                .lines()
+                .find_map(|line| line.strip_prefix("content-length: ")?.trim().parse().ok())
+                .unwrap_or(0);
+            if body.len() >= length {
+                return text;
+            }
+        }
+        assert!(read > 0, "the client closed before sending its request");
+    }
+}
+
+#[tokio::test]
+async fn a_local_server_gets_the_request_without_a_key_and_its_answer_is_parsed() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let request = read_request(&mut stream).await;
+        let body = include_str!("../tests/fixtures/jev_answer.json");
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        stream.write_all(response.as_bytes()).await.unwrap();
+        request
+    });
+    let client = JevClient::new(&DecisionModelConfig {
+        endpoint,
+        ..config(Some(""))
+    })
+    .unwrap();
+
+    let decision = client.decide(request()).await.unwrap();
+
+    let sent = server.await.unwrap();
+    assert!(sent.starts_with("POST /v1/systemone "));
+    assert!(!sent.to_lowercase().contains("authorization"));
+    assert_eq!(decision.choice, "c1");
+    assert_eq!(decision.matches, 0.98);
 }
