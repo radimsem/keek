@@ -102,6 +102,23 @@ Before the threshold is trusted, a replay tool runs a configured model over file
 
 The Action Log has no Verifier intent, so the replay writes one from the element's role and name ("click Sign in"). That makes its accuracy an upper bound. It is a developer command or test helper, not a Verifier tool.
 
+*(As built.)* With the label as the intent, every threshold from 0.7 to 0.95 scored the same, so the replay writes the intent three ways, chosen with `--modes`:
+
+- `label`: "click Sign in", the upper bound above.
+- `partial`: the role and the label's longest word, "click the sign button", so controls that share the word compete.
+- `absent`: a label from another tree that this screen holds nowhere. No offered control is meant, so the right outcome is a hand-back.
+
+The run on 2026-11-26 sent 80 trees in each mode to hosted `jev-latest` (240 requests, none failed, p50 158 ms, p95 190 ms). Right and wrong count acts. A wrong act in `partial` is often a fair pick of another control with the same word, and the replay lists every wrong act so they can be judged.
+
+| Threshold | `label` right | `partial` right, wrong | `absent` wrong | All handed back |
+| --- | --- | --- | --- | --- |
+| 0.7 | 79/80 | 70, 3 | 4 | 35.0% |
+| 0.8 | 79/80 | 68, 2 | 0 | 37.9% |
+| 0.9 | 78/80 | 63, 1 | 0 | 40.8% |
+| 0.95 | 77/80 | 58, 1 | 0 | 43.3% |
+
+The default stays 0.9. Every `absent` act had a Noul of 0.75 or less, so any threshold above 0.75 stops them all, and 0.9 keeps a margin above that. The one wrong act left at 0.9 picked a link labelled exactly as the intent's word, with a probability of 1.0 and a Noul of 0.99, which no threshold up to 0.99 stops. Going to 0.95 hands back 6 more right picks and stops no wrong one.
+
 ### Measuring the gain
 
 The same Verification Checklist on the same Project runs with and without a decision model, three times each. The comparison is active time, calls, `get_window_state` calls and Check outcomes, from the Session Timelines. The analysis that produced the figures under Why is kept as a reusable script.
