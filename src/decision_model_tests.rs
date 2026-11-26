@@ -187,8 +187,8 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> String {
     }
 }
 
-#[tokio::test]
-async fn a_local_server_gets_the_request_without_a_key_and_its_answer_is_parsed() {
+/// Answers one request on a loopback port with the fixture answer, and returns the request it saw.
+async fn serve_one_answer() -> (String, tokio::task::JoinHandle<String>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
     let server = tokio::spawn(async move {
@@ -202,6 +202,12 @@ async fn a_local_server_gets_the_request_without_a_key_and_its_answer_is_parsed(
         stream.write_all(response.as_bytes()).await.unwrap();
         request
     });
+    (endpoint, server)
+}
+
+#[tokio::test]
+async fn a_local_server_gets_the_request_without_a_key_and_its_answer_is_parsed() {
+    let (endpoint, server) = serve_one_answer().await;
     let client = JevClient::new(&DecisionModelConfig {
         endpoint,
         ..config(Some(""))
@@ -215,4 +221,29 @@ async fn a_local_server_gets_the_request_without_a_key_and_its_answer_is_parsed(
     assert!(!sent.to_lowercase().contains("authorization"));
     assert_eq!(decision.choice, "c1");
     assert_eq!(decision.matches, 0.98);
+}
+
+#[tokio::test]
+async fn a_configured_key_is_sent_as_a_bearer_token() {
+    let (endpoint, server) = serve_one_answer().await;
+    let client = JevClient::with_key(
+        &DecisionModelConfig {
+            endpoint,
+            ..config(Some("ANY"))
+        },
+        Some("sk-made-up-bearer-key".to_owned()),
+    )
+    .unwrap();
+
+    client.decide(request()).await.unwrap();
+
+    let sent = server.await.unwrap();
+    let (head, _) = sent.split_once("\r\n\r\n").unwrap();
+    let authorization: Vec<&str> = head
+        .lines()
+        .filter_map(|line| line.split_once(':'))
+        .filter(|(name, _)| name.eq_ignore_ascii_case("authorization"))
+        .map(|(_, value)| value.trim())
+        .collect();
+    assert_eq!(authorization, ["Bearer sk-made-up-bearer-key"]);
 }
