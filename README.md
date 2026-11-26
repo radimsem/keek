@@ -161,6 +161,16 @@ end
 
 Omarchy's defaults leave these keys free. keek reads your binds and shows a shortcut on screen only once it is bound. To remove the shortcuts, delete everything from `-- keek-start` to `-- keek-end`.
 
+## Add the bar widget (optional)
+
+The bar widget puts a keek button in the Omarchy bar, with one dot per open session. It turns orange while a Help Request waits, and a click switches to the `keek` workspace and back. It needs Omarchy 4. Install and enable it:
+
+```sh
+omarchy plugin add https://github.com/radimsem/omarchy-keek --enable
+```
+
+keek publishes the session state the widget reads. With no session open, the button is hidden.
+
 ## Set up a project
 
 Each project needs a Project Profile once per machine. It holds the commands that install and start your app. Ask your agent to run the `keek-setup` skill in the repository. The agent reads the repository, writes the profile to `~/.config/keek/projects/<project>.toml`, and proves that the app starts.
@@ -215,7 +225,7 @@ Cua Driver is still pre-release, and its Hyprland support is experimental.
 ## Documentation
 
 - [`docs/design.md`](docs/design.md) covers the session, sandbox, tools, recording and Evidence.
-- [`docs/viewer.md`](docs/viewer.md) covers the Agents Workspace, Help Requests and Takeovers.
+- [`docs/viewer.md`](docs/viewer.md) covers the Agents Workspace, Help Requests, Takeovers and the bar widget's `bar.json`.
 - [`docs/GLOSSARY.md`](docs/GLOSSARY.md) defines every term used here.
 - [`docs/adr/`](docs/adr/) records the decisions behind the design.
 - [`CHANGELOG.md`](CHANGELOG.md) lists what each release changed.

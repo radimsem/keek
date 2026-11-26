@@ -4,6 +4,10 @@ What changed in each keek release, for a person who uses it. The format follows 
 
 ## Unreleased
 
+### Added
+
+- keek's notifications show the keek logo, and keek publishes session state for the omarchy-keek bar widget.
+
 ### Changed
 
 - Switch sessions with Super+F1 to Super+F4, so Super+number switches workspaces on the Agents Workspace too. Remove the Super+1 to Super+4 snippet from your Hyprland config and add the new one from the viewer docs.
