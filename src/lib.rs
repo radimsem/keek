@@ -58,6 +58,7 @@ pub mod attempts;
 pub mod decision_model;
 pub mod session_frame;
 pub mod step_candidates;
+pub mod step_policy;
 
 mod window_guard;
 

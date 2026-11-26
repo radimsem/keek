@@ -52,7 +52,7 @@ pub struct Frame {
     pub h: f64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Candidate {
     pub id: String,
     /// Never sent to the Decision Model.
