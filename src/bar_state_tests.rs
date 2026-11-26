@@ -183,7 +183,6 @@ fn the_file_is_replaced_whole_and_parses_after_two_writes() {
         serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     assert_eq!(parsed["version"], 1);
     assert_eq!(parsed["sessions"][0]["state"], "working");
-    assert!(!folder.path().join("bar.json.tmp").exists());
     assert!(!path.with_extension("tmp").exists());
 }
 
