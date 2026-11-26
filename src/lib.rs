@@ -1,3 +1,4 @@
+pub mod bar_state;
 pub mod build_id;
 pub mod catalog;
 pub mod checklist;
