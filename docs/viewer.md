@@ -18,7 +18,7 @@ The model is the watch, take control, done pattern of Grok Bot, Manus and Anthro
 
 - Watching more than four sessions at once. keek caps open sessions at four (configurable). The layout is designed for four; a larger cap gets smaller rail cards, not a fleet view.
 - Live moving pictures in the rail. A rail card shows a still a few seconds old.
-- An Omarchy shell plugin or bar widget. The Session Footer is keek's own layer-shell surface.
+- An Omarchy shell plugin inside keek. The Session Footer is keek's own layer-shell surface. The [Bar Widget](#bar-widget) is a plugin in its own repository, and keek only publishes the file it reads.
 - Remote watching from another machine or a phone.
 - Chatting with the agent beyond starting and ending a Takeover.
 
@@ -86,7 +86,7 @@ A Help Request turns its rail card orange. The session does not swap in by itsel
 
 While a Takeover runs or is paused, its session stays in focus. The rail cards are dimmed and do nothing, and a line under the rail reads "Other sessions unlock when you press Done." Shortcuts and notifications don't swap either.
 
-Super+F1 to Super+F4 show the matching session while `keek` is the active workspace, once the developer adds the binds below beside the `keek` submap; keek ships none. Omarchy binds no function key with Super, so Super+number keeps switching workspaces. Each bind emits a Hyprland custom event, `keek-show <n>`, that keek reads from the event socket; on any other workspace the bind does nothing. keek acts on the event on any workspace, so the workspace check lives in the bind. The numbers follow the order sessions opened in and stay with a session while it moves between the focus slot and the rail. A developer who added the earlier Super+1 to Super+4 snippet removes it, so Omarchy's workspace binds come back. *(my call)*
+Super+F1 to Super+F4 show the matching session while `keek` is the active workspace, once the developer adds the binds below beside the `keek` submap; keek ships none. Omarchy binds no function key with Super, so Super+number keeps switching workspaces. Each bind emits a Hyprland custom event, `keek-show <n>`, that keek reads from the event socket; on any other workspace the bind does nothing. keek acts on the event on any workspace, so the workspace check lives in the bind. A new session takes the lowest number not in use and keeps it while it moves between the focus slot and the rail. The number of a session that has left goes to the next session that opens, so the numbers don't always follow opening order. A developer who added the earlier Super+1 to Super+4 snippet removes it, so Omarchy's workspace binds come back. *(my call)*
 
 A rail card shows its `Super` `F<n>` keys only while `hyprctl binds -j` lists a Super+F<n> bind outside any submap, so a card never names a shortcut that does nothing. keek reads the binds when the viewer starts and on each workspace change, so a bind added and reloaded elsewhere shows the next time the developer switches to `keek`.
 
@@ -181,6 +181,54 @@ Recording during a Takeover:
 ### Session end
 
 When the session closes (normally or as an Incomplete Session), the sandbox stops and the Session Window closes with it. The Session Card stays at full size: keek shows the session's last frame, dimmed, in the window's place (centred on black when the window was smaller than its slot), with one panel over it. The panel is no wider than the Session Window. It shows "Rendering" and its percentage above a progress bar while keek builds the Verification Video, then the Verdict with the Verification Checklist. Each Check shows its outcome, Checks the Verifier added are tagged, and a failed or skipped Check shows its comment beneath it. A Needs fixes card also shows the attempt ("attempt 1 of 3"), counted from the Project's `index.md` for the same branch. The footer keeps the video length and gains buttons to open the Verification Video and the Evidence folder. The card stays until the developer dismisses it, which empties its place. In the rail an ended session's card shows its Verdict, and clicking it brings this full end card to focus. A new session that finds no empty place replaces the ended card that ended first; the Verdict stays in the Evidence folder. *(my call)*
+
+### Bar Widget
+
+The Omarchy bar shows keek through a Bar Widget, which lives in its own repository, `radimsem/omarchy-keek` (plugin id `radimsem.keek`). Hyprland gives a named workspace a negative id, and the stock workspaces widget skips those, so the bar says nothing about the Agents Workspace without it. The widget needs Omarchy 4. keek never edits `shell.json`: the developer installs and enables the widget.
+
+The widget reads the Bar State, a file keek publishes at `$XDG_RUNTIME_DIR/keek/bar.json`, beside `daemon.sock`.
+
+- **When it exists.** The daemon rewrites it whenever a session opens, closes, changes focus or its snapshot changes (a new last Action, a Check mark, a state change, or the end of a session). So `detail`, `checks` and `in_focus` can differ between two writes while `state` stays the same. A session that ends keeps its entry, with `state` `ended` and its `verdict`, until the developer dismisses its card or a new session takes its place. Only then does the entry leave. Each write goes to a temporary file in the same folder and is renamed over the old one, so a reader never sees half a file.
+- **When it is gone.** The daemon removes it when the last entry has left, so an ended session that nobody dismissed keeps the file alive. It also removes it when it starts and when it stops. With no file, the widget shows nothing. After a daemon crash the file can stay until the next daemon starts, so the bar can show sessions that are gone. *(my call)*
+- **What is in it.** `version` and `sessions`, one entry per session on the Agents Workspace, ordered by `n`. It holds no Test Credential, no Action arguments beyond the line the rail card shows, and nothing from inside a Session Window.
+
+```json
+{
+  "version": 1,
+  "sessions": [
+    {
+      "n": 1,
+      "project": "myapp",
+      "branch": "fix/17-login",
+      "color": "#4ccce0",
+      "opened_at": "2026-11-26T09:14:03Z",
+      "state": "needs_you",
+      "verdict": null,
+      "detail": "2FA code",
+      "checks": "pp-",
+      "in_focus": true
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `n` | The session's number, the one its Super+F key and `keek-show <n>` use. A new session can reuse a freed number, so `n` order isn't always opening order. |
+| `project`, `branch` | The Project name and the worktree's git branch. `branch` is `null` when keek can't read one. |
+| `color` | The session's cursor colour as a hex string. |
+| `opened_at` | When the session opened, in UTC (RFC 3339). |
+| `state` | `working`, `needs_you` (a Help Request is open), `takeover`, `takeover_paused` or `ended`. |
+| `verdict` | `null` until the session ends, then `pass`, `needs_fixes`, `partly_verified` or `incomplete`. |
+| `detail` | The rail card's state line without an age: the last Action's words, the Help Request reason or the Verdict. It is empty during a Takeover. A widget shows elapsed time itself, from `opened_at`. |
+| `checks` | One letter per Check in checklist order: `p` passed, `f` failed, `s` skipped, `-` unmarked. |
+| `in_focus` | Whether the session is in the focus slot. |
+
+`version` is the contract between keek and the widget, which release separately. A widget that meets a `version` it doesn't know hides itself rather than guess. *(my call)*
+
+While a Takeover runs or is paused, the widget does nothing on click, as the rail does: `takeover` and `takeover_paused` carry that to the bar.
+
+keek's notifications carry the keek logo. keek still sends as `omarchy-action` and adds `-i keek`, because the shell lets only that sender through Do Not Disturb and keeps its toasts out of history. At start the daemon installs the logo at `$XDG_DATA_HOME/icons/hicolor/<size>/apps/keek.png` for 48x48, 64x64 and 128x128, and rewrites a file only when it is missing or its bytes differ. The shell reads icons when it starts, so after the first install the logo appears from the next shell start, such as the next login. *(my call)*
 
 ## Left to the builder
 

@@ -88,7 +88,8 @@ impl Controller {
             .output(
                 "omarchy-notification-send",
                 &[
-                    "-u", "critical", summary, body, "--exec", "hyprctl", "eval", &lua,
+                    "-u", "critical", "-i", "keek", summary, body, "--exec", "hyprctl", "eval",
+                    &lua,
                 ],
                 None,
             )

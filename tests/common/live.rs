@@ -306,6 +306,7 @@ fn mcp_command(root: &Path, extra_env: &[(&str, &str)]) -> Result<Command> {
         .env("XDG_CACHE_HOME", root.join("cache"))
         .env("XDG_STATE_HOME", root.join("state"))
         .env("XDG_CONFIG_HOME", root.join("config"))
+        .env("XDG_DATA_HOME", root.join("data"))
         .env("XDG_VIDEOS_DIR", root.join("videos"))
         .env("KEEK_DAEMON_IDLE_MS", "100");
     for (name, value) in extra_env {

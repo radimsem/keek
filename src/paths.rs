@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 pub struct Paths {
     runtime_dir: PathBuf,
     state_dir: PathBuf,
+    data_dir: PathBuf,
     sessions_dir: PathBuf,
     config_file: PathBuf,
     projects_config: PathBuf,
@@ -36,6 +37,7 @@ impl Paths {
         Self {
             runtime_dir: root.join("run/keek"),
             state_dir: root.join("state/keek"),
+            data_dir: root.join("data"),
             sessions_dir: root.join("cache/keek/sessions"),
             config_file: root.join("config/keek/config.toml"),
             projects_config: root.join("config/keek/projects"),
@@ -64,6 +66,7 @@ impl Paths {
                 .ok_or(PathsError::NoRuntimeDir)?
                 .join("keek"),
             state_dir: or_under_home("XDG_STATE_HOME", ".local/state")?.join("keek"),
+            data_dir: or_under_home("XDG_DATA_HOME", ".local/share")?,
             sessions_dir: or_under_home("XDG_CACHE_HOME", ".cache")?.join("keek/sessions"),
             projects_config: or_under_home("XDG_CONFIG_HOME", ".config")?.join("keek/projects"),
             projects_cache: or_under_home("XDG_CACHE_HOME", ".cache")?.join("keek/projects"),
@@ -111,6 +114,16 @@ impl Paths {
     }
 
     #[must_use]
+    pub fn bar_state(&self) -> PathBuf {
+        self.runtime_dir.join("bar.json")
+    }
+
+    #[must_use]
+    pub fn icon_theme(&self) -> PathBuf {
+        self.data_dir.join("icons/hicolor")
+    }
+
+    #[must_use]
     pub fn state_dir(&self) -> &Path {
         &self.state_dir
     }
@@ -145,6 +158,7 @@ mod tests {
 
         assert_eq!(paths.socket(), Path::new("/run/user/1000/keek/daemon.sock"));
         assert_eq!(paths.lock(), Path::new("/run/user/1000/keek/daemon.lock"));
+        assert_eq!(paths.bar_state(), Path::new("/run/user/1000/keek/bar.json"));
         assert_eq!(
             paths.daemon_log(),
             Path::new("/home/me/.local/state/keek/daemon.log")
@@ -160,6 +174,7 @@ mod tests {
         let paths = paths_from(&[
             ("XDG_RUNTIME_DIR", "/run/user/1000"),
             ("XDG_STATE_HOME", "/state"),
+            ("XDG_DATA_HOME", "/data"),
             ("XDG_CACHE_HOME", "/cache"),
             ("XDG_CONFIG_HOME", "/config"),
         ])
@@ -172,6 +187,29 @@ mod tests {
         assert_eq!(paths.trees(), Path::new("/cache/keek/trees"));
         assert_eq!(paths.toolchains(), Path::new("/cache/keek/toolchains"));
         assert_eq!(paths.prepare(), Path::new("/cache/keek/prepare"));
+    }
+
+    #[test]
+    fn xdg_data_home_sets_the_icon_theme_folder() {
+        let paths = paths_from(&[
+            ("XDG_RUNTIME_DIR", "/run/user/1000"),
+            ("XDG_DATA_HOME", "/data"),
+            ("HOME", "/home/me"),
+        ])
+        .unwrap();
+
+        assert_eq!(paths.icon_theme(), Path::new("/data/icons/hicolor"));
+    }
+
+    #[test]
+    fn the_icon_theme_folder_defaults_to_the_share_folder_under_home() {
+        let paths =
+            paths_from(&[("XDG_RUNTIME_DIR", "/run/user/1000"), ("HOME", "/home/me")]).unwrap();
+
+        assert_eq!(
+            paths.icon_theme(),
+            Path::new("/home/me/.local/share/icons/hicolor")
+        );
     }
 
     #[test]

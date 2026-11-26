@@ -4,6 +4,11 @@ What changed in each keek release, for a person who uses it. The format follows 
 
 ## Unreleased
 
+### Added
+
+- Add the omarchy-keek Bar Widget to see open sessions in the Omarchy bar, spot a Help Request at a glance, and switch to the Agents Workspace and back.
+- keek's notifications show the keek logo.
+
 ### Changed
 
 - Switch sessions with Super+F1 to Super+F4, so Super+number switches workspaces on the Agents Workspace too. Remove the Super+1 to Super+4 snippet from your Hyprland config and add the new one from the viewer docs.

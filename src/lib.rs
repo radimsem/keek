@@ -1,3 +1,4 @@
+pub mod bar_state;
 pub mod build_id;
 pub mod catalog;
 pub mod checklist;
@@ -10,6 +11,7 @@ pub mod daemon_client;
 pub mod driver;
 pub mod editor;
 pub mod evidence;
+pub mod icons;
 pub mod ipc;
 pub mod lan_block;
 pub mod mcp;
