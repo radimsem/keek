@@ -34,7 +34,7 @@ pub enum StepAction {
 }
 
 impl StepAction {
-    fn roles(self) -> &'static [&'static str] {
+    pub(crate) fn roles(self) -> &'static [&'static str] {
         match self {
             Self::Click | Self::DoubleClick | Self::RightClick => CLICK_ROLES,
             Self::Type => TYPE_ROLES,
@@ -97,26 +97,39 @@ pub fn candidates(
         .get("elements")
         .and_then(Value::as_array)
         .ok_or(CandidatesError::NoElements)?;
-    let intent_words = words(intent);
-
-    let mut ranked: Vec<(usize, Candidate)> = elements
+    let found: Vec<((), Candidate)> = elements
         .iter()
         // An element that doesn't parse is left out, so one odd element doesn't lose the window.
         .filter_map(|raw| Element::deserialize(raw).ok())
         .filter_map(|element| into_candidate(element, action))
-        .map(|candidate| (score(&candidate, &intent_words), candidate))
+        .map(|candidate| ((), candidate))
+        .collect();
+
+    Ok(rank_and_cap(found, intent)
+        .into_iter()
+        .map(|((), candidate)| candidate)
+        .collect())
+}
+
+/// Orders candidates best intent match first, keeps `CANDIDATE_CAP`, and gives them ids `c1..`.
+///
+/// `key` rides along unchanged, so a caller can still tell which source element a candidate was.
+pub(crate) fn rank_and_cap<K>(found: Vec<(K, Candidate)>, intent: &str) -> Vec<(K, Candidate)> {
+    let intent_words = words(intent);
+    let mut ranked: Vec<(usize, (K, Candidate))> = found
+        .into_iter()
+        .map(|(key, candidate)| (score(&candidate, &intent_words), (key, candidate)))
         .collect();
     ranked.sort_by_key(|(score, _)| Reverse(*score));
     ranked.truncate(CANDIDATE_CAP);
-
-    Ok(ranked
+    ranked
         .into_iter()
         .enumerate()
-        .map(|(index, (_, mut candidate))| {
+        .map(|(index, (_, (key, mut candidate)))| {
             candidate.id = format!("c{}", index + 1);
-            candidate
+            (key, candidate)
         })
-        .collect())
+        .collect()
 }
 
 fn into_candidate(element: Element, action: StepAction) -> Option<Candidate> {
