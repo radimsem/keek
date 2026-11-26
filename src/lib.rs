@@ -62,6 +62,7 @@ pub mod session_frame;
 pub mod step_candidates;
 pub mod step_candidates_tree;
 pub mod step_policy;
+pub mod step_replay;
 
 mod window_guard;
 
