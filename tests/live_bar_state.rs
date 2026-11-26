@@ -12,24 +12,61 @@ const BAR_WAIT: Duration = Duration::from_secs(30);
 #[ignore = "requires real Hyprland, bwrap, pasta, Chromium and pinned Cua Driver"]
 async fn live_bar_state_follows_two_sessions_and_a_help_request() -> Result<()> {
     let _desktop = LIVE_DESKTOP.lock().await;
-    let before = (host_state().await?, host_config().await?);
+    let before = host_snapshot().await?;
     let mut fixture = Fixture::start().await?;
     let bar = fixture.directory.path().join("run/keek/bar.json");
     let result = follow_two_sessions(&mut fixture, &bar).await;
     let finished = fixture.finish().await;
-    result.and(finished)?;
+    let removed = if bar.exists() {
+        Err(anyhow::anyhow!(
+            "bar.json remains after the daemon stopped: {}",
+            bar.display()
+        ))
+    } else {
+        println!("bar.json: removed once the daemon stopped");
+        Ok(())
+    };
+    let after = host_snapshot().await?;
+    let unchanged = assert_host_unchanged(&before, &after);
+    result.and(finished).and(removed).and(unchanged)
+}
+
+struct HostSnapshot {
+    state: Value,
+    config: Vec<(PathBuf, Vec<u8>)>,
+    windows: Value,
+}
+
+async fn host_snapshot() -> Result<HostSnapshot> {
+    Ok(HostSnapshot {
+        state: host_state().await?,
+        config: host_config().await?,
+        windows: serde_json::from_str(&run("hyprctl", &["clients", "-j"], None).await?)?,
+    })
+}
+
+fn window_addresses(windows: &Value) -> Vec<&str> {
+    let mut addresses: Vec<_> = windows
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|window| window["address"].as_str())
+        .collect();
+    addresses.sort_unstable();
+    addresses
+}
+
+fn assert_host_unchanged(before: &HostSnapshot, after: &HostSnapshot) -> Result<()> {
     anyhow::ensure!(
-        !bar.exists(),
-        "bar.json remains after the daemon stopped: {}",
-        bar.display()
+        before.state == after.state,
+        "host focus or workspace changed: before={}, after={}",
+        before.state,
+        after.state
     );
-    println!("bar.json: removed once the daemon stopped");
-    let after = (host_state().await?, host_config().await?);
+    anyhow::ensure!(before.config == after.config, "host config changed");
     anyhow::ensure!(
-        before == after,
-        "host focus, workspace or Hyprland config changed: before={:?}, after={:?}",
-        before.0,
-        after.0
+        window_addresses(&before.windows) == window_addresses(&after.windows),
+        "host open windows changed"
     );
     Ok(())
 }
@@ -129,10 +166,18 @@ async fn wait_for_ended_or_gone(bar: &Path) -> Result<&'static str> {
             Ok(text) => {
                 let state: Value = serde_json::from_str(&text).ok()?;
                 let sessions = state.get("sessions")?.as_array()?;
-                sessions
+                let numbers: Vec<_> = sessions
                     .iter()
-                    .all(|session| session.get("state").and_then(Value::as_str) == Some("ended"))
-                    .then_some("every listed session ended")
+                    .map(|session| session.get("n").and_then(Value::as_u64))
+                    .collect();
+                let ended = sessions.iter().all(|session| {
+                    session.get("state").and_then(Value::as_str) == Some("ended")
+                        && session
+                            .get("verdict")
+                            .is_some_and(|verdict| !verdict.is_null())
+                });
+                (numbers == [Some(1), Some(2)] && ended)
+                    .then_some("sessions 1 and 2 ended, each with a verdict")
             }
         },
     )
