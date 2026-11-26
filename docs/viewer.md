@@ -18,7 +18,7 @@ The model is the watch, take control, done pattern of Grok Bot, Manus and Anthro
 
 - Watching more than four sessions at once. keek caps open sessions at four (configurable). The layout is designed for four; a larger cap gets smaller rail cards, not a fleet view.
 - Live moving pictures in the rail. A rail card shows a still a few seconds old.
-- An Omarchy shell plugin or bar widget. The Session Footer is keek's own layer-shell surface.
+- An Omarchy shell plugin inside keek. The Session Footer is keek's own layer-shell surface. The [Bar Widget](#bar-widget) is a plugin in its own repository, and keek only publishes the file it reads.
 - Remote watching from another machine or a phone.
 - Chatting with the agent beyond starting and ending a Takeover.
 
@@ -86,7 +86,7 @@ A Help Request turns its rail card orange. The session does not swap in by itsel
 
 While a Takeover runs or is paused, its session stays in focus. The rail cards are dimmed and do nothing, and a line under the rail reads "Other sessions unlock when you press Done." Shortcuts and notifications don't swap either.
 
-Super+F1 to Super+F4 show the matching session while `keek` is the active workspace, once the developer adds the binds below beside the `keek` submap; keek ships none. Omarchy binds no function key with Super, so Super+number keeps switching workspaces. Each bind emits a Hyprland custom event, `keek-show <n>`, that keek reads from the event socket; on any other workspace the bind does nothing. keek acts on the event on any workspace, so the workspace check lives in the bind. The numbers follow the order sessions opened in and stay with a session while it moves between the focus slot and the rail. A developer who added the earlier Super+1 to Super+4 snippet removes it, so Omarchy's workspace binds come back. *(my call)*
+Super+F1 to Super+F4 show the matching session while `keek` is the active workspace, once the developer adds the binds below beside the `keek` submap; keek ships none. Omarchy binds no function key with Super, so Super+number keeps switching workspaces. Each bind emits a Hyprland custom event, `keek-show <n>`, that keek reads from the event socket; on any other workspace the bind does nothing. keek acts on the event on any workspace, so the workspace check lives in the bind. A new session takes the lowest number not in use and keeps it while it moves between the focus slot and the rail. The number of a session that has left goes to the next session that opens, so the numbers don't always follow opening order. A developer who added the earlier Super+1 to Super+4 snippet removes it, so Omarchy's workspace binds come back. *(my call)*
 
 A rail card shows its `Super` `F<n>` keys only while `hyprctl binds -j` lists a Super+F<n> bind outside any submap, so a card never names a shortcut that does nothing. keek reads the binds when the viewer starts and on each workspace change, so a bind added and reloaded elsewhere shows the next time the developer switches to `keek`.
 
@@ -188,8 +188,8 @@ The Omarchy bar shows keek through a Bar Widget, which lives in its own reposito
 
 The widget reads the Bar State, a file keek publishes at `$XDG_RUNTIME_DIR/keek/bar.json`, beside `daemon.sock`.
 
-- **When it exists.** The daemon writes it when a session opens, changes state, ends or is closed. Each write goes to a temporary file in the same folder and is renamed over the old one, so a reader never sees half a file.
-- **When it is gone.** The daemon removes it when no session is left on the Agents Workspace, when it starts and when it stops. With no file, the widget shows nothing. After a daemon crash the file can stay until the next daemon starts, so the bar can show sessions that are gone. *(my call)*
+- **When it exists.** The daemon rewrites it whenever any session's snapshot changes: a session opens, a new last Action, a Check mark, a state change, a change of focus, or the end of a session. So `detail`, `checks` and `in_focus` can differ between two writes while `state` stays the same. A session that ends keeps its entry, with `state` `ended` and its `verdict`, until the developer dismisses its card or a new session takes its place. Only then does the entry leave. Each write goes to a temporary file in the same folder and is renamed over the old one, so a reader never sees half a file.
+- **When it is gone.** The daemon removes it when the last entry has left, so an ended session that nobody dismissed keeps the file alive. It also removes it when it starts and when it stops. With no file, the widget shows nothing. After a daemon crash the file can stay until the next daemon starts, so the bar can show sessions that are gone. *(my call)*
 - **What is in it.** `version` and `sessions`, one entry per session on the Agents Workspace, ordered by `n`. It holds no Test Credential, no Action arguments beyond the line the rail card shows, and nothing from inside a Session Window.
 
 ```json
