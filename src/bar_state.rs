@@ -75,42 +75,12 @@ pub fn bar_session(
     in_focus: bool,
     now: DateTime<Utc>,
 ) -> BarSession {
-    let (state, verdict) = match (&snapshot.state, &snapshot.control) {
-        (SessionState::Ended(ended), _) => (BarSessionState::Ended, Some(verdict(&ended.end))),
-        (
-            SessionState::Opening
-            | SessionState::Open
-            | SessionState::Closing
-            | SessionState::Rendering { .. },
-            ControlState::HelpRequest { .. },
-        ) => (BarSessionState::NeedsYou, None),
-        (
-            SessionState::Opening
-            | SessionState::Open
-            | SessionState::Closing
-            | SessionState::Rendering { .. },
-            ControlState::Takeover {
-                phase: TakeoverPhase::Paused { .. },
-                ..
-            },
-        ) => (BarSessionState::TakeoverPaused, None),
-        (
-            SessionState::Opening
-            | SessionState::Open
-            | SessionState::Closing
-            | SessionState::Rendering { .. },
-            ControlState::Takeover {
-                phase: TakeoverPhase::Running,
-                ..
-            },
-        ) => (BarSessionState::Takeover, None),
-        (
-            SessionState::Opening
-            | SessionState::Open
-            | SessionState::Closing
-            | SessionState::Rendering { .. },
-            ControlState::Verifier | ControlState::HandBack { .. },
-        ) => (BarSessionState::Working, None),
+    let (state, verdict) = match &snapshot.state {
+        SessionState::Ended(ended) => (BarSessionState::Ended, Some(verdict(&ended.end))),
+        SessionState::Opening
+        | SessionState::Open
+        | SessionState::Closing
+        | SessionState::Rendering { .. } => (control_state(&snapshot.control), None),
     };
     let detail = match (&snapshot.control, state) {
         (ControlState::HelpRequest { reason, .. }, BarSessionState::NeedsYou) => reason.clone(),
@@ -131,6 +101,21 @@ pub fn bar_session(
             .map(|check| letter(&check.mark))
             .collect(),
         in_focus,
+    }
+}
+
+fn control_state(control: &ControlState) -> BarSessionState {
+    match control {
+        ControlState::HelpRequest { .. } => BarSessionState::NeedsYou,
+        ControlState::Takeover {
+            phase: TakeoverPhase::Paused { .. },
+            ..
+        } => BarSessionState::TakeoverPaused,
+        ControlState::Takeover {
+            phase: TakeoverPhase::Running,
+            ..
+        } => BarSessionState::Takeover,
+        ControlState::Verifier | ControlState::HandBack { .. } => BarSessionState::Working,
     }
 }
 
