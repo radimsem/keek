@@ -51,6 +51,8 @@ pub async fn run_with_viewer(
     };
 
     crate::session_frame::clear(paths.runtime_dir()).await;
+    remove_bar_state(&paths.bar_state());
+    install_icons(paths.icon_theme()).await;
     let socket = paths.socket();
     remove_socket(&socket)?;
     let listener = UnixListener::bind(&socket).map_err(DaemonError::Bind)?;
@@ -65,6 +67,8 @@ pub async fn run_with_viewer(
         .unwrap_or_default();
     let compositor: std::sync::Arc<dyn crate::compositor::Compositor> =
         std::sync::Arc::new(crate::compositor::HostCompositor::new(runner.clone()));
+    let bar = crate::viewer::bar_viewer::BarStateViewer::new(viewer, paths.bar_state());
+    let viewer: std::sync::Arc<dyn crate::viewer::Viewer> = bar.clone();
     let dependencies = crate::registry::Dependencies {
         frames_dir: paths.runtime_dir().join("frames"),
         journals_dir: paths.state_dir().join("sessions"),
@@ -111,6 +115,9 @@ pub async fn run_with_viewer(
         terminated,
     )
     .await;
+    // The caller shuts down the given viewer, so only the bar writer stops here.
+    bar.stop_writer().await;
+    remove_bar_state(&paths.bar_state());
     let removed = remove_socket(&socket);
     let exit = exit?;
     removed?;
@@ -129,6 +136,20 @@ fn decision_model(config: &crate::config::Config) -> Option<crate::session::dele
             tracing::error!(%error, "delegate_step stays off");
             None
         }
+    }
+}
+
+async fn install_icons(theme: std::path::PathBuf) {
+    match tokio::task::spawn_blocking(move || crate::icons::install(&theme)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::warn!(%error, "keek icon was not installed"),
+        Err(error) => tracing::warn!(%error, "keek icon install stopped unexpectedly"),
+    }
+}
+
+fn remove_bar_state(path: &std::path::Path) {
+    if let Err(error) = crate::bar_state::remove(path) {
+        tracing::warn!(%error, "bar state could not be removed");
     }
 }
 
@@ -185,5 +206,55 @@ mod tests {
             Ok(Exit::AlreadyRunning)
         ));
         assert!(frames.join("old.png").exists());
+    }
+
+    #[tokio::test]
+    async fn startup_removes_a_stale_bar_file_after_acquiring_the_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = Paths::under_root(root.path());
+        std::fs::create_dir_all(paths.runtime_dir()).unwrap();
+        std::fs::write(paths.bar_state(), b"stale").unwrap();
+        let lock = File::options()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(paths.lock())
+            .unwrap();
+        lock.try_lock().unwrap();
+        assert!(matches!(
+            run(&paths, Duration::from_secs(1), crate::clock::MonotonicClock).await,
+            Ok(Exit::AlreadyRunning)
+        ));
+        assert!(paths.bar_state().exists());
+
+        drop(lock);
+        std::fs::create_dir_all(paths.config_file().parent().unwrap()).unwrap();
+        std::fs::write(paths.config_file(), "session_cap = 0").unwrap();
+        assert!(matches!(
+            run(&paths, Duration::from_secs(1), crate::clock::MonotonicClock).await,
+            Err(DaemonError::Config(_))
+        ));
+        assert!(!paths.bar_state().exists());
+    }
+
+    #[tokio::test]
+    async fn the_bar_file_is_removed_when_the_daemon_stops() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = Paths::under_root(root.path());
+        let socket = paths.socket();
+        let bar = paths.bar_state();
+        let stopped = run(&paths, Duration::from_secs(1), crate::clock::MonotonicClock);
+        let publish_while_running = async {
+            while !socket.exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            std::fs::write(&bar, b"{}").unwrap();
+            assert!(bar.exists());
+        };
+
+        let (exit, ()) = tokio::join!(stopped, publish_while_running);
+
+        assert!(matches!(exit, Ok(Exit::Idle)));
+        assert!(!paths.bar_state().exists());
     }
 }

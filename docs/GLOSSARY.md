@@ -124,6 +124,14 @@ _Avoid_: handoff, intervention, manual mode
 Pausing a Takeover to use the developer's own desktop, for example to fetch a secret. The Verifier keeps waiting. Resume carries the same Takeover on, and only Done ends it.
 _Avoid_: detach, suspend, leave
 
+**Bar Widget**:
+The Omarchy bar button that shows the open Agent Sessions as one dot each and switches to the Agents Workspace and back. It lives in the separate `radimsem/omarchy-keek` repository.
+_Avoid_: tray icon, indicator, applet
+
+**Bar State**:
+The file the daemon publishes for the Bar Widget: one entry per Agent Session on the Agents Workspace, and nothing when none is left.
+_Avoid_: status file, bar feed
+
 ## Outcome
 
 **Verification Checklist**:

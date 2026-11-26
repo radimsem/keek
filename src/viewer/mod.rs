@@ -1,6 +1,7 @@
 use crate::{ipc::SessionSnapshot, session_folder::SessionName};
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
+pub mod bar_viewer;
 mod end_card;
 mod events;
 mod focus_card;
@@ -19,7 +20,7 @@ mod ui;
 pub mod verdict_view;
 pub use events::show_target;
 pub use ui::{init, run};
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SlotId(pub usize);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CardSpot {
