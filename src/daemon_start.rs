@@ -52,6 +52,7 @@ pub async fn run_with_viewer(
 
     crate::session_frame::clear(paths.runtime_dir()).await;
     remove_bar_state(&paths.bar_state());
+    install_icons(paths.icon_theme()).await;
     let socket = paths.socket();
     remove_socket(&socket)?;
     let listener = UnixListener::bind(&socket).map_err(DaemonError::Bind)?;
@@ -122,9 +123,17 @@ pub async fn run_with_viewer(
     Ok(exit)
 }
 
+async fn install_icons(theme: std::path::PathBuf) {
+    match tokio::task::spawn_blocking(move || crate::icons::install(&theme)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::warn!(%error, "keek icon was not installed"),
+        Err(error) => tracing::warn!(%error, "keek icon install stopped unexpectedly"),
+    }
+}
+
 fn remove_bar_state(path: &std::path::Path) {
     if let Err(error) = crate::bar_state::remove(path) {
-        tracing::warn!(%error, "stale bar state could not be removed");
+        tracing::warn!(%error, "bar state could not be removed");
     }
 }
 

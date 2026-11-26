@@ -11,6 +11,7 @@ pub mod daemon_client;
 pub mod driver;
 pub mod editor;
 pub mod evidence;
+pub mod icons;
 pub mod ipc;
 pub mod lan_block;
 pub mod mcp;

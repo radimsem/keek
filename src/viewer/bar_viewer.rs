@@ -41,8 +41,8 @@ impl BarStateViewer {
         })
     }
 
-    /// Writes the last state, removes bar.json and ends the writer task, without shutting down the
-    /// inner viewer. Its owner does that.
+    /// Removes bar.json and ends the writer task, without shutting down the inner viewer. Its
+    /// owner does that.
     pub async fn stop_writer(&self) {
         self.send(BarCommand::Shutdown).await;
         let writer = self.writer.lock().ok().and_then(|mut writer| writer.take());

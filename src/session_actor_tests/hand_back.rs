@@ -134,8 +134,9 @@ async fn a_help_request_notifies_once_until_take_control_and_waits_for_done_with
         notifications[0]
             .1
             .to_string()
-            .contains(r#""-u","critical","Agent needs you""#)
+            .contains(r#""-u","critical","-i","keek","Agent needs you""#)
     );
+    assert!(!notifications[0].1.to_string().contains("--app-name"));
     let dismissed: Vec<_> = calls
         .iter()
         .filter(|(tool, _)| tool == "omarchy-notification-dismiss")
