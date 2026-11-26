@@ -227,7 +227,8 @@ mod tests {
         ));
         assert!(paths.bar_state().exists());
 
-        drop(lock);
+        // A child another test forks meanwhile shares this lock until it execs, so closing alone keeps it.
+        lock.unlock().unwrap();
         std::fs::create_dir_all(paths.config_file().parent().unwrap()).unwrap();
         std::fs::write(paths.config_file(), "session_cap = 0").unwrap();
         assert!(matches!(
