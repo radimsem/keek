@@ -1,8 +1,9 @@
+use super::call::{CallEnd, Raced};
 use super::run::LoopState;
 use super::*;
 use crate::catalog::CatalogError;
 use crate::config::DecisionModelConfig;
-use crate::credentials::CredentialsError;
+use crate::credentials::{Credentials, CredentialsError};
 use crate::decision_model::{DecisionModel, DecisionModelError, DecisionRequest};
 use crate::step_candidates::{Candidate, CandidatesError, StepAction, candidates};
 use crate::step_policy::{HandBackReason, StepDecision, decide_action};
@@ -12,7 +13,6 @@ use serde_json::Map;
 
 pub const TOOL: &str = "delegate_step";
 const SHOWN_CANDIDATES: usize = 5;
-const DRIVER_LIMIT: Duration = Duration::from_secs(150);
 
 #[derive(Clone)]
 pub struct Delegate {
@@ -68,15 +68,19 @@ struct Planned {
 }
 
 struct Done {
-    reply: Result<Value, DelegateError>,
+    reply: Result<Value, Response>,
     acted: bool,
     is_error: bool,
     event: Option<DelegatedStepEvent>,
 }
 impl Done {
     fn failed(error: DelegateError) -> Self {
+        Self::stopped(refusal(error))
+    }
+
+    fn stopped(response: Response) -> Self {
         Self {
-            reply: Err(error),
+            reply: Err(response),
             acted: false,
             is_error: true,
             event: None,
@@ -88,21 +92,37 @@ impl Actor {
     pub(super) async fn delegate_step(
         &mut self,
         state: &mut LoopState,
+        inbox: &mut Inbox,
         arguments: Value,
-    ) -> Response {
-        let Some(delegate) = &self.delegate else {
-            return refusal(DelegateError::Off);
+    ) -> (Response, CallEnd) {
+        let Some(delegate) = self.delegate.clone() else {
+            return (refusal(DelegateError::Off), CallEnd::Replied);
         };
         let planned = match self.plan_step(arguments) {
             Ok(planned) => planned,
-            Err(error) => return refusal(error),
+            Err(error) => return (refusal(error), CallEnd::Replied),
         };
         let start = self.clock.now();
         let action_ms = self.control_time(start);
         let start_ms = timeline_time(state.zero, start);
-        let done = self
-            .run_step(delegate, state.driver.as_mut(), planned, start_ms)
+        // The step runs while the actor still answers a close, so it cannot borrow the actor.
+        let credentials = self.credentials.clone();
+        let raced = self
+            .race(state, inbox, |driver| {
+                run_step(&delegate, &credentials, driver, planned, start_ms)
+            })
             .await;
+        let (done, end) = match raced {
+            Raced::Finished(done) => (done, CallEnd::Replied),
+            Raced::Ended(reason) => (
+                Done::stopped(refusal(reason.refusal())),
+                CallEnd::End(reason),
+            ),
+            Raced::Closing(close, ready) => (
+                Done::stopped(self.closing_refusal(TOOL)),
+                CallEnd::Close(close, ready),
+            ),
+        };
         let end_ms = timeline_time(state.zero, self.clock.now());
         state.timeline.push(TimelineEvent::Call {
             tool: TOOL.into(),
@@ -132,10 +152,10 @@ impl Actor {
                 }
                 Response::ToolResult(value)
             }
-            Err(error) => refusal(error),
+            Err(response) => response,
         };
         self.persist(&state.timeline).await;
-        response
+        (response, end)
     }
 
     fn plan_step(&self, arguments: Value) -> Result<Planned, DelegateError> {
@@ -179,135 +199,135 @@ impl Actor {
             act,
         })
     }
+}
 
-    async fn run_step(
-        &self,
-        delegate: &Delegate,
-        driver: &mut dyn Driver,
-        planned: Planned,
-        at_ms: Millis,
-    ) -> Done {
-        let observed =
-            match call_driver(driver, "get_window_state", planned.observe, DRIVER_LIMIT).await {
-                Ok(value) if value["isError"] == true => {
-                    return Done {
-                        reply: Ok(refusal_hint::add(driver, value).await),
-                        acted: false,
-                        is_error: true,
-                        event: None,
-                    };
-                }
-                Ok(value) => self.credentials.mask_value(value),
-                Err(error) => return Done::failed(error.into()),
-            };
-        let found = match candidates(&observed, planned.action, &planned.intent) {
-            Ok(found) => found,
-            Err(error) => return Done::failed(error.into()),
-        };
-        let window_title = observed
-            .get("structuredContent")
-            .unwrap_or(&observed)
-            .get("window_title")
-            .and_then(Value::as_str)
-            .map(str::to_owned);
-        let request = DecisionRequest {
-            intent: planned.intent.clone(),
-            action: planned.action,
-            window_title,
-            candidates: found.clone(),
-        };
-        let config = &delegate.config;
-        let asked = tokio::time::Instant::now();
-        let answer = tokio::time::timeout(
-            Duration::from_millis(config.timeout_ms),
-            delegate.model.decide(request),
-        )
-        .await
-        .unwrap_or(Err(DecisionModelError::Timeout {
-            ms: config.timeout_ms,
-        }));
-        let (decision, step, latency) = match answer {
-            Ok(decision) => {
-                let step = decide_action(&decision, &found, config.threshold);
-                let latency = decision.latency;
-                (Some(decision), step, latency)
-            }
-            Err(error) => (
-                None,
-                StepDecision::HandBack(HandBackReason::ModelFailed(error.to_string())),
-                asked.elapsed(),
-            ),
-        };
-        let latency_ms = u64::try_from(latency.as_millis()).unwrap_or(u64::MAX);
-        let probabilities = decision
-            .as_ref()
-            .map(|decision| decision.probabilities.clone())
-            .unwrap_or_default();
-        let mut event = DelegatedStepEvent {
-            at_ms,
-            intent: planned.intent,
-            action: planned.action,
-            candidates: found.iter().map(summary).collect(),
-            probabilities,
-            pick: decision.map(|decision| decision.choice),
-            outcome: DelegatedOutcome::Acted,
-            threshold: config.threshold,
-            model: config.model.clone(),
-            latency_ms,
-        };
-        let (candidate, probability) = match step {
-            StepDecision::Act {
-                candidate,
-                probability,
-            } => (candidate, probability),
-            StepDecision::HandBack(reason) => {
-                let text = hand_back_text(&reason, config.threshold, &found, &event.probabilities);
-                let shown = ranked(&found, &event.probabilities);
-                let value = json!({
-                    "content": [{"type": "text", "text": text}],
-                    "structuredContent": {"delegated_step": {
-                        "acted": false,
-                        "reason": reason,
-                        "candidates": shown.iter().map(|(candidate, probability)| json!({
-                            "id": candidate.id,
-                            "role": candidate.role,
-                            "label": candidate.label,
-                            "probability": probability,
-                        })).collect::<Vec<_>>(),
-                        "decision_ms": latency_ms,
-                    }},
-                });
-                event.outcome = DelegatedOutcome::HandedBack(reason);
+async fn run_step(
+    delegate: &Delegate,
+    credentials: &Credentials,
+    driver: &mut dyn Driver,
+    planned: Planned,
+    at_ms: Millis,
+) -> Done {
+    let observed =
+        match call_driver(driver, "get_window_state", planned.observe, DRIVER_LIMIT).await {
+            Ok(value) if value["isError"] == true => {
                 return Done {
-                    reply: Ok(value),
+                    reply: Ok(refusal_hint::add(driver, value).await),
                     acted: false,
-                    is_error: false,
-                    event: Some(event),
+                    is_error: true,
+                    event: None,
                 };
             }
+            Ok(value) => credentials.mask_value(value),
+            Err(error) => return Done::failed(error.into()),
         };
-        let mut act = planned.act;
-        if let Some(arguments) = act.as_object_mut() {
-            arguments.insert(
-                "element_token".into(),
-                candidate.element_token.as_str().into(),
-            );
+    let found = match candidates(&observed, planned.action, &planned.intent) {
+        Ok(found) => found,
+        Err(error) => return Done::failed(error.into()),
+    };
+    let window_title = observed
+        .get("structuredContent")
+        .unwrap_or(&observed)
+        .get("window_title")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let request = DecisionRequest {
+        intent: planned.intent.clone(),
+        action: planned.action,
+        window_title,
+        candidates: found.clone(),
+    };
+    let config = &delegate.config;
+    let asked = tokio::time::Instant::now();
+    let answer = tokio::time::timeout(
+        Duration::from_millis(config.timeout_ms),
+        delegate.model.decide(request),
+    )
+    .await
+    .unwrap_or(Err(DecisionModelError::Timeout {
+        ms: config.timeout_ms,
+    }));
+    let (decision, step, latency) = match answer {
+        Ok(decision) => {
+            let step = decide_action(&decision, &found, config.threshold);
+            let latency = decision.latency;
+            (Some(decision), step, latency)
         }
-        let (reply, is_error) = match call_driver(driver, planned.tool, act, DRIVER_LIMIT).await {
-            Ok(value) => {
-                let mut value = refusal_hint::add(driver, value).await;
-                let is_error = value["isError"] == true;
-                add_pick(&mut value, &candidate, probability, latency_ms);
-                (Ok(value), is_error)
-            }
-            Err(error) => (Err(error.into()), true),
-        };
-        Done {
-            reply,
-            acted: true,
-            is_error,
-            event: Some(event),
+        Err(error) => (
+            None,
+            StepDecision::HandBack(HandBackReason::ModelFailed(error.to_string())),
+            asked.elapsed(),
+        ),
+    };
+    let latency_ms = u64::try_from(latency.as_millis()).unwrap_or(u64::MAX);
+    let probabilities = decision
+        .as_ref()
+        .map(|decision| decision.probabilities.clone())
+        .unwrap_or_default();
+    let mut event = DelegatedStepEvent {
+        at_ms,
+        intent: planned.intent,
+        action: planned.action,
+        candidates: found.iter().map(summary).collect(),
+        probabilities,
+        pick: decision.map(|decision| decision.choice),
+        outcome: DelegatedOutcome::Acted,
+        threshold: config.threshold,
+        model: config.model.clone(),
+        latency_ms,
+    };
+    let (candidate, probability) = match step {
+        StepDecision::Act {
+            candidate,
+            probability,
+        } => (candidate, probability),
+        StepDecision::HandBack(reason) => {
+            let text = hand_back_text(&reason, config.threshold, &found, &event.probabilities);
+            let shown = ranked(&found, &event.probabilities);
+            let value = json!({
+                "content": [{"type": "text", "text": text}],
+                "structuredContent": {"delegated_step": {
+                    "acted": false,
+                    "reason": reason,
+                    "candidates": shown.iter().map(|(candidate, probability)| json!({
+                        "id": candidate.id,
+                        "role": candidate.role,
+                        "label": candidate.label,
+                        "probability": probability,
+                    })).collect::<Vec<_>>(),
+                    "decision_ms": latency_ms,
+                }},
+            });
+            event.outcome = DelegatedOutcome::HandedBack(reason);
+            return Done {
+                reply: Ok(value),
+                acted: false,
+                is_error: false,
+                event: Some(event),
+            };
         }
+    };
+    let mut act = planned.act;
+    if let Some(arguments) = act.as_object_mut() {
+        arguments.insert(
+            "element_token".into(),
+            candidate.element_token.as_str().into(),
+        );
+    }
+    let (reply, is_error) = match call_driver(driver, planned.tool, act, DRIVER_LIMIT).await {
+        Ok(value) => {
+            let mut value = refusal_hint::add(driver, value).await;
+            let is_error = value["isError"] == true;
+            add_pick(&mut value, &candidate, probability, latency_ms);
+            (Ok(value), is_error)
+        }
+        Err(error) => (Err(refusal(DelegateError::from(error))), true),
+    };
+    Done {
+        reply,
+        acted: true,
+        is_error,
+        event: Some(event),
     }
 }
 

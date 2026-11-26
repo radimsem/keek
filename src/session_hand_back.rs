@@ -34,23 +34,18 @@ impl Actor {
                 gate::Entry::HandBack(current) => span = current,
             }
         };
-        let capture = call_driver(
-            driver,
-            "get_desktop_state",
-            json!({}),
-            Duration::from_secs(150),
-        )
-        .await
-        .and_then(|result| {
-            if result.get("isError").and_then(Value::as_bool) == Some(true) {
-                Err(DriverError::Call {
-                    tool: "get_desktop_state".into(),
-                    reason: result.to_string(),
-                })
-            } else {
-                Ok(result)
-            }
-        });
+        let capture = call_driver(driver, "get_desktop_state", json!({}), DRIVER_LIMIT)
+            .await
+            .and_then(|result| {
+                if result.get("isError").and_then(Value::as_bool) == Some(true) {
+                    Err(DriverError::Call {
+                        tool: "get_desktop_state".into(),
+                        reason: result.to_string(),
+                    })
+                } else {
+                    Ok(result)
+                }
+            });
         match capture {
             Ok(result) => {
                 let (mut result, unchanged) = self.compare_hand_back(&span, baseline, result).await;

@@ -230,6 +230,8 @@ impl Actor {
         Ok(zero)
     }
 }
+const DRIVER_LIMIT: Duration = Duration::from_secs(150);
+
 async fn call_driver(
     driver: &mut dyn Driver,
     tool: &str,

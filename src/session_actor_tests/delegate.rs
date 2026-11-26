@@ -1,3 +1,4 @@
+use super::close_tests::{finished, mark, request_close};
 use super::fake_decision_model::{FakeDecisionModel, pick};
 use super::*;
 use crate::config::DecisionModelConfig;
@@ -266,6 +267,47 @@ async fn a_model_timeout_hands_back_within_the_limit() {
         DelegatedOutcome::HandedBack(HandBackReason::ModelFailed(_))
     ));
     assert_eq!(step.latency_ms, 200);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_close_stops_a_step_whose_decision_model_never_answers() {
+    let model = Arc::new(FakeDecisionModel::never());
+    let (_root, actor) = start(&model, 60_000).await;
+    mark(&actor, 1).await.await.unwrap();
+    let (reply, stepped) = oneshot::channel();
+    actor
+        .sender
+        .send(ActorRequest::Call {
+            arrival: actor.control.gate.arrival(),
+            tool: "delegate_step".into(),
+            arguments: step("click Sign in", "click"),
+            reply,
+        })
+        .await
+        .unwrap();
+    while model.requests.lock().unwrap().is_empty() {
+        tokio::task::yield_now().await;
+    }
+    let answer = request_close(&actor).await;
+    let start = tokio::time::Instant::now();
+    let value = finished(actor, answer).await;
+    assert!(
+        start.elapsed() < Duration::from_secs(5),
+        "close waited for the Decision Model"
+    );
+    let Response::Refused { message } = stepped.await.unwrap() else {
+        panic!("step not refused");
+    };
+    assert_eq!(
+        message,
+        "Agent Session app_12-00-00 is closing, so delegate_step was stopped. Open a new Agent Session."
+    );
+    let text = std::fs::read_to_string(value["evidence"]["timeline"].as_str().unwrap()).unwrap();
+    let events = SessionTimeline::parse(&text).unwrap().events().to_vec();
+    assert!(events.iter().any(|event| matches!(
+        event,
+        TimelineEvent::Call { tool, is_error: true, .. } if tool == "delegate_step"
+    )));
 }
 
 #[tokio::test]
