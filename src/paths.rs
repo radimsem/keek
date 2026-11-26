@@ -111,6 +111,11 @@ impl Paths {
     }
 
     #[must_use]
+    pub fn bar_state(&self) -> PathBuf {
+        self.runtime_dir.join("bar.json")
+    }
+
+    #[must_use]
     pub fn state_dir(&self) -> &Path {
         &self.state_dir
     }
@@ -145,6 +150,7 @@ mod tests {
 
         assert_eq!(paths.socket(), Path::new("/run/user/1000/keek/daemon.sock"));
         assert_eq!(paths.lock(), Path::new("/run/user/1000/keek/daemon.lock"));
+        assert_eq!(paths.bar_state(), Path::new("/run/user/1000/keek/bar.json"));
         assert_eq!(
             paths.daemon_log(),
             Path::new("/home/me/.local/state/keek/daemon.log")

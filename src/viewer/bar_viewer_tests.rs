@@ -263,6 +263,24 @@ impl Viewer for Calls {
 }
 
 #[tokio::test(start_paused = true)]
+async fn stopping_the_writer_removes_bar_json_and_leaves_the_inner_viewer_running() {
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join("bar.json");
+    let calls = Arc::new(Calls::default());
+    let viewer = BarStateViewer::new(calls.clone(), path.clone());
+    let (_events, snapshots) = watch::channel(working());
+    viewer
+        .opened(info(0, CardSpot::Rail(RAIL)), snapshots)
+        .await;
+    until_written(&path, listed(1)).await;
+
+    viewer.stop_writer().await;
+
+    assert!(!path.exists());
+    assert_eq!(*calls.0.lock().unwrap(), vec!["opened"]);
+}
+
+#[tokio::test(start_paused = true)]
 async fn inner_viewer_calls_are_forwarded() {
     let folder = tempfile::tempdir().unwrap();
     let calls = Arc::new(Calls::default());

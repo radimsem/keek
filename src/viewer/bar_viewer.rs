@@ -41,6 +41,18 @@ impl BarStateViewer {
         })
     }
 
+    /// Writes the last state, removes bar.json and ends the writer task, without shutting down the
+    /// inner viewer. Its owner does that.
+    pub async fn stop_writer(&self) {
+        self.send(BarCommand::Shutdown).await;
+        let writer = self.writer.lock().ok().and_then(|mut writer| writer.take());
+        if let Some(writer) = writer
+            && let Err(error) = writer.await
+        {
+            tracing::warn!(%error, "bar state writer stopped unexpectedly");
+        }
+    }
+
     async fn send(&self, command: BarCommand) {
         if let Err(error) = self.commands.send(command).await {
             tracing::warn!(%error, "bar state update could not be delivered");
@@ -84,13 +96,7 @@ impl Viewer for BarStateViewer {
     fn shutdown(&self) -> ViewerFuture<'_> {
         Box::pin(async move {
             self.inner.shutdown().await;
-            self.send(BarCommand::Shutdown).await;
-            let writer = self.writer.lock().ok().and_then(|mut writer| writer.take());
-            if let Some(writer) = writer
-                && let Err(error) = writer.await
-            {
-                tracing::warn!(%error, "bar state writer stopped unexpectedly");
-            }
+            self.stop_writer().await;
         })
     }
 }
@@ -182,7 +188,7 @@ async fn store(path: PathBuf, sessions: Vec<BarSession>) {
     match stored {
         Ok(Ok(())) => {}
         Ok(Err(error)) => tracing::warn!(%error, "bar state could not be updated"),
-        Err(error) => tracing::warn!(%error, "bar state writer stopped unexpectedly"),
+        Err(error) => tracing::warn!(%error, "bar state write did not finish"),
     }
 }
 
