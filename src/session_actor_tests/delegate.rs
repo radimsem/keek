@@ -350,3 +350,68 @@ async fn a_step_without_a_decision_model_is_refused_with_what_to_configure() {
     assert!(driven(&actor).is_empty());
     finish(actor).await;
 }
+
+#[tokio::test]
+async fn a_step_where_nothing_matches_hands_back_with_the_top_candidates() {
+    let model = Arc::new(FakeDecisionModel::answering(vec![Ok(pick(
+        "c1",
+        &[("c1", 0.95)],
+        0.10,
+    ))]));
+    let (_root, actor) = start(&model, 1500).await;
+    let response = send(&actor, "delegate_step", step("click Sign in", "click")).await;
+    assert_eq!(
+        driven(&actor),
+        [("get_window_state".into(), json!({"pid":4242,"window_id":7}))]
+    );
+    let text = text(&response);
+    assert!(
+        text.starts_with(concat!(
+            "No action taken: the Decision Model gave 0.10 that any candidate matches the intent, ",
+            "below the threshold of 0.90. Act on the window yourself. ",
+            "Top candidates: c1 button \"Sign in\" 0.95, c2 entry \"Email address\","
+        )),
+        "{text}"
+    );
+    let (_, events) = filed_timeline(actor).await;
+    let [step] = delegated(&events).try_into().unwrap();
+    assert_eq!(
+        step.outcome,
+        DelegatedOutcome::HandedBack(HandBackReason::NoMatch { matches: 0.10 })
+    );
+}
+
+#[tokio::test]
+async fn a_window_with_no_candidates_for_the_action_hands_back_with_none_listed() {
+    let model = Arc::new(FakeDecisionModel::answering(vec![Ok(pick(
+        "abstain",
+        &[("abstain", 0.99)],
+        0.99,
+    ))]));
+    let (_root, actor) = start(&model, 1500).await;
+    {
+        let mut state = actor.window_state.lock().unwrap();
+        let elements = state["structuredContent"]["elements"]
+            .as_array_mut()
+            .unwrap();
+        elements.retain(|element| element["role"] == "frame" || element["role"] == "static");
+    }
+    let response = send(&actor, "delegate_step", step("click Sign in", "click")).await;
+    assert_eq!(
+        driven(&actor),
+        [("get_window_state".into(), json!({"pid":4242,"window_id":7}))]
+    );
+    assert!(
+        text(&response).ends_with("Top candidates: none."),
+        "{response:?}"
+    );
+    let asked: Vec<usize> = model
+        .requests
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|request| request.candidates.len())
+        .collect();
+    assert_eq!(asked, [0]);
+    finish(actor).await;
+}

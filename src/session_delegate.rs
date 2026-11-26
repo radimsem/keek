@@ -400,7 +400,7 @@ fn reason_text(reason: &HandBackReason, threshold: f64) -> String {
             "the best pick had probability {probability:.2}, below the threshold of {threshold:.2}"
         ),
         HandBackReason::NoMatch { matches } => format!(
-            "the Decision Model gave {matches:.2} that any candidate is meant, below the threshold of {threshold:.2}"
+            "the Decision Model gave {matches:.2} that any candidate matches the intent, below the threshold of {threshold:.2}"
         ),
         HandBackReason::NotOffered { choice } => {
             format!("the Decision Model picked {choice:?}, which is not an offered candidate")
