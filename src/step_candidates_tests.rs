@@ -45,6 +45,19 @@ fn click_candidates_are_enabled_elements_with_a_token_and_a_frame() {
 }
 
 #[test]
+fn an_element_with_a_zero_size_frame_is_not_offered() {
+    let mut empty = element("button", "Hidden", "t2");
+    empty["frame"]["w"] = json!(0.0);
+    let mut flat = element("button", "Flat", "t3");
+    flat["frame"]["h"] = json!(0.0);
+    let state = state_of(vec![element("button", "Shown", "t1"), empty, flat]);
+
+    let found = candidates(&state, StepAction::Click, "click").unwrap();
+
+    assert_eq!(labels(&found), ["Shown"]);
+}
+
+#[test]
 fn web_content_elements_are_offered() {
     let found = candidates(&sign_in_state(), StepAction::Click, "click the email field").unwrap();
 

@@ -131,6 +131,39 @@ async fn a_confident_step_clicks_the_candidates_element_token() {
 }
 
 #[tokio::test]
+async fn a_pick_cua_refuses_says_keek_tried_it_and_counts_as_an_action() {
+    let model = Arc::new(FakeDecisionModel::answering(vec![Ok(pick(
+        "c1",
+        &[("c1", 0.95)],
+        0.97,
+    ))]));
+    let (_root, actor) = start(&model, 1500).await;
+    {
+        let mut state = actor.window_state.lock().unwrap();
+        for element in state["structuredContent"]["elements"]
+            .as_array_mut()
+            .unwrap()
+        {
+            if element["label"] == "Sign in" {
+                element["element_token"] = json!(fake_driver::REFUSED_TOKEN);
+            }
+        }
+    }
+    let response = send(&actor, "delegate_step", step("click Sign in", "click")).await;
+    assert_eq!(
+        text(&response),
+        "fixture refusal\nkeek tried c1 button \"Sign in\" 0.95 after a 12 ms decision, and Cua refused."
+    );
+    let (_, events) = filed_timeline(actor).await;
+    assert!(events.iter().any(|event| matches!(
+        event,
+        TimelineEvent::Call { tool, action: true, is_error: true, .. } if tool == "delegate_step"
+    )));
+    let [step] = delegated(&events).try_into().unwrap();
+    assert_eq!(step.outcome, DelegatedOutcome::Acted);
+}
+
+#[tokio::test]
 async fn a_confident_select_sets_the_option_by_name() {
     let model = Arc::new(FakeDecisionModel::answering(vec![Ok(pick(
         "c1",
@@ -389,6 +422,8 @@ async fn a_step_without_a_decision_model_is_refused_with_what_to_configure() {
         panic!("step not refused: {response:?}");
     };
     assert!(message.contains("[decision_model]"), "{message}");
+    assert!(message.contains("api_key_env"), "{message}");
+    assert!(message.contains("restart the keek daemon"), "{message}");
     assert!(driven(&actor).is_empty());
     finish(actor).await;
 }

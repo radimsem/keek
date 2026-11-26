@@ -23,7 +23,7 @@ pub struct Delegate {
 #[derive(Debug, thiserror::Error)]
 pub enum DelegateError {
     #[error(
-        "delegate_step is off because keek has no Decision Model. The developer must add a [decision_model] table to keek's config to turn it on. Until then, act on the window yourself."
+        "delegate_step is off because keek has no Decision Model: its config has no [decision_model] table, or keek could not build the client, for example because the api_key_env variable was unset when the daemon started. The developer must check the daemon log, fix the table or the variable, and restart the keek daemon. Until then, act on the window yourself."
     )]
     Off,
     #[error(
@@ -369,10 +369,12 @@ fn add_pick(value: &mut Value, candidate: &Candidate, probability: f64, latency_
     let Some(reply) = value.as_object_mut() else {
         return;
     };
-    let line = format!(
-        "keek acted on {} after a {latency_ms} ms decision.",
-        describe(candidate, Some(probability))
-    );
+    let picked = describe(candidate, Some(probability));
+    let line = if reply.get("isError") == Some(&Value::Bool(true)) {
+        format!("keek tried {picked} after a {latency_ms} ms decision, and Cua refused.")
+    } else {
+        format!("keek acted on {picked} after a {latency_ms} ms decision.")
+    };
     if let Some(content) = reply.get_mut("content").and_then(Value::as_array_mut) {
         content.push(json!({"type": "text", "text": line}));
     }

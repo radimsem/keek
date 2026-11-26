@@ -1,4 +1,6 @@
 use super::*;
+/// Cua refuses any call with this element token.
+pub(super) const REFUSED_TOKEN: &str = "refused-token";
 #[derive(Clone, Copy)]
 pub(super) enum Screenshot {
     Ready,
@@ -74,6 +76,11 @@ impl Driver for FakeDriver {
             }
             if tool == "get_window_state" {
                 return Ok(self.window_state.lock().unwrap().clone());
+            }
+            if arguments["element_token"] == REFUSED_TOKEN {
+                return Ok(
+                    json!({"isError":true,"content":[{"type":"text","text":"fixture refusal"}]}),
+                );
             }
             if tool == "get_desktop_state" {
                 let mode = *self.screenshot.lock().unwrap();

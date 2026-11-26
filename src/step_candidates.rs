@@ -113,6 +113,8 @@ pub fn candidates(
         // An element that doesn't parse is left out, so one odd element doesn't lose the window.
         .filter_map(|raw| Element::deserialize(raw).ok())
         .filter_map(|element| into_candidate(element, action))
+        // Cua can't act on a control that takes no space on screen.
+        .filter(|candidate| candidate.frame.w > 0.0 && candidate.frame.h > 0.0)
         .map(|candidate| ((), candidate))
         .collect();
 
