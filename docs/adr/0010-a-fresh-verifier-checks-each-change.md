@@ -13,3 +13,11 @@ An agent that grades its own change is inclined to pass it, and a Verdict Report
 - keek can't tell a Verifier from the coding agent, because MCP calls carry no caller identity. The separation and the retry cap hold by instruction only ([ADR 0011](0011-mcp-server-only.md)).
 - keek's MCP server belongs to the coding agent's session, so a Verifier that ends without `close_session` ends no process keek can watch. Five minutes without a tool call, outside a Help Request or Takeover, ends the session as an Incomplete Session.
 - Every attempt keeps its Evidence and its line in the Project's `index.md`.
+
+## Amendment: keek may hold a Decision Model key
+
+Amended on 2026-11-26. The second option above, where keek would need model credentials, stays rejected for the Verifier: keek runs no agent harness, and the Verifier remains a fresh subagent of the coding agent. keek may now hold one credential, an API key for the Decision Model that resolves a Delegated Step, because a hosted endpoint such as TypeSafe's Jev needs one.
+
+- The key is read only from the environment variable named by `api_key_env` in the `[decision_model]` table of keek's config. It never enters the config, tool results, `keek_status`, logs, Evidence or commits.
+- A local Jev-compatible server needs no key. An empty or absent `api_key_env` sends no `Authorization` header.
+- The Decision Model never marks a Check, so the Verdict still follows from the Checks the Verifier marked ([ADR 0012](0012-verdict-follows-from-the-checklist.md)). The separation between the coding agent and the Verifier is unchanged.
