@@ -360,14 +360,7 @@ impl Registry {
                     let _ = reply.send(self.unknown(&session));
                 }
             }
-            Request::ListTools => {
-                let mut catalog = self.catalog.clone();
-                self.background.spawn(async move {
-                    let result = wait_catalog(&mut catalog).await;
-                    let tools = result.map_or_else(|_| vec![], |c| c.tools());
-                    let _ = reply.send(Response::Tools(serde_json::json!({"tools":tools})));
-                });
-            }
+            Request::ListTools => self.list_tools(reply),
             Request::Status => {
                 let _ = reply.send(Response::Status(crate::ipc::DaemonStatus {
                     version: crate::VERSION.into(),
@@ -504,6 +497,9 @@ mod recovery;
 
 #[path = "registry_project.rs"]
 mod project;
+
+#[path = "registry_tools.rs"]
+mod tools;
 
 #[path = "registry_rail.rs"]
 mod rail;
