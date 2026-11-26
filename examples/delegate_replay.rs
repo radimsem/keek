@@ -29,6 +29,8 @@ use keek::step_candidates_tree::{candidates_from_tree, label_at};
 use keek::step_policy::{StepDecision, decide_action};
 use serde_json::Value;
 
+const USAGE: &str =
+    "usage: delegate_replay <evidence-root> [--thresholds 0.7,0.8] [--limit N] [--config <path>]";
 const DEFAULT_THRESHOLDS: &[f64] = &[0.7, 0.8, 0.9, 0.95];
 
 struct Args {
@@ -55,9 +57,7 @@ struct Skipped {
 
 fn parse_args() -> Result<Args> {
     let mut args = std::env::args().skip(1);
-    let root = args.next().context(
-        "usage: delegate_replay <evidence-root> [--thresholds 0.7,0.8] [--limit N] [--config <path>]",
-    )?;
+    let root = args.next().context(USAGE)?;
     let mut parsed = Args {
         root: PathBuf::from(root),
         thresholds: DEFAULT_THRESHOLDS.to_vec(),
@@ -78,10 +78,20 @@ fn parse_args() -> Result<Args> {
                 }
             }
             "--limit" => {
-                parsed.limit = Some(value()?.parse().context("--limit takes a whole number")?);
+                let limit: usize = value()?
+                    .parse()
+                    .context("--limit takes a whole number of at least 1")?;
+                if limit == 0 {
+                    bail!(
+                        "--limit takes a whole number of at least 1, since 0 would send nothing."
+                    );
+                }
+                parsed.limit = Some(limit);
             }
             "--config" => parsed.config = Some(PathBuf::from(value()?)),
-            other => bail!("unknown argument {other}. See the usage line above the options."),
+            other => bail!(
+                "unknown argument {other}. The options are --thresholds, --limit and --config.\n{USAGE}"
+            ),
         }
     }
     Ok(parsed)
@@ -240,7 +250,25 @@ fn report(samples: &[Sample], results: &[Result<Decision, String>], thresholds: 
         "\n{} requests, {failed} failed. A failed request counts as handed back. Latency covers the answered ones, so it is the same on every row.",
         samples.len()
     );
-    println!("threshold  acted  correct  top-1 accuracy  precision  handed back  p50 ms  p95 ms");
+    let answered = samples
+        .iter()
+        .zip(results)
+        .filter_map(|(sample, result)| Some((sample, result.as_ref().ok()?)))
+        .collect::<Vec<_>>();
+    let right = answered
+        .iter()
+        .filter(|(sample, decision)| decision.choice == sample.used_id)
+        .count();
+    if answered.is_empty() {
+        println!("Top-1 accuracy over answered requests: n/a (none answered).");
+    } else {
+        println!(
+            "Top-1 accuracy over answered requests, before any threshold: {right}/{} = {:.1}%.",
+            answered.len(),
+            100.0 * right as f64 / answered.len() as f64
+        );
+    }
+    println!("threshold  acted  correct  correct/all      precision  handed back  p50 ms  p95 ms");
     for &threshold in thresholds {
         let (mut acted, mut correct) = (0usize, 0usize);
         for (sample, result) in samples.iter().zip(results) {
