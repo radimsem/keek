@@ -9,7 +9,16 @@ pub(super) const KEPT_LAYERS: usize = 2;
 // A shared lock on .used/<key> marks a layer as mounted.
 #[derive(Debug)]
 pub struct LayerLease {
-    _file: File,
+    file: File,
+}
+
+impl Drop for LayerLease {
+    fn drop(&mut self) {
+        // A child forked meanwhile shares this lock until it execs, so closing alone keeps it.
+        if let Err(error) = self.file.unlock() {
+            tracing::warn!(%error, "could not release a Project Layer lease");
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -29,7 +38,7 @@ pub(super) fn lease(layers: &Path, key: &ProjectKey) -> io::Result<LayerLease> {
         .open(used.join(&key.0))?;
     file.lock_shared()?;
     file.set_modified(SystemTime::now())?;
-    Ok(LayerLease { _file: file })
+    Ok(LayerLease { file })
 }
 
 // The caller holds the Project lock, under which leases are taken.
@@ -179,6 +188,21 @@ mod tests {
         drop(mounted);
         drop(ensure(layers, "e").await);
         assert!(!layers.join("a").exists());
+    }
+
+    #[tokio::test]
+    async fn a_closed_lease_frees_its_layer_while_a_forked_child_holds_a_copy() {
+        let root = tempfile::tempdir().unwrap();
+        let layers = root.path();
+        let mounted = ensure(layers, "a").await;
+        let child_copy = mounted.lease.file.try_clone().unwrap();
+        for key in ["b", "c"] {
+            drop(ensure(layers, key).await);
+        }
+        drop(mounted);
+        drop(ensure(layers, "d").await);
+        assert!(!layers.join("a").exists());
+        drop(child_copy);
     }
 
     #[tokio::test]
